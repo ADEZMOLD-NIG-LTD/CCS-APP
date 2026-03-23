@@ -1,0 +1,759 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  ArrowLeft, 
+  FileText, 
+  Plus, 
+  Download, 
+  TrendingUp, 
+  TrendingDown, 
+  Wallet, 
+  Package, 
+  History,
+  Calendar,
+  ChevronRight,
+  ArrowUpRight,
+  ArrowDownRight
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Supplier, Transaction, Payment, BagTransaction, JournalEntry, Warehouse, PackagingType } from '../types';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+import { db } from '../firebase';
+import { collection, onSnapshot, doc, setDoc, query, where, orderBy } from 'firebase/firestore';
+import { useAuth } from '../contexts/AuthContext';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    operationType,
+    path,
+    timestamp: new Date().toISOString()
+  };
+  console.error('Firestore Error:', JSON.stringify(errInfo));
+  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
+}
+
+interface Props {
+  supplier: Supplier;
+  onBack: () => void;
+}
+
+export default function SupplierDetails({ supplier, onBack }: Props) {
+  const { profile, company, isStaff, isAccount, isAdmin } = useAuth();
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
+  const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [activeTab, setActiveTab] = useState<'ledger' | 'bags' | 'payments'>('ledger');
+  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [isAddingPayment, setIsAddingPayment] = useState(false);
+  const [isAddingBagTx, setIsAddingBagTx] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Success message auto-hide
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+
+  // Load Data from Firestore
+  useEffect(() => {
+    if (!profile?.companyId) return;
+
+    const qTx = query(
+      collection(db, 'transactions'), 
+      where('companyId', '==', profile.companyId),
+      where('supplierId', '==', supplier.id), 
+      orderBy('date', 'desc')
+    );
+    const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
+      setTransactions(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
+
+    const qPayments = query(
+      collection(db, 'payments'), 
+      where('companyId', '==', profile.companyId),
+      where('supplierId', '==', supplier.id), 
+      orderBy('date', 'desc')
+    );
+    const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
+      setPayments(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'payments'));
+
+    const qBagTx = query(
+      collection(db, 'bag_transactions'), 
+      where('companyId', '==', profile.companyId),
+      where('supplierId', '==', supplier.id), 
+      orderBy('date', 'desc')
+    );
+    const unsubscribeBagTx = onSnapshot(qBagTx, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction));
+      setBagTransactions(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'bag_transactions'));
+
+    const qJournal = query(
+      collection(db, 'journal'), 
+      where('companyId', '==', profile.companyId),
+      where('supplierId', '==', supplier.id), 
+      orderBy('date', 'desc')
+    );
+    const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
+      setJournal(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'journal'));
+
+    const qWarehouses = query(
+      collection(db, 'warehouses'), 
+      where('companyId', '==', profile.companyId),
+      orderBy('name', 'asc')
+    );
+    const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
+      setWarehouses(data);
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'warehouses'));
+
+    return () => {
+      unsubscribeTx();
+      unsubscribePayments();
+      unsubscribeBagTx();
+      unsubscribeJournal();
+      unsubscribeWarehouses();
+    };
+  }, [supplier.id, profile?.companyId]);
+
+  // Calculations
+  const ledgerEntries = useMemo(() => {
+    const allEntries = [
+      ...transactions.map(t => ({
+        date: t.date,
+        description: `Purchase: ${t.commodity} (${t.netWeight}kg)`,
+        credit: t.totalValue || 0,
+        debit: 0,
+        ref: t.referenceId,
+        grossWeight: t.grossWeight,
+        netWeight: t.netWeight,
+        deductionWeight: t.grossWeight - t.netWeight,
+        pricePerKg: t.pricePerKg || 0,
+        bags: t.noOfBags || t.bags || 0
+      })),
+      ...payments.map(p => ({
+        date: p.date,
+        description: `Payment: ${p.method} - ${p.description}`,
+        credit: 0,
+        debit: p.amount,
+        ref: p.reference,
+        grossWeight: 0,
+        netWeight: 0,
+        deductionWeight: 0,
+        pricePerKg: 0,
+        bags: 0
+      })),
+      ...journal.filter(e => e.type === 'OUTFLOW').map(e => ({
+        date: e.date,
+        description: `Charge: ${e.category} - ${e.description}`,
+        credit: 0,
+        debit: e.amount,
+        ref: 'JOURNAL',
+        grossWeight: 0,
+        netWeight: 0,
+        deductionWeight: 0,
+        pricePerKg: 0,
+        bags: 0
+      }))
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    // Calculate Balance Brought Forward (BBF)
+    let bbf = supplier.previousBalance || 0;
+    const filtered = [];
+    
+    for (const entry of allEntries) {
+      const entryDate = entry.date.split('T')[0];
+      if (entryDate < startDate) {
+        bbf += (entry.credit - entry.debit);
+      } else if (entryDate <= endDate) {
+        filtered.push(entry);
+      }
+    }
+
+    const sortedEntries = filtered.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    let runningBalance = bbf;
+    const entriesWithBalance = sortedEntries.map(entry => {
+      runningBalance += (entry.credit - entry.debit);
+      return { ...entry, runningBalance };
+    });
+
+    return { 
+      entries: entriesWithBalance.reverse(), 
+      bbf 
+    };
+  }, [transactions, payments, journal, supplier.previousBalance, startDate, endDate, supplier.id]);
+
+  const totalPurchases = useMemo(() => transactions.reduce((sum, t) => sum + (t.totalValue || 0), 0), [transactions]);
+  const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + p.amount, 0), [payments]);
+  const totalCharges = useMemo(() => journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + e.amount, 0), [journal]);
+  const currentBalance = (supplier.previousBalance || 0) + totalPurchases - totalPayments - totalCharges;
+
+  const bagBalance = useMemo(() => {
+    return bagTransactions.reduce((sum, b) => {
+      return b.type === 'ISSUE' ? sum + b.quantity : sum - b.quantity;
+    }, 0);
+  }, [bagTransactions]);
+
+  // Handlers
+  const handleAddPayment = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!isStaff || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const id = crypto.randomUUID();
+    const isAdvance = formData.get('isAdvance') === 'on';
+    const description = formData.get('description') as string;
+    
+    const newPayment: Payment = {
+      id,
+      companyId: profile.companyId,
+      date: new Date().toISOString(),
+      supplierId: supplier.id,
+      amount: Number(formData.get('amount')),
+      method: formData.get('method') as any,
+      reference: formData.get('reference') as string,
+      description: isAdvance ? `[ADVANCE] ${description}` : description,
+    };
+
+    try {
+      await setDoc(doc(db, 'payments', id), newPayment);
+      setIsAddingPayment(false);
+      setSuccessMessage('Payment successfully recorded!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `payments/${id}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddBagTx = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!isStaff || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const id = crypto.randomUUID();
+    const newBagTx: BagTransaction = {
+      id,
+      companyId: profile.companyId,
+      date: new Date().toISOString(),
+      supplierId: supplier.id,
+      type: formData.get('type') as any,
+      packagingType: formData.get('packagingType') as PackagingType,
+      warehouseId: formData.get('warehouseId') as string,
+      quantity: Number(formData.get('quantity')),
+      reference: (formData.get('reference') as string) || `BAG-${Date.now().toString().slice(-6)}`,
+    };
+
+    try {
+      await setDoc(doc(db, 'bag_transactions', id), newBagTx);
+      setIsAddingBagTx(false);
+      setSuccessMessage('Bag transaction successfully recorded!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const exportPDF = () => {
+    const doc = new jsPDF('landscape');
+    
+    // Company Header
+    doc.setFontSize(22);
+    doc.setTextColor(16, 185, 129); // Emerald-600
+    doc.text(company?.name?.toUpperCase() || 'CCS COMMODITY CONTROL SYSTEM', 148, 20, { align: 'center' });
+    
+    doc.setFontSize(14);
+    doc.setTextColor(30, 41, 59); // Slate-800
+    doc.text('SUPPLIER LEDGER STATEMENT', 148, 30, { align: 'center' });
+
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Period: ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`, 148, 38, { align: 'center' });
+    
+    doc.setDrawColor(200);
+    doc.line(20, 45, 277, 45);
+
+    // Supplier Info
+    doc.setFontSize(12);
+    doc.setTextColor(0);
+    doc.text(`Supplier: ${supplier.name}`, 20, 55);
+    doc.setFontSize(10);
+    doc.text(`Phone: ${supplier.phone}`, 20, 62);
+    doc.text(`Location: ${supplier.location}`, 20, 69);
+
+    // Summary Box
+    doc.setFillColor(248, 250, 252); // Slate-50
+    doc.rect(217, 50, 60, 25, 'F');
+    doc.setFontSize(8);
+    doc.text('CURRENT BALANCE', 222, 58);
+    doc.setFontSize(12);
+    doc.setTextColor(16, 185, 129);
+    doc.text(`N${currentBalance.toLocaleString()}`, 222, 68);
+
+    const tableData = [
+      ['Date', 'Description', 'Bags', 'Gross', 'Ded.', 'Net', 'Price', 'Credit (+)', 'Debit (-)', 'Balance'],
+      [new Date(startDate).toLocaleDateString(), 'Balance Brought Forward', '-', '-', '-', '-', '-', `NGN ${ledgerEntries.bbf.toLocaleString()}`, '-', `NGN ${ledgerEntries.bbf.toLocaleString()}`]
+    ];
+
+    let runningBalance = ledgerEntries.bbf;
+    // We need to reverse back to chronological for the PDF table calculation if it was reversed for UI
+    const chronologicalEntries = [...ledgerEntries.entries].reverse();
+    
+    chronologicalEntries.forEach(entry => {
+      runningBalance += (entry.credit - entry.debit);
+      tableData.push([
+        new Date(entry.date).toLocaleDateString(),
+        entry.description,
+        entry.bags > 0 ? entry.bags.toString() : '-',
+        entry.grossWeight > 0 ? `${entry.grossWeight}kg` : '-',
+        entry.deductionWeight > 0 ? `${entry.deductionWeight.toFixed(2)}kg` : '-',
+        entry.netWeight > 0 ? `${entry.netWeight}kg` : '-',
+        entry.pricePerKg > 0 ? `NGN ${entry.pricePerKg.toLocaleString()}` : '-',
+        entry.credit > 0 ? `NGN ${entry.credit.toLocaleString()}` : '-',
+        entry.debit > 0 ? `NGN ${entry.debit.toLocaleString()}` : '-',
+        `NGN ${runningBalance.toLocaleString()}`
+      ]);
+    });
+
+    autoTable(doc, {
+      startY: 85,
+      head: [tableData[0]],
+      body: tableData.slice(1),
+      theme: 'grid',
+      headStyles: { fillColor: [16, 185, 129], textColor: 255 },
+      styles: { fontSize: 7, cellPadding: 2 },
+      columnStyles: {
+        0: { cellWidth: 25 },
+        1: { cellWidth: 'auto' },
+        2: { cellWidth: 15, halign: 'center' },
+        3: { cellWidth: 20, halign: 'right' },
+        4: { cellWidth: 20, halign: 'right' },
+        5: { cellWidth: 20, halign: 'right' },
+        6: { cellWidth: 25, halign: 'right' },
+        7: { cellWidth: 30, halign: 'right' },
+        8: { cellWidth: 30, halign: 'right' },
+        9: { cellWidth: 35, halign: 'right', fontStyle: 'bold' }
+      }
+    });
+
+    doc.save(`${supplier.name}_Ledger_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-slate-50">
+      {/* Success Toast */}
+      <AnimatePresence>
+        {successMessage && (
+          <motion.div 
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-24 left-4 right-4 bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl z-[100] flex items-center gap-3"
+          >
+            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+              <Plus size={18} className="rotate-45" />
+            </div>
+            <p className="font-bold text-sm">{successMessage}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-20">
+        <div className="text-center mb-4 pb-4 border-b border-slate-100">
+          <h2 className="text-xl font-black text-emerald-600 tracking-tighter uppercase">{company?.name || 'CCS COMMODITY CONTROL SYSTEM'}</h2>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Commodity Trading & Logistics</p>
+        </div>
+
+        <div className="flex items-center gap-3 mb-4">
+          <button onClick={onBack} className="p-2 -ml-2 text-slate-400 hover:text-slate-900">
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">{supplier.name}</h1>
+            <p className="text-[10px] text-slate-400 uppercase tracking-wider">{supplier.location}</p>
+          </div>
+        </div>
+
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-100">
+            <p className="text-[9px] font-bold text-emerald-600 uppercase mb-1">Current Balance</p>
+            <p className={cn(
+              "text-lg font-black",
+              currentBalance >= 0 ? "text-emerald-700" : "text-rose-700"
+            )}>
+              ₦{currentBalance.toLocaleString()}
+            </p>
+          </div>
+          <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100">
+            <p className="text-[9px] font-bold text-blue-600 uppercase mb-1">Bag Balance</p>
+            <p className="text-lg font-black text-blue-700">{bagBalance} <span className="text-xs font-normal">bags</span></p>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+          {[
+            { id: 'ledger', label: 'Ledger', icon: FileText },
+            { id: 'bags', label: 'Bags', icon: Package },
+            { id: 'payments', label: 'Payments', icon: Wallet },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={cn(
+                "flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all",
+                activeTab === tab.id ? "bg-white text-emerald-600 shadow-sm" : "text-slate-400"
+              )}
+            >
+              <tab.icon size={14} /> {tab.label}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-4 pb-24">
+        <AnimatePresence mode="wait">
+          {activeTab === 'ledger' && (
+            <motion.div key="ledger" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase mb-2">
+                  <Calendar size={14} /> Date Filter
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[8px] font-bold text-slate-400 uppercase mb-1">From</label>
+                    <input 
+                      type="date" 
+                      value={startDate} 
+                      onChange={e => setStartDate(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold text-slate-400 uppercase mb-1">To</label>
+                    <input 
+                      type="date" 
+                      value={endDate} 
+                      onChange={e => setEndDate(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs outline-none" 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Transaction History</h2>
+                <button 
+                  onClick={exportPDF}
+                  className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg"
+                >
+                  <Download size={14} /> PDF
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-4 bg-slate-900 rounded-2xl shadow-lg text-white mb-4">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase opacity-60">Balance Brought Forward</p>
+                    <p className="text-[8px] opacity-40 uppercase tracking-widest">As at {new Date(startDate).toLocaleDateString()}</p>
+                  </div>
+                  <p className="text-lg font-black">₦{ledgerEntries.bbf.toLocaleString()}</p>
+                </div>
+
+                <div className="space-y-3">
+                  {ledgerEntries.entries.map((entry, i) => (
+                    <div key={i} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:border-emerald-200 transition-colors">
+                      <div className="flex justify-between items-start">
+                        <div className="flex gap-3">
+                          <div className={cn(
+                            "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                            entry.credit > 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                          )}>
+                            {entry.credit > 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-900 truncate">
+                              {entry.description.includes('[ADVANCE]') ? (
+                                <span className="flex items-center gap-1">
+                                  <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[8px] font-black uppercase">Advance</span>
+                                  {entry.description.replace('[ADVANCE] ', '')}
+                                </span>
+                              ) : entry.description}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <p className="text-[10px] font-medium text-slate-400">
+                                {new Date(entry.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                              </p>
+                              {entry.grossWeight > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  <span className="text-[8px] font-bold text-blue-600 bg-blue-50 px-1 rounded">Bags: {entry.bags}</span>
+                                  <span className="text-[8px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">Net: {entry.netWeight}kg</span>
+                                </div>
+                              )}
+                            </div>
+                            {entry.grossWeight > 0 && (
+                              <div className="mt-2 grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-lg border border-slate-100">
+                                <div>
+                                  <p className="text-[7px] text-slate-400 uppercase font-bold">Gross</p>
+                                  <p className="text-[9px] font-black text-slate-700">{entry.grossWeight}kg</p>
+                                </div>
+                                <div>
+                                  <p className="text-[7px] text-slate-400 uppercase font-bold">Ded.</p>
+                                  <p className="text-[9px] font-black text-rose-600">{entry.deductionWeight.toFixed(2)}kg</p>
+                                </div>
+                                <div>
+                                  <p className="text-[7px] text-slate-400 uppercase font-bold">Price</p>
+                                  <p className="text-[9px] font-black text-amber-600">₦{entry.pricePerKg.toLocaleString()}</p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0 ml-4">
+                          <p className={cn(
+                            "text-base font-black leading-none",
+                            entry.credit > 0 ? "text-emerald-600" : "text-rose-600"
+                          )}>
+                            {entry.credit > 0 ? '+' : '-'}₦{(entry.debit || entry.credit).toLocaleString()}
+                          </p>
+                          <p className="text-[8px] text-slate-400 uppercase font-bold tracking-tighter mt-1">
+                            {entry.credit > 0 ? 'Purchase' : 'Payment/Charge'}
+                          </p>
+                          <div className="mt-2 pt-1 border-t border-slate-100">
+                            <p className="text-[7px] text-slate-400 uppercase font-bold">Balance</p>
+                            <p className="text-[10px] font-black text-slate-600">₦{entry.runningBalance.toLocaleString()}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'bags' && (
+            <motion.div key="bags" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Bag Tracking</h2>
+                {isStaff && (
+                  <button 
+                    onClick={() => setIsAddingBagTx(true)}
+                    className="flex items-center gap-1 text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg"
+                  >
+                    <Plus size={14} /> Issue/Return
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {bagTransactions.map((bt) => (
+                  <div key={bt.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        "w-10 h-10 rounded-xl flex items-center justify-center",
+                        bt.type === 'ISSUE' ? "bg-blue-50 text-blue-600" : "bg-slate-50 text-slate-600"
+                      )}>
+                        <Package size={20} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">{bt.type === 'ISSUE' ? 'Issued Bags' : 'Returned Bags'}</p>
+                        <p className="text-[10px] text-slate-400">{new Date(bt.date).toLocaleDateString()} • Ref: {bt.reference}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={cn(
+                        "text-lg font-black",
+                        bt.type === 'ISSUE' ? "text-blue-600" : "text-slate-600"
+                      )}>
+                        {bt.type === 'ISSUE' ? '+' : '-'}{bt.quantity}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'payments' && (
+            <motion.div key="payments" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Direct Payments</h2>
+                {isStaff && (
+                  <button 
+                    onClick={() => setIsAddingPayment(true)}
+                    className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg"
+                  >
+                    <Plus size={14} /> New Payment
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {payments.map((p) => (
+                  <div key={p.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                          <Wallet size={20} />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{p.method}</p>
+                          <p className="text-[10px] text-slate-400">{new Date(p.date).toLocaleDateString()} • {p.description}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-black text-emerald-600">₦{p.amount.toLocaleString()}</p>
+                        <p className="text-[9px] text-slate-400 uppercase tracking-tighter">Paid</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+
+      {/* Modals */}
+      <AnimatePresence>
+        {isAddingPayment && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl"
+            >
+              <h2 className="text-xl font-bold mb-6">Record Payment</h2>
+              <form onSubmit={handleAddPayment} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
+                  <input name="amount" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0.00" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Method</label>
+                  <select name="method" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                    <option value="CASH">Cash</option>
+                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                    <option value="CHECK">Check</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference / Description</label>
+                  <input name="description" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="e.g. Payment for Cocoa" />
+                  <input name="reference" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none mt-2" placeholder="Ref ID (optional)" />
+                </div>
+                <div className="flex items-center gap-2 bg-emerald-50 p-3 rounded-xl border border-emerald-100">
+                  <input type="checkbox" name="isAdvance" id="isAdvance" className="w-4 h-4 accent-emerald-600" />
+                  <label htmlFor="isAdvance" className="text-xs font-bold text-emerald-700">Mark as Advance Payment</label>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setIsAddingPayment(false)} className="flex-1 py-4 text-slate-500 font-bold">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {submitting ? 'Saving...' : 'Save Payment'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {isAddingBagTx && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl"
+            >
+              <h2 className="text-xl font-bold mb-6">Bag Transaction</h2>
+              <form onSubmit={handleAddBagTx} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Transaction Type</label>
+                  <select name="type" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                    <option value="ISSUE">Issue Bags to Supplier</option>
+                    <option value="RETURN">Return Bags from Supplier</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                  <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                    <option value="">Select Warehouse</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bag Type</label>
+                  <select name="packagingType" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                    <option value="JUTE_BAG">Jute Bag</option>
+                    <option value="NYLON_BAG">Nylon Bag</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Quantity (Bags)</label>
+                  <input name="quantity" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference</label>
+                  <input name="reference" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="e.g. Waybill ID" />
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setIsAddingBagTx(false)} className="flex-1 py-4 text-slate-500 font-bold">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {submitting ? 'Confirming...' : 'Confirm'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

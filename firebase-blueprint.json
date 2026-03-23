@@ -1,0 +1,285 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with role-based access control and company assignment",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMIN", "ACCOUNT", "STAFF", "AUDITOR"] },
+        "companyId": { "type": "string" },
+        "assignedWarehouseId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "companyId"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Company information for SaaS multi-tenancy",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ownerEmail": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "ownerEmail"]
+    },
+    "Supplier": {
+      "title": "Supplier",
+      "description": "Supplier information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "location": { "type": "string" },
+        "bankName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "accountName": { "type": "string" },
+        "previousBalance": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "companyId", "name"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Purchase, sale, or transfer of commodities",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["PURCHASE", "SALE", "TRANSFER"] },
+        "commodity": { "type": "string", "enum": ["COCOA", "CASHEW", "PK"] },
+        "supplierId": { "type": "string" },
+        "buyerId": { "type": "string" },
+        "buyerName": { "type": "string" },
+        "sourceWarehouseId": { "type": "string" },
+        "destinationWarehouseId": { "type": "string" },
+        "warehouseId": { "type": "string" },
+        "warehouse": { "type": "string" },
+        "grossWeight": { "type": "number" },
+        "netWeight": { "type": "number" },
+        "bags": { "type": "number" },
+        "noOfBags": { "type": "number" },
+        "pricePerKg": { "type": "number" },
+        "totalValue": { "type": "number" },
+        "deductions": {
+          "type": "object",
+          "properties": {
+            "moistureActual": { "type": "number" },
+            "moistureBenchmark": { "type": "number" },
+            "tareWeight": { "type": "number" },
+            "moldWeight": { "type": "number" },
+            "otherDeduction": { "type": "number" }
+          }
+        },
+        "referenceId": { "type": "string" }
+      },
+      "required": ["id", "companyId", "date", "type", "commodity", "netWeight", "deductions"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment to a supplier",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "supplierId": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["CASH", "BANK_TRANSFER", "CHECK"] },
+        "reference": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "companyId", "date", "supplierId", "amount"]
+    },
+    "Staff": {
+      "title": "Staff",
+      "description": "Staff member information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMIN", "ACCOUNT", "STAFF", "AUDITOR"] },
+        "phone": { "type": "string" },
+        "salary": { "type": "number" },
+        "allowances": { "type": "number" },
+        "joinedDate": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["ACTIVE", "INACTIVE"] },
+        "assignedWarehouseId": { "type": "string" },
+        "bankName": { "type": "string" },
+        "accountNumber": { "type": "string" }
+      },
+      "required": ["id", "companyId", "name", "role"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Daily staff attendance record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "staffId": { "type": "string" },
+        "warehouseId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["PRESENT", "ABSENT", "LATE"] }
+      },
+      "required": ["id", "companyId", "staffId", "date", "status", "warehouseId"]
+    },
+    "Roster": {
+      "title": "Roster",
+      "description": "Staff shift roster",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "staffId": { "type": "string" },
+        "warehouseId": { "type": "string" },
+        "shift": { "type": "string", "enum": ["MORNING", "AFTERNOON", "NIGHT", "OFF"] },
+        "date": { "type": "string", "format": "date" }
+      },
+      "required": ["id", "companyId", "staffId", "warehouseId", "shift", "date"]
+    },
+    "Payroll": {
+      "title": "Payroll",
+      "description": "Monthly staff payroll record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "staffId": { "type": "string" },
+        "month": { "type": "string" },
+        "basicSalary": { "type": "number" },
+        "allowances": { "type": "number" },
+        "grossIncome": { "type": "number" },
+        "cra": { "type": "number" },
+        "taxableIncome": { "type": "number" },
+        "paye": { "type": "number" },
+        "pension": { "type": "number" },
+        "netPay": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "PAID"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "companyId", "staffId", "month", "basicSalary", "netPay", "status"]
+    },
+    "JournalEntry": {
+      "title": "JournalEntry",
+      "description": "General journal record for inflows and outflows",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["INFLOW", "OUTFLOW"] },
+        "category": { "type": "string" },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "supplierId": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["CASH", "BANK_TRANSFER"] }
+      },
+      "required": ["id", "companyId", "date", "type", "category", "amount"]
+    },
+    "Buyer": {
+      "title": "Buyer",
+      "description": "Buyer information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "location": { "type": "string" }
+      },
+      "required": ["id", "companyId", "name"]
+    },
+    "BagTransaction": {
+      "title": "BagTransaction",
+      "description": "Stock-in, issuance, or return of packaging bags",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "supplierId": { "type": "string" },
+        "type": { "type": "string", "enum": ["STOCK_IN", "ISSUE", "RETURN"] },
+        "packagingType": { "type": "string", "enum": ["JUTE_BAG", "NYLON_BAG"] },
+        "quantity": { "type": "number" },
+        "reference": { "type": "string" },
+        "warehouseId": { "type": "string" }
+      },
+      "required": ["id", "companyId", "date", "type", "packagingType", "quantity", "warehouseId"]
+    },
+    "Warehouse": {
+      "title": "Warehouse",
+      "description": "Warehouse or branch information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "name": { "type": "string" },
+        "location": { "type": "string" }
+      },
+      "required": ["id", "companyId", "name"]
+    }
+  },
+  "firestore": {
+    "companies": {
+      "schema": "Company",
+      "description": "Collection of companies"
+    },
+    "users": {
+      "schema": "UserProfile",
+      "description": "Collection of user profiles"
+    },
+    "suppliers": {
+      "schema": "Supplier",
+      "description": "Collection of suppliers"
+    },
+    "transactions": {
+      "schema": "Transaction",
+      "description": "Collection of transactions"
+    },
+    "payments": {
+      "schema": "Payment",
+      "description": "Collection of payments"
+    },
+    "staff": {
+      "schema": "Staff",
+      "description": "Collection of staff members"
+    },
+    "attendance": {
+      "schema": "Attendance",
+      "description": "Collection of attendance records"
+    },
+    "rosters": {
+      "schema": "Roster",
+      "description": "Collection of staff roster records"
+    },
+    "payrolls": {
+      "schema": "Payroll",
+      "description": "Collection of monthly payroll records"
+    },
+    "journal": {
+      "schema": "JournalEntry",
+      "description": "Collection of journal entries (inflows and outflows)"
+    },
+    "buyers": {
+      "schema": "Buyer",
+      "description": "Collection of buyers"
+    },
+    "bag_transactions": {
+      "schema": "BagTransaction",
+      "description": "Collection of bag transactions"
+    },
+    "warehouses": {
+      "schema": "Warehouse",
+      "description": "Collection of warehouses"
+    }
+  }
+}
