@@ -8,7 +8,7 @@ import { getAuth } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfigFromJson from '../firebase-applet-config.json';
 
-const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
+export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigFromJson.apiKey,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigFromJson.authDomain,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigFromJson.projectId,

@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { db, firebaseConfig } from '../firebase';
 import { 
   Plus, 
   Users, 
@@ -35,7 +35,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Staff, Attendance, Warehouse, Roster, Payroll } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, deleteDoc, where, getDocs } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
