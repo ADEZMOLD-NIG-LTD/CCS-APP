@@ -6,17 +6,15 @@
 import { initializeApp, FirebaseOptions } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfigFromJson from '../firebase-applet-config.json';
-
 export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigFromJson.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigFromJson.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigFromJson.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigFromJson.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigFromJson.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigFromJson.appId,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfigFromJson.measurementId,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || firebaseConfigFromJson.firestoreDatabaseId,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyB8f_PfkgNSMhFxQ71yGXZLPzVOcvmKdmk",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "gen-lang-client-0555602350.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0555602350",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "gen-lang-client-0555602350.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "828527972403",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:828527972403:web:88bcbd839ca8bfe226d346",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "",
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || "ai-studio-086bebaa-d248-491f-a312-4b87527790a1",
 };
 
 // Initialize Firebase SDK
