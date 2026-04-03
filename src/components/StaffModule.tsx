@@ -4,6 +4,9 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp, getApps } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { 
   Plus, 
   Users, 
@@ -15,13 +18,18 @@ import {
   Clock, 
   Trash2,
   UserPlus,
+  UserMinus,
+  UserCheck,
+  UserX,
   History,
   DollarSign,
   Building2,
   FileText,
   Calculator,
   Download,
-  CreditCard
+  CreditCard,
+  Lock,
+  Mail
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Staff, Attendance, Warehouse, Roster, Payroll } from '../types';
@@ -30,33 +38,13 @@ import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, deleteDoc, where, getDocs } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
-}
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import { cn } from '../lib/utils';
+import Toast from './Toast';
+import ConfirmModal from './ConfirmModal';
 
 export default function StaffModule() {
-  const { profile, company, isAdmin, isAccount } = useAuth();
+  const { profile, company, isAdmin, isAccount, canManageStaff } = useAuth();
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -67,6 +55,8 @@ export default function StaffModule() {
   const [viewingPayroll, setViewingPayroll] = useState<Payroll | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>(profile?.assignedWarehouseId || 'ALL');
 
   // Success message auto-hide
@@ -93,7 +83,7 @@ export default function StaffModule() {
     const unsubscribeStaff = onSnapshot(qStaff, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Staff));
       setStaffList(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'staff'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'staff')));
 
     const qAttendance = query(
       collection(db, 'attendance'), 
@@ -103,7 +93,7 @@ export default function StaffModule() {
     const unsubscribeAttendance = onSnapshot(qAttendance, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Attendance));
       setAttendance(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'attendance'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'attendance')));
 
     const qWarehouses = query(
       collection(db, 'warehouses'),
@@ -112,7 +102,7 @@ export default function StaffModule() {
     const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
       setWarehouses(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'warehouses'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     const qRosters = query(
       collection(db, 'rosters'),
@@ -121,7 +111,7 @@ export default function StaffModule() {
     const unsubscribeRosters = onSnapshot(qRosters, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Roster));
       setRosters(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'rosters'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'rosters')));
 
     const qPayrolls = query(
       collection(db, 'payrolls'),
@@ -131,7 +121,7 @@ export default function StaffModule() {
     const unsubscribePayrolls = onSnapshot(qPayrolls, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payroll));
       setPayrolls(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'payrolls'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'payrolls')));
 
     return () => {
       unsubscribeStaff();
@@ -228,7 +218,7 @@ export default function StaffModule() {
       }
       setSuccessMessage(`Payroll generated for ${selectedMonth}`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'payrolls');
+      setErrorMessage(reportFirestoreError(error, OperationType.WRITE, 'payrolls'));
     } finally {
       setSubmitting(false);
     }
@@ -236,7 +226,7 @@ export default function StaffModule() {
 
   const handleAddStaff = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!isAdmin || submitting || !profile?.companyId) return;
+    if (!canManageStaff || submitting || !profile?.companyId) return;
 
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
@@ -244,6 +234,7 @@ export default function StaffModule() {
     const email = (formData.get('email') as string)?.toLowerCase();
     const role = formData.get('role') as Staff['role'];
     const warehouseId = formData.get('warehouseId') as string;
+    const createAccount = formData.get('createAccount') === 'on';
 
     const newStaff: Staff = {
       id,
@@ -262,11 +253,37 @@ export default function StaffModule() {
     };
 
     try {
-      await setDoc(doc(db, 'staff', id), newStaff);
+      let authUid = undefined;
+      // If requested, create a Firebase Auth account with a default password
+      if (createAccount && email) {
+        const secondaryApp = getApps().find(app => app.name === 'Secondary') || initializeApp(firebaseConfig, 'Secondary');
+        const secondaryAuth = getAuth(secondaryApp);
+        const defaultPassword = 'Welcome@CCS2025';
+        
+        try {
+          const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, defaultPassword);
+          authUid = userCredential.user.uid;
+          await signOut(secondaryAuth);
+        } catch (authError: any) {
+          if (authError.code === 'auth/email-already-in-use') {
+            // Account already exists, just link it
+            console.log('Auth account already exists for this email.');
+          } else {
+            throw authError;
+          }
+        }
+      }
+
+      const finalStaff: Staff = {
+        ...newStaff,
+        ...(authUid ? { uid: authUid } : {})
+      };
+
+      await setDoc(doc(db, 'staff', id), finalStaff);
       setIsAddingStaff(false);
-      setSuccessMessage('Staff member added successfully!');
+      setSuccessMessage(createAccount ? 'Staff member added and login account created with default password: Welcome@CCS2025' : 'Staff member added successfully!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `staff/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `staff/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -274,7 +291,7 @@ export default function StaffModule() {
 
   const handleUpdateStaff = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!isAdmin || submitting || !profile?.companyId || !editingStaff) return;
+    if (!canManageStaff || submitting || !profile?.companyId || !editingStaff) return;
 
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
@@ -307,7 +324,7 @@ export default function StaffModule() {
       setEditingStaff(null);
       setSuccessMessage('Staff member updated successfully!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `staff/${editingStaff.id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `staff/${editingStaff.id}`));
     } finally {
       setSubmitting(false);
     }
@@ -370,7 +387,7 @@ export default function StaffModule() {
       await setDoc(doc(db, 'attendance', id), record);
       setSuccessMessage(`Attendance marked as ${status.toLowerCase()}!`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `attendance/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.WRITE, `attendance/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -397,39 +414,69 @@ export default function StaffModule() {
       await setDoc(doc(db, 'rosters', id), record);
       setSuccessMessage(`Roster updated for ${staff.name}`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `rosters/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.WRITE, `rosters/${id}`));
     } finally {
       setSubmitting(false);
     }
   };
 
+  const updateStaffStatus = async (id: string, status: Staff['status']) => {
+    if (!canManageStaff) return;
+    try {
+      await setDoc(doc(db, 'staff', id), { status }, { merge: true });
+      setSuccessMessage(`Staff member status updated to ${status}`);
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `staff/${id}`));
+    }
+  };
+
   const deleteStaff = async (id: string) => {
-    if (!isAdmin) return;
-    if (confirm('Are you sure you want to remove this staff member?')) {
-      try {
-        await deleteDoc(doc(db, 'staff', id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `staff/${id}`);
-      }
+    if (!canManageStaff) {
+      setErrorMessage('You do not have permission to remove staff members.');
+      return;
+    }
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDeleteStaff = async () => {
+    if (!deleteConfirmId) return;
+    try {
+      await deleteDoc(doc(db, 'staff', deleteConfirmId));
+      setSuccessMessage('Staff member removed.');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `staff/${deleteConfirmId}`));
+    } finally {
+      setDeleteConfirmId(null);
     }
   };
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      {/* Success Toast */}
       <AnimatePresence>
         {successMessage && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-24 left-4 right-4 bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl z-[100] flex items-center gap-3"
-          >
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <Plus size={18} className="rotate-45" />
-            </div>
-            <p className="font-bold text-sm">{successMessage}</p>
-          </motion.div>
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
+        )}
+        {deleteConfirmId && (
+          <ConfirmModal
+            isOpen={true}
+            title="Remove Staff"
+            message="Are you sure you want to remove this staff member?"
+            onConfirm={confirmDeleteStaff}
+            onCancel={() => setDeleteConfirmId(null)}
+            confirmText="Remove"
+            type="danger"
+          />
         )}
       </AnimatePresence>
 
@@ -439,7 +486,7 @@ export default function StaffModule() {
             <h1 className="text-xl font-bold text-slate-900">Staff Management</h1>
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{company?.name}</p>
           </div>
-          {isAdmin && (
+          {canManageStaff && (
             <button
               onClick={() => setIsAddingStaff(true)}
               className="bg-indigo-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all"
@@ -555,6 +602,7 @@ export default function StaffModule() {
                     >
                       <option value="STAFF">Staff</option>
                       <option value="ACCOUNT">Account/Finance</option>
+                      <option value="MANAGER">Manager</option>
                       <option value="AUDITOR">Auditor</option>
                       <option value="ADMIN">Admin</option>
                     </select>
@@ -637,6 +685,19 @@ export default function StaffModule() {
                     placeholder="staff@example.com" 
                   />
                 </div>
+                {!editingStaff && (
+                  <div className="flex items-center gap-3 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                    <input 
+                      type="checkbox" 
+                      id="createAccount" 
+                      name="createAccount" 
+                      className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <label htmlFor="createAccount" className="text-xs font-bold text-indigo-900 cursor-pointer">
+                      Create Login Account (Default Password: Welcome@CCS2025)
+                    </label>
+                  </div>
+                )}
                 <button 
                   type="submit" 
                   disabled={submitting}
@@ -664,7 +725,22 @@ export default function StaffModule() {
                             {staff.name.charAt(0)}
                           </div>
                           <div>
-                            <h3 className="font-bold text-slate-900">{staff.name}</h3>
+                            <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                              {staff.name}
+                              {staff.uid && (
+                                <span className="bg-emerald-50 text-emerald-600 text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter flex items-center gap-0.5">
+                                  <Lock size={8} /> Login Enabled
+                                </span>
+                              )}
+                              {staff.status !== 'ACTIVE' && (
+                                <span className={cn(
+                                  "text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter flex items-center gap-0.5",
+                                  staff.status === 'SUSPENDED' ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"
+                                )}>
+                                  {staff.status === 'SUSPENDED' ? <Clock size={8} /> : <XCircle size={8} />} {staff.status}
+                                </span>
+                              )}
+                            </h3>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
                               <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium">
                                 <Briefcase size={10} /> {staff.role}
@@ -699,16 +775,46 @@ export default function StaffModule() {
                         <div className="text-right">
                           <p className="text-sm font-black text-slate-900">₦{((staff.salary || 0) + (staff.allowances || 0)).toLocaleString()}</p>
                           <p className="text-[9px] text-slate-400 uppercase">Gross Salary</p>
-                          {isAdmin && (
+                          {canManageStaff && (
                             <div className="flex items-center justify-end gap-2 mt-2">
+                              {staff.status === 'ACTIVE' ? (
+                                <button 
+                                  onClick={() => updateStaffStatus(staff.id, 'SUSPENDED')}
+                                  title="Suspend Staff"
+                                  className="text-slate-300 hover:text-amber-600 transition-colors opacity-0 group-hover:opacity-100"
+                                >
+                                  <UserMinus size={14} />
+                                </button>
+                              ) : staff.status === 'SUSPENDED' ? (
+                                <button 
+                                  onClick={() => updateStaffStatus(staff.id, 'ACTIVE')}
+                                  title="Recall Staff"
+                                  className="text-slate-300 hover:text-emerald-600 transition-colors opacity-0 group-hover:opacity-100"
+                                >
+                                  <UserCheck size={14} />
+                                </button>
+                              ) : null}
+                              
+                              {staff.status !== 'DISMISSED' && (
+                                <button 
+                                  onClick={() => updateStaffStatus(staff.id, 'DISMISSED')}
+                                  title="Dismiss Staff"
+                                  className="text-slate-300 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
+                                >
+                                  <UserX size={14} />
+                                </button>
+                              )}
+
                               <button 
                                 onClick={() => setEditingStaff(staff)}
+                                title="Edit Staff"
                                 className="text-slate-300 hover:text-indigo-600 transition-colors opacity-0 group-hover:opacity-100"
                               >
                                 <FileText size={14} />
                               </button>
                               <button 
                                 onClick={() => deleteStaff(staff.id)}
+                                title="Delete Staff"
                                 className="text-slate-300 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
                               >
                                 <Trash2 size={14} />
@@ -748,33 +854,44 @@ export default function StaffModule() {
                           </div>
                         </div>
                         <div className="flex gap-2">
-                          <button 
-                            onClick={() => markAttendance(staff.id, 'PRESENT')}
-                            className={cn(
-                              "p-2 rounded-lg transition-all",
-                              record?.status === 'PRESENT' ? "bg-emerald-100 text-emerald-600" : "bg-slate-50 text-slate-300"
-                            )}
-                          >
-                            <CheckCircle2 size={20} />
-                          </button>
-                          <button 
-                            onClick={() => markAttendance(staff.id, 'LATE')}
-                            className={cn(
-                              "p-2 rounded-lg transition-all",
-                              record?.status === 'LATE' ? "bg-amber-100 text-amber-600" : "bg-slate-50 text-slate-300"
-                            )}
-                          >
-                            <Clock size={20} />
-                          </button>
-                          <button 
-                            onClick={() => markAttendance(staff.id, 'ABSENT')}
-                            className={cn(
-                              "p-2 rounded-lg transition-all",
-                              record?.status === 'ABSENT' ? "bg-rose-100 text-rose-600" : "bg-slate-50 text-slate-300"
-                            )}
-                          >
-                            <XCircle size={20} />
-                          </button>
+                          {staff.status === 'ACTIVE' ? (
+                            <>
+                              <button 
+                                onClick={() => markAttendance(staff.id, 'PRESENT')}
+                                className={cn(
+                                  "p-2 rounded-lg transition-all",
+                                  record?.status === 'PRESENT' ? "bg-emerald-100 text-emerald-600" : "bg-slate-50 text-slate-300"
+                                )}
+                              >
+                                <CheckCircle2 size={20} />
+                              </button>
+                              <button 
+                                onClick={() => markAttendance(staff.id, 'LATE')}
+                                className={cn(
+                                  "p-2 rounded-lg transition-all",
+                                  record?.status === 'LATE' ? "bg-amber-100 text-amber-600" : "bg-slate-50 text-slate-300"
+                                )}
+                              >
+                                <Clock size={20} />
+                              </button>
+                              <button 
+                                onClick={() => markAttendance(staff.id, 'ABSENT')}
+                                className={cn(
+                                  "p-2 rounded-lg transition-all",
+                                  record?.status === 'ABSENT' ? "bg-rose-100 text-rose-600" : "bg-slate-50 text-slate-300"
+                                )}
+                              >
+                                <XCircle size={20} />
+                              </button>
+                            </>
+                          ) : (
+                            <span className={cn(
+                              "text-[10px] px-3 py-2 rounded-xl font-black uppercase tracking-tighter flex items-center gap-1.5",
+                              staff.status === 'SUSPENDED' ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"
+                            )}>
+                              {staff.status === 'SUSPENDED' ? <Clock size={14} /> : <XCircle size={14} />} {staff.status}
+                            </span>
+                          )}
                         </div>
                       </div>
                     );

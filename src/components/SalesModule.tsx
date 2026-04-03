@@ -27,36 +27,15 @@ import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
-}
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
+import { cn } from '../lib/utils';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 const BENCHMARKS = { COCOA: 8, CASHEW: 10, PK: 8 };
 
 export default function SalesModule() {
-  const { profile, isStaff, isAccount, isAdmin } = useAuth();
+  const { profile, isStaff, isAccount, isAdmin, canPostTransactions } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -64,7 +43,15 @@ export default function SalesModule() {
   const [isAddingBuyer, setIsAddingBuyer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
+
+  // Default selected warehouse for staff
+  useEffect(() => {
+    if (profile?.assignedWarehouseId && !isAdmin) {
+      setSelectedWarehouseId(profile.assignedWarehouseId);
+    }
+  }, [profile, isAdmin, profile?.assignedWarehouseId]);
 
   // Success message auto-hide
   useEffect(() => {
@@ -99,7 +86,7 @@ export default function SalesModule() {
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
       setTransactions(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
     const qBuyers = query(
       collection(db, 'buyers'), 
@@ -109,7 +96,7 @@ export default function SalesModule() {
     const unsubscribeBuyers = onSnapshot(qBuyers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Buyer));
       setBuyers(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'buyers'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyers')));
 
     const qWarehouses = query(
       collection(db, 'warehouses'), 
@@ -119,7 +106,7 @@ export default function SalesModule() {
     const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
       setWarehouses(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'warehouses'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     const qAll = query(
       collection(db, 'transactions'),
@@ -193,7 +180,7 @@ export default function SalesModule() {
       setIsAddingBuyer(false);
       setSuccessMessage('Buyer successfully registered!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `buyers/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `buyers/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -210,7 +197,7 @@ export default function SalesModule() {
     // Check inventory availability
     const availableStock = inventory[commodity];
     if (netWeight > availableStock) {
-      alert(`Insufficient inventory! Available ${commodity} stock is only ${(availableStock || 0).toLocaleString()} kg.`);
+      setErrorMessage(`Insufficient inventory! Available ${commodity} stock is only ${(availableStock || 0).toLocaleString()} kg.`);
       return;
     }
 
@@ -225,7 +212,7 @@ export default function SalesModule() {
       type: 'SALE',
       commodity,
       buyerId: formData.get('buyerId') as string,
-      grossWeight,
+      grossWeight: Number(grossWeight) || 0,
       netWeight,
       bags: Number(formData.get('bags')) || 0,
       noOfBags: Number(formData.get('bags')) || 0,
@@ -234,11 +221,11 @@ export default function SalesModule() {
       referenceId: `SL-${Date.now().toString().slice(-6)}`,
       warehouseId: selectedWarehouseId,
       deductions: {
-        moistureActual,
-        moistureBenchmark,
-        tareWeight,
-        moldWeight,
-        otherDeduction
+        moistureActual: Number(moistureActual) || 0,
+        moistureBenchmark: Number(moistureBenchmark) || 0,
+        tareWeight: Number(tareWeight) || 0,
+        moldWeight: Number(moldWeight) || 0,
+        otherDeduction: Number(otherDeduction) || 0
       }
     };
 
@@ -248,7 +235,7 @@ export default function SalesModule() {
       resetForm();
       setSuccessMessage('Sale record successfully recorded!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `transactions/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `transactions/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -274,17 +261,18 @@ export default function SalesModule() {
       {/* Success Toast */}
       <AnimatePresence>
         {successMessage && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-24 left-4 right-4 bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl z-[100] flex items-center gap-3"
-          >
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <Plus size={18} className="rotate-45" />
-            </div>
-            <p className="font-bold text-sm">{successMessage}</p>
-          </motion.div>
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
         )}
       </AnimatePresence>
 
@@ -336,7 +324,7 @@ export default function SalesModule() {
                       required 
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="">Select Warehouse</option>
+                      <option value="ALL">ALL WAREHOUSES</option>
                       {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </select>
                   </div>
@@ -519,7 +507,7 @@ export default function SalesModule() {
                               <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">
                                 {warehouses.find(w => w.id === tx.warehouseId)?.name || 'Main'}
                               </span>
-                              <span className="text-[10px] text-slate-400">{new Date(tx.date).toLocaleDateString()}</span>
+                              <span className="text-[10px] text-slate-400">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
                             </div>
                             <h3 className="font-bold text-slate-900">
                               {buyers.find(b => b.id === tx.buyerId)?.name || 'Unknown Buyer'}

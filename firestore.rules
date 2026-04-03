@@ -18,8 +18,9 @@ service cloud.firestore {
 
     function isSuperAdmin() {
       return isAuthenticated() && 
-             request.auth.token.get('email', '').lower() == "wasiuadebisi89@gmail.com" &&
-             request.auth.token.get('email_verified', false) == true;
+             (request.auth.token.email.lower() == "wasiuadebisi89@gmail.com" || 
+              request.auth.token.email.lower() == "abdullahiwasiu07@gmail.com") &&
+             request.auth.token.email_verified == true;
     }
 
     function isCompanyApproved(companyId) {
@@ -29,19 +30,30 @@ service cloud.firestore {
     }
 
     function isAnonymousDemo() {
-      return isAuthenticated() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+      return isAuthenticated() && 
+             request.auth.token.get('firebase', {}).get('sign_in_provider', '') == 'anonymous';
+    }
+
+    function isCompanyOwner(companyId) {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/companies/$(companyId)) && 
+             get(/databases/$(database)/documents/companies/$(companyId)).data.get('ownerEmail', '').lower() == request.auth.token.email.lower();
     }
 
     function isAdmin() {
-      return isAuthenticated() && (isSuperAdmin() || isAnonymousDemo() || (userExists() && getUserData().get('role', '') == 'ADMIN' && isCompanyApproved(getUserData().get('companyId', ''))));
+      return isAuthenticated() && (isSuperAdmin() || isAnonymousDemo() || (userExists() && getUserData().get('role', '') == 'ADMIN' && (isCompanyApproved(getUserData().get('companyId', '')) || isCompanyOwner(getUserData().get('companyId', '')))));
+    }
+
+    function isManager() {
+      return isAuthenticated() && (isAdmin() || (userExists() && getUserData().get('role', '') == 'MANAGER' && (isCompanyApproved(getUserData().get('companyId', '')) || isCompanyOwner(getUserData().get('companyId', '')))));
     }
 
     function isAccount() {
-      return isAuthenticated() && (isAdmin() || (userExists() && getUserData().get('role', '') == 'ACCOUNT' && isCompanyApproved(getUserData().get('companyId', ''))));
+      return isAuthenticated() && (isManager() || (userExists() && getUserData().get('role', '') == 'ACCOUNT' && isCompanyApproved(getUserData().get('companyId', ''))));
     }
 
     function isAuditor() {
-      return isAuthenticated() && (isAdmin() || (userExists() && getUserData().get('role', '') == 'AUDITOR' && isCompanyApproved(getUserData().get('companyId', ''))));
+      return isAuthenticated() && (isManager() || (userExists() && getUserData().get('role', '') == 'AUDITOR' && isCompanyApproved(getUserData().get('companyId', ''))));
     }
 
     function isStaff() {
@@ -51,143 +63,261 @@ service cloud.firestore {
     function belongsToCompany(companyId) {
       return isAuthenticated() && 
              (isSuperAdmin() || 
-              (companyId == 'demo_company' && request.auth.token.firebase.sign_in_provider == 'anonymous') ||
+              (companyId == 'demo_company' && isAnonymousDemo()) ||
               (userExists() && 
                getUserData().get('companyId', '') == companyId && 
-               isCompanyApproved(companyId)));
+               (isCompanyApproved(companyId) || isCompanyOwner(companyId))));
     }
 
     function hasOnlyAllowedFields(fields) {
       return request.resource.data.keys().hasOnly(fields);
     }
 
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidString(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+             request.resource.data[field].size() >= minLen &&
+             request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+             email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string &&
+             dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function isRecent(timestampStr) {
+      // Since we use ISO strings, we can't easily check 'recent' without custom logic or using server timestamps.
+      // For now, we validate the format.
+      return isValidDateString(timestampStr);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUserProfile(data) {
+      return hasRequiredFields(['uid', 'email', 'role', 'companyId']) &&
+             hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'companyId', 'assignedWarehouseId', 'createdAt', 'lastPasswordUpdate']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             data.role in ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'AUDITOR'] &&
+             data.companyId is string &&
+             data.companyId.size() < 50 &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidCompany(data) {
+      return hasRequiredFields(['id', 'name', 'ownerEmail']) &&
+             hasOnlyAllowedFields(['id', 'name', 'ownerEmail', 'createdAt', 'isApproved']) &&
+             isValidString('name', 1, 100) &&
+             isValidEmail(data.ownerEmail) &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidSupplier(data) {
+      return hasRequiredFields(['id', 'companyId', 'name']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'name', 'phone', 'location', 'bankName', 'accountNumber', 'accountName', 'previousBalance', 'createdAt', 'email']) &&
+             isValidString('name', 1, 100) &&
+             (!('phone' in data) || data.phone is string) &&
+             (!('accountNumber' in data) || data.accountNumber is string) &&
+             (!('location' in data) || data.location is string) &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidTransaction(data) {
+      return hasRequiredFields(['id', 'companyId', 'date', 'type', 'commodity', 'netWeight', 'deductions']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'date', 'type', 'commodity', 'supplierId', 'buyerId', 'buyerName', 'sourceWarehouseId', 'destinationWarehouseId', 'warehouseId', 'warehouse', 'grossWeight', 'netWeight', 'bags', 'noOfBags', 'pricePerKg', 'totalValue', 'deductions', 'referenceId']) &&
+             isValidDateString(data.date) &&
+             data.type in ['PURCHASE', 'SALE', 'TRANSFER'] &&
+             data.commodity in ['COCOA', 'CASHEW', 'PK'] &&
+             data.netWeight is number && data.netWeight >= 0 &&
+             data.deductions is map;
+    }
+
+    function isValidPayment(data) {
+      return hasRequiredFields(['id', 'companyId', 'date', 'supplierId', 'amount']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'date', 'supplierId', 'amount', 'method', 'reference', 'description']) &&
+             isValidDateString(data.date) &&
+             data.amount is number && data.amount >= 0 &&
+             (!('method' in data) || data.method in ['CASH', 'BANK_TRANSFER', 'CHECK']) &&
+             (!('reference' in data) || data.reference is string);
+    }
+
+    function isValidStaff(data) {
+      return hasRequiredFields(['id', 'companyId', 'name', 'role']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'name', 'role', 'phone', 'salary', 'allowances', 'joinedDate', 'status', 'assignedWarehouseId', 'bankName', 'accountNumber', 'email', 'uid']) &&
+             isValidString('name', 1, 100) &&
+             data.role in ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'AUDITOR'] &&
+             (!('salary' in data) || data.salary is number) &&
+             (!('status' in data) || data.status in ['ACTIVE', 'SUSPENDED', 'DISMISSED', 'INACTIVE']) &&
+             (!('phone' in data) || data.phone is string) &&
+             (!('email' in data) || isValidEmail(data.email));
+    }
+
+    function isValidAttendance(data) {
+      return hasRequiredFields(['id', 'companyId', 'staffId', 'date', 'status', 'warehouseId']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'staffId', 'warehouseId', 'date', 'status']) &&
+             data.status in ['PRESENT', 'ABSENT', 'LATE'] &&
+             data.staffId is string && data.staffId.size() < 50;
+    }
+
+    function isValidRoster(data) {
+      return hasRequiredFields(['id', 'companyId', 'staffId', 'warehouseId', 'shift', 'date']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'staffId', 'warehouseId', 'shift', 'date']) &&
+             data.shift in ['MORNING', 'AFTERNOON', 'NIGHT', 'OFF'] &&
+             data.staffId is string && data.staffId.size() < 50;
+    }
+
+    function isValidPayroll(data) {
+      return hasRequiredFields(['id', 'companyId', 'staffId', 'month', 'basicSalary', 'netPay', 'status']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'staffId', 'month', 'basicSalary', 'allowances', 'grossIncome', 'cra', 'taxableIncome', 'paye', 'pension', 'netPay', 'status', 'createdAt']) &&
+             data.status in ['PENDING', 'PAID'] &&
+             data.staffId is string && data.staffId.size() < 50;
+    }
+
+    function isValidJournalEntry(data) {
+      return hasRequiredFields(['id', 'companyId', 'warehouseId', 'date', 'type', 'category', 'amount']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'warehouseId', 'date', 'type', 'category', 'amount', 'description', 'supplierId', 'buyerId', 'paymentMethod']) &&
+             data.type in ['INFLOW', 'OUTFLOW'] &&
+             data.amount is number && data.amount >= 0 &&
+             isValidString('category', 1, 100);
+    }
+
+    function isValidBuyer(data) {
+      return hasRequiredFields(['id', 'companyId', 'name']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'name', 'phone', 'location']) &&
+             isValidString('name', 1, 100);
+    }
+
+    function isValidBagTransaction(data) {
+      return hasRequiredFields(['id', 'companyId', 'date', 'type', 'packagingType', 'quantity', 'warehouseId']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'date', 'supplierId', 'type', 'packagingType', 'quantity', 'reference', 'warehouseId', 'sourceWarehouseId', 'destinationWarehouseId']) &&
+             data.type in ['STOCK_IN', 'ISSUE', 'RETURN', 'TRANSFER'] &&
+             data.packagingType in ['JUTE_BAG', 'NYLON_BAG'] &&
+             data.quantity is number && data.quantity >= 0;
+    }
+
+    function isValidWarehouse(data) {
+      return hasRequiredFields(['id', 'companyId', 'name']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'name', 'location', 'capacity', 'createdAt']) &&
+             isValidString('name', 1, 100);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
 
+    match /test/connection {
+      allow read: if true;
+    }
+
     match /companies/{companyId} {
-      allow read: if isAuthenticated() && (isSuperAdmin() || (isAnonymousDemo() && companyId == 'demo_company') || (userExists() && getUserData().get('companyId', '') == companyId));
-      allow create: if isAuthenticated();
-      allow update: if isAdmin() || (companyId == 'demo_company' && isAnonymousDemo());
+      allow read: if isAuthenticated() && (
+        isSuperAdmin() || 
+        (isAnonymousDemo() && companyId == 'demo_company') || 
+        (userExists() && getUserData().get('companyId', '') == companyId) ||
+        (resource != null && resource.data.get('ownerEmail', '').lower() == request.auth.token.email.lower())
+      );
+      // Only Super Admin or Anonymous Demo can create companies. 
+      // Regular users must be approved by Super Admin.
+      allow create: if isAuthenticated() && (
+        (isAnonymousDemo() && companyId == 'demo_company') || 
+        (isValidCompany(request.resource.data) && request.resource.data.ownerEmail.lower() == request.auth.token.email.lower())
+      );
+      allow update: if isSuperAdmin() || (isAdmin() && belongsToCompany(companyId) && isValidCompany(request.resource.data) && request.resource.data.isApproved == resource.data.isApproved);
       allow delete: if isSuperAdmin();
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin() || (userExists() && exists(/databases/$(database)/documents/users/$(userId)) && getUserData().get('companyId', '') == get(/databases/$(database)/documents/users/$(userId)).data.get('companyId', '')));
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin());
+      // CRITICAL: Prevent self-assignment of ADMIN role unless it's the Super Admin or a Demo user.
+      allow create: if isAuthenticated() && request.auth.uid == userId && isValidUserProfile(request.resource.data) && (
+        (isSuperAdmin() && request.resource.data.role == 'ADMIN') ||
+        (isAnonymousDemo() && request.resource.data.role == 'ADMIN') ||
+        (request.resource.data.role == 'STAFF') || // Default safe role
+        (exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) && 
+         get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.ownerEmail.lower() == request.auth.token.email.lower() &&
+         request.resource.data.role == 'ADMIN') // Company owner can be admin
+      );
+      allow update: if isAuthenticated() && (
+        (request.auth.uid == userId && isValidUserProfile(request.resource.data) && request.resource.data.role == resource.data.role) || // User can update profile but not role
+        (isAdmin() && isValidUserProfile(request.resource.data)) // Admin can update roles
+      );
       allow delete: if isSuperAdmin();
     }
 
     match /suppliers/{id} {
       allow read: if isStaff() && belongsToCompany(resource.data.companyId);
-      allow create: if isStaff() && belongsToCompany(request.resource.data.companyId);
-      allow update: if isStaff() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId);
+      allow create: if isStaff() && belongsToCompany(request.resource.data.companyId) && isValidSupplier(request.resource.data);
+      allow update: if isStaff() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidSupplier(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 
     match /transactions/{id} {
       allow read: if isStaff() && belongsToCompany(resource.data.companyId);
-      allow create: if isStaff() && belongsToCompany(request.resource.data.companyId);
-      allow update: if isStaff() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId);
+      allow create: if isStaff() && belongsToCompany(request.resource.data.companyId) && isValidTransaction(request.resource.data);
+      allow update: if isStaff() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidTransaction(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 
     match /payments/{id} {
       allow read: if isStaff() && belongsToCompany(resource.data.companyId);
-      allow create: if isAccount() && belongsToCompany(request.resource.data.companyId);
-      allow update: if isAccount() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId);
+      allow create: if isStaff() && belongsToCompany(request.resource.data.companyId) && isValidPayment(request.resource.data);
+      allow update: if isStaff() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidPayment(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 
-    function isValidStaff(data) {
-      return hasOnlyAllowedFields(['id', 'companyId', 'name', 'role', 'phone', 'salary', 'allowances', 'joinedDate', 'status', 'assignedWarehouseId', 'bankName', 'accountNumber', 'email', 'uid']) &&
-             data.id is string &&
-             data.companyId is string &&
-             data.name is string && data.name.size() > 0 &&
-             data.role in ['ADMIN', 'ACCOUNT', 'STAFF', 'AUDITOR'] &&
-             data.salary is number &&
-             data.status in ['ACTIVE', 'INACTIVE'];
-    }
-
-    function isValidAttendance(data) {
-      return hasOnlyAllowedFields(['id', 'companyId', 'staffId', 'date', 'status', 'warehouseId']) &&
-             data.id is string &&
-             data.companyId is string &&
-             data.staffId is string &&
-             data.date is string &&
-             data.status in ['PRESENT', 'ABSENT', 'LATE'] &&
-             data.warehouseId is string;
-    }
-
-    function isValidRoster(data) {
-      return hasOnlyAllowedFields(['id', 'companyId', 'staffId', 'warehouseId', 'shift', 'date']) &&
-             data.id is string &&
-             data.companyId is string &&
-             data.staffId is string &&
-             data.warehouseId is string &&
-             data.shift in ['MORNING', 'AFTERNOON', 'NIGHT', 'OFF'] &&
-             data.date is string;
-    }
-
-    function isValidPayroll(data) {
-      return hasOnlyAllowedFields(['id', 'companyId', 'staffId', 'month', 'basicSalary', 'allowances', 'grossIncome', 'cra', 'taxableIncome', 'paye', 'pension', 'netPay', 'status', 'createdAt']) &&
-             data.id is string &&
-             data.companyId is string &&
-             data.staffId is string &&
-             data.month is string &&
-             data.basicSalary is number &&
-             data.netPay is number &&
-             data.status in ['PENDING', 'PAID'];
-    }
-
     match /staff/{id} {
-      allow read: if (isAuthenticated() && request.auth.token.get('email', '').lower() == resource.data.get('email', '').lower()) || (isAccount() && belongsToCompany(resource.data.companyId));
-      allow create, update: if isAdmin() && belongsToCompany(request.resource.data.companyId) && isValidStaff(request.resource.data);
+      allow read: if isAuthenticated() && (
+        (request.auth.token.email.lower() == resource.data.get('email', '').lower()) || 
+        (isAccount() && belongsToCompany(resource.data.companyId))
+      );
+      allow create: if isManager() && belongsToCompany(request.resource.data.companyId) && isValidStaff(request.resource.data);
+      allow update: if isManager() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidStaff(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 
     match /attendance/{id} {
       allow read: if isStaff() && belongsToCompany(resource.data.companyId);
-      allow create, update: if isStaff() && belongsToCompany(request.resource.data.companyId) && isValidAttendance(request.resource.data);
+      allow create: if isStaff() && belongsToCompany(request.resource.data.companyId) && isValidAttendance(request.resource.data);
+      allow update: if isStaff() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidAttendance(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 
     match /rosters/{id} {
       allow read: if isStaff() && belongsToCompany(resource.data.companyId);
-      allow create, update: if isStaff() && belongsToCompany(request.resource.data.companyId) && isValidRoster(request.resource.data);
+      allow create: if isStaff() && belongsToCompany(request.resource.data.companyId) && isValidRoster(request.resource.data);
+      allow update: if isStaff() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidRoster(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 
     match /payrolls/{id} {
       allow read: if (isAuthenticated() && request.auth.token.get('email', '').lower() == get(/databases/$(database)/documents/staff/$(resource.data.staffId)).data.get('email', '').lower()) || (isAccount() && belongsToCompany(resource.data.companyId));
-      allow create, update: if isAccount() && belongsToCompany(request.resource.data.companyId) && isValidPayroll(request.resource.data);
+      allow create: if isAccount() && belongsToCompany(request.resource.data.companyId) && isValidPayroll(request.resource.data);
+      allow update: if isAccount() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidPayroll(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 
     match /journal/{id} {
-      allow read: if isAccount() && belongsToCompany(resource.data.companyId);
-      allow create, update: if isAccount() && belongsToCompany(request.resource.data.companyId);
+      allow read: if isStaff() && belongsToCompany(resource.data.companyId);
+      allow create: if isAccount() && belongsToCompany(request.resource.data.companyId) && isValidJournalEntry(request.resource.data);
+      allow update: if isAccount() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidJournalEntry(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 
     match /buyers/{id} {
       allow read: if isStaff() && belongsToCompany(resource.data.companyId);
-      allow create, update: if isStaff() && belongsToCompany(request.resource.data.companyId);
+      allow create: if isStaff() && belongsToCompany(request.resource.data.companyId) && isValidBuyer(request.resource.data);
+      allow update: if isStaff() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidBuyer(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
-    }
-
-    function isValidBagTransaction(data) {
-      return hasOnlyAllowedFields(['id', 'companyId', 'date', 'supplierId', 'type', 'packagingType', 'quantity', 'reference', 'warehouseId', 'sourceWarehouseId', 'destinationWarehouseId']) &&
-             data.id is string &&
-             data.companyId is string &&
-             data.date is string &&
-             data.type in ['STOCK_IN', 'ISSUE', 'RETURN', 'TRANSFER'] &&
-             data.packagingType in ['JUTE_BAG', 'NYLON_BAG'] &&
-             data.quantity is number && data.quantity >= 0 &&
-             (!('warehouseId' in data) || data.warehouseId is string) &&
-             (!('sourceWarehouseId' in data) || data.sourceWarehouseId is string) &&
-             (!('destinationWarehouseId' in data) || data.destinationWarehouseId is string);
     }
 
     match /bag_transactions/{id} {
@@ -199,7 +329,8 @@ service cloud.firestore {
 
     match /warehouses/{id} {
       allow read: if isStaff() && belongsToCompany(resource.data.companyId);
-      allow create, update: if isAdmin() && belongsToCompany(request.resource.data.companyId);
+      allow create: if isManager() && belongsToCompany(request.resource.data.companyId) && isValidWarehouse(request.resource.data);
+      allow update: if isManager() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidWarehouse(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 

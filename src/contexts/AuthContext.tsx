@@ -10,6 +10,12 @@ import {
   GoogleAuthProvider, 
   signOut, 
   signInAnonymously,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
   User 
 } from 'firebase/auth';
 import { 
@@ -20,10 +26,12 @@ import {
   collection,
   query,
   where,
-  getDocs
+  getDocs,
+  getDocFromServer
 } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { UserProfile, Company, Staff } from '../types';
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 
 interface AuthContextType {
   user: User | null;
@@ -31,16 +39,32 @@ interface AuthContextType {
   company: Company | null;
   loading: boolean;
   signIn: () => Promise<void>;
+  signInWithEmail: (email: string, pass: string) => Promise<void>;
+  signUpWithEmail: (email: string, pass: string, name: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  changePassword: (currentPass: string, newPass: string) => Promise<void>;
   logout: () => Promise<void>;
   registerCompany: (companyName: string) => Promise<void>;
   approveCompany: (companyId: string) => Promise<void>;
-  signInAsDemo: () => void;
+  disapproveCompany: (companyId: string) => Promise<void>;
+  signInAsDemo: () => Promise<void>;
   isAdmin: boolean;
+  isManager: boolean;
   isAccount: boolean;
   isAuditor: boolean;
   isStaff: boolean;
   isSuperAdmin: boolean;
   isDemoMode: boolean;
+  mustChangePassword: boolean;
+  isFirestoreConnected: boolean;
+  connectionError: string | null;
+  errorMessage: string | null;
+  setErrorMessage: (msg: string | null) => void;
+  successMessage: string | null;
+  setSuccessMessage: (msg: string | null) => void;
+  canPostTransactions: boolean;
+  canManageStaff: boolean;
+  canTransferStock: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -51,70 +75,160 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
   const [isDemoMode, setIsDemoMode] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [isFirestoreConnected, setIsFirestoreConnected] = useState(true);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  console.log('AuthProvider: State', { loading, user: user?.uid, isDemoMode });
+  console.log('AuthProvider: State', { loading, user: user?.uid, isDemoMode, isFirestoreConnected });
+
+  useEffect(() => {
+    async function testConnection() {
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Connection test timeout')), 5000)
+      );
+      
+      try {
+        console.log("Testing Firestore connection...");
+        await Promise.race([
+          getDocFromServer(doc(db, 'test', 'connection')),
+          timeoutPromise
+        ]);
+        console.log("Firestore connection successful.");
+        setIsFirestoreConnected(true);
+        setConnectionError(null);
+      } catch (error: any) {
+        if (error instanceof Error && error.message.includes('the client is offline')) {
+          console.error("Please check your Firebase configuration. The client is offline.");
+          setConnectionError("The client is offline. Check your internet or Firebase config.");
+          setIsFirestoreConnected(false);
+        } else {
+          console.warn("Firestore connection test failed or timed out:", error.message);
+          // We allow the app to proceed even if the test doc doesn't exist
+          setIsFirestoreConnected(true); 
+          setConnectionError(null);
+        }
+      }
+    }
+
+    testConnection();
+  }, []);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
     let unsubscribeCompany: (() => void) | null = null;
 
+    // Safety timeout to ensure the app doesn't get stuck on the loading screen
+    const loadingTimeout = setTimeout(() => {
+      if (loading) {
+        console.warn('AuthContext: Loading state timed out after 10s. Forcing initialization.');
+        setLoading(false);
+      }
+    }, 10000);
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      console.log('AuthContext: onAuthStateChanged', user?.uid);
+      clearTimeout(loadingTimeout);
+      console.log('AuthContext: onAuthStateChanged', user?.uid || 'no user');
       setUser(user);
       
-      if (unsubscribeProfile) unsubscribeProfile();
-      if (unsubscribeCompany) unsubscribeCompany();
-
       if (user) {
+        if (user.isAnonymous) {
+          setIsDemoMode(true);
+        }
+
+        if (unsubscribeProfile) {
+          console.log('Unsubscribing from profile...');
+          unsubscribeProfile();
+        }
+        if (unsubscribeCompany) {
+          console.log('Unsubscribing from company...');
+          unsubscribeCompany();
+        }
+
+        console.log('Setting up profile listener for user:', user.uid);
         const userRef = doc(db, 'users', user.uid);
         
         unsubscribeProfile = onSnapshot(userRef, async (userDoc) => {
+          console.log('Profile snapshot received:', userDoc.exists() ? 'exists' : 'does not exist');
           if (userDoc.exists()) {
             const data = userDoc.data() as UserProfile;
             setProfile(data);
+
+            // Check for password expiration (90 days)
+            const isEmailUser = user.providerData.some(p => p.providerId === 'password');
+            if (isEmailUser && data.lastPasswordUpdate) {
+              const lastUpdate = new Date(data.lastPasswordUpdate).getTime();
+              const now = new Date().getTime();
+              const diffDays = (now - lastUpdate) / (1000 * 60 * 60 * 24);
+              if (diffDays >= 90) {
+                setMustChangePassword(true);
+              } else {
+                setMustChangePassword(false);
+              }
+            } else if (isEmailUser && !data.lastPasswordUpdate) {
+              // If no update date, force change (initial login)
+              setMustChangePassword(true);
+            } else {
+              setMustChangePassword(false);
+            }
             
             if (data.companyId) {
+              console.log('Setting up company listener for:', data.companyId);
               const companyRef = doc(db, 'companies', data.companyId);
               if (unsubscribeCompany) unsubscribeCompany();
               
               unsubscribeCompany = onSnapshot(companyRef, (companyDoc) => {
+                console.log('Company snapshot received:', companyDoc.exists() ? 'exists' : 'does not exist');
                 if (companyDoc.exists()) {
                   setCompany(companyDoc.data() as Company);
                 }
+              }, (error) => {
+                setErrorMessage(reportFirestoreError(error, OperationType.GET, `companies/${data.companyId}`));
               });
             }
 
             // Ensure the designated super admin always has the ADMIN role
             if (user.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' && data.role !== 'ADMIN') {
-              await setDoc(userRef, { ...data, role: 'ADMIN' }, { merge: true });
+              try {
+                await setDoc(userRef, { ...data, role: 'ADMIN' }, { merge: true });
+              } catch (error) {
+                setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`));
+              }
             }
           } else {
             // Check if this user is a pre-registered staff member
             if (user.email) {
-              const staffQuery = query(
-                collection(db, 'staff'),
-                where('email', '==', user.email.toLowerCase())
-              );
-              const staffDocs = await getDocs(staffQuery);
-              
-              if (!staffDocs.empty) {
-                const staffData = staffDocs.docs[0].data() as Staff;
-                const newProfile: UserProfile = {
-                  uid: user.uid,
-                  email: user.email.toLowerCase(),
-                  displayName: user.displayName || staffData.name,
-                  role: staffData.role,
-                  companyId: staffData.companyId,
-                  assignedWarehouseId: staffData.assignedWarehouseId,
-                  createdAt: new Date().toISOString()
-                };
+              try {
+                const staffQuery = query(
+                  collection(db, 'staff'),
+                  where('email', '==', user.email.toLowerCase())
+                );
+                const staffDocs = await getDocs(staffQuery);
                 
-                await setDoc(userRef, newProfile);
-                // Profile will be set by the onSnapshot listener
-                
-                // Update staff record with UID to mark as joined
-                await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
-              } else {
+                if (!staffDocs.empty) {
+                  const staffData = staffDocs.docs[0].data() as Staff;
+                  const newProfile: UserProfile = {
+                    uid: user.uid,
+                    email: user.email.toLowerCase(),
+                    displayName: user.displayName || staffData.name,
+                    role: staffData.role,
+                    companyId: staffData.companyId,
+                    assignedWarehouseId: staffData.assignedWarehouseId,
+                    createdAt: new Date().toISOString()
+                  };
+                  
+                  await setDoc(userRef, newProfile);
+                  // Profile will be set by the onSnapshot listener
+                  
+                  // Update staff record with UID to mark as joined
+                  await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
+                } else {
+                  setProfile(null);
+                  setCompany(null);
+                }
+              } catch (error) {
+                setErrorMessage(reportFirestoreError(error, OperationType.GET, 'staff'));
                 setProfile(null);
                 setCompany(null);
               }
@@ -123,10 +237,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               setCompany(null);
             }
           }
-        });
-      } else if (!isDemoMode) {
+        }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.GET, `users/${user.uid}`)));
+      } else {
+        setIsDemoMode(false);
         setProfile(null);
         setCompany(null);
+        if (unsubscribeProfile) unsubscribeProfile();
+        if (unsubscribeCompany) unsubscribeCompany();
       }
       setLoading(false);
     });
@@ -139,12 +256,137 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [isDemoMode]);
 
   const signIn = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+    try {
+      setErrorMessage(null);
+      const provider = new GoogleAuthProvider();
+      // Add custom parameters to help with iframe issues
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      console.error('Sign in failed:', error);
+      if (error.code === 'auth/unauthorized-domain') {
+        setErrorMessage('This domain is not authorized for Google Sign-In. Please add "' + window.location.hostname + '" to the authorized list in the Firebase Console (Authentication > Settings > Authorized domains).');
+      } else if (error.code === 'auth/popup-blocked') {
+        setErrorMessage('The sign-in popup was blocked by your browser. Please allow popups for this site and try again.');
+      } else if (error.code === 'auth/cancelled-popup-request') {
+        // User closed the popup, no need to alert
+      } else if (error.code === 'auth/network-request-failed') {
+        setErrorMessage('Network error during sign-in. Please check your internet connection.');
+      } else {
+        setErrorMessage(`Sign in failed: ${error.message || 'Unknown error'}. Please try again or use Demo Mode.`);
+      }
+    }
+  };
+
+  const signInWithEmail = async (email: string, pass: string) => {
+    try {
+      setErrorMessage(null);
+      await signInWithEmailAndPassword(auth, email, pass);
+    } catch (error: any) {
+      console.error('Email sign in failed:', error);
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+        setErrorMessage('Invalid email or password.');
+      } else if (error.code === 'auth/too-many-requests') {
+        setErrorMessage('Too many failed attempts. Please try again later.');
+      } else {
+        setErrorMessage(`Login failed: ${error.message}`);
+      }
+    }
+  };
+
+  const signUpWithEmail = async (email: string, pass: string, name: string) => {
+    try {
+      setErrorMessage(null);
+      const { user } = await createUserWithEmailAndPassword(auth, email, pass);
+      
+      // Check if this email belongs to a pre-registered staff member
+      const staffQuery = query(collection(db, 'staff'), where('email', '==', email.toLowerCase()));
+      const staffSnapshot = await getDocs(staffQuery);
+      
+      let companyId = '';
+      let role: UserProfile['role'] = 'STAFF';
+      let assignedWarehouseId = undefined;
+
+      if (!staffSnapshot.empty) {
+        const staffDoc = staffSnapshot.docs[0];
+        const staffData = staffDoc.data();
+        companyId = staffData.companyId;
+        role = staffData.role;
+        assignedWarehouseId = staffData.assignedWarehouseId;
+        
+        // Link the staff record to the new UID
+        await setDoc(doc(db, 'staff', staffDoc.id), { uid: user.uid }, { merge: true });
+      }
+
+      // Create profile
+      const newProfile: UserProfile = {
+        uid: user.uid,
+        email: email.toLowerCase(),
+        displayName: name,
+        role,
+        companyId,
+        assignedWarehouseId,
+        createdAt: new Date().toISOString(),
+        lastPasswordUpdate: new Date().toISOString()
+      };
+      
+      await setDoc(doc(db, 'users', user.uid), newProfile);
+      setProfile(newProfile);
+    } catch (error: any) {
+      console.error('Signup failed:', error);
+      if (error.code === 'auth/email-already-in-use') {
+        setErrorMessage('This email is already registered.');
+      } else if (error.code === 'auth/weak-password') {
+        setErrorMessage('Password is too weak. Please use at least 6 characters.');
+      } else {
+        setErrorMessage(`Signup failed: ${error.message}`);
+      }
+    }
+  };
+
+  const resetPassword = async (email: string) => {
+    try {
+      setErrorMessage(null);
+      await sendPasswordResetEmail(auth, email);
+      setSuccessMessage('Password reset link sent to your email. It will expire in 1 hour.');
+    } catch (error: any) {
+      console.error('Password reset failed:', error);
+      setErrorMessage(`Failed to send reset email: ${error.message}`);
+    }
+  };
+
+  const changePassword = async (currentPass: string, newPass: string) => {
+    if (!user || !user.email) return;
+    try {
+      setErrorMessage(null);
+      const credential = EmailAuthProvider.credential(user.email, currentPass);
+      await reauthenticateWithCredential(user, credential);
+      await updatePassword(user, newPass);
+      
+      // Update lastPasswordUpdate in Firestore
+      if (profile) {
+        await setDoc(doc(db, 'users', user.uid), { 
+          lastPasswordUpdate: new Date().toISOString() 
+        }, { merge: true });
+      }
+      
+      setMustChangePassword(false);
+      setSuccessMessage('Password updated successfully.');
+    } catch (error: any) {
+      console.error('Password change failed:', error);
+      if (error.code === 'auth/wrong-password') {
+        setErrorMessage('Incorrect current password.');
+      } else if (error.code === 'auth/weak-password') {
+        setErrorMessage('New password is too weak.');
+      } else {
+        setErrorMessage(`Failed to update password: ${error.message}`);
+      }
+    }
   };
 
   const signInAsDemo = async () => {
     try {
+      setErrorMessage(null);
       setLoading(true);
       const { user } = await signInAnonymously(auth);
       setIsDemoMode(true);
@@ -199,9 +441,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error: any) {
       console.error('Demo sign in failed:', error);
       if (error.code === 'auth/admin-restricted-operation') {
-        alert('Training Demo Mode requires "Anonymous Authentication" to be enabled in the Firebase Console. Please contact the Super Admin.');
+        setErrorMessage('Training Demo Mode requires "Anonymous Authentication" to be enabled in the Firebase Console. Please contact the Super Admin.');
       } else {
-        alert('Failed to start demo mode. Please try again.');
+        setErrorMessage('Failed to start demo mode. Please try again.');
       }
     } finally {
       setLoading(false);
@@ -209,13 +451,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    if (isDemoMode) {
+    try {
+      console.log('AuthContext: Logging out...');
+      await signOut(auth);
       setIsDemoMode(false);
       setProfile(null);
       setCompany(null);
       setUser(null);
-    } else {
-      await signOut(auth);
+      setSuccessMessage('Signed out successfully');
+    } catch (error: any) {
+      console.error('Logout failed:', error);
+      setErrorMessage(`Logout failed: ${error.message}`);
     }
   };
 
@@ -252,11 +498,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setDoc(doc(db, 'companies', companyId), { isApproved: true }, { merge: true });
   };
 
-  const isSuperAdmin = user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com';
+  const disapproveCompany = async (companyId: string) => {
+    if (user?.email?.toLowerCase() !== 'wasiuadebisi89@gmail.com') return;
+    await setDoc(doc(db, 'companies', companyId), { isApproved: false }, { merge: true });
+  };
+
+  const isSuperAdmin = user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' || user?.email?.toLowerCase() === 'abdullahiwasiu07@gmail.com';
   const isAdmin = profile?.role === 'ADMIN' || isSuperAdmin;
-  const isAccount = profile?.role === 'ACCOUNT' || isAdmin;
-  const isAuditor = profile?.role === 'AUDITOR' || isAdmin;
-  const isStaff = !!profile?.role || isAdmin;
+  const isManager = profile?.role === 'MANAGER' || isSuperAdmin;
+  const isAccount = profile?.role === 'ACCOUNT' || isManager || isSuperAdmin;
+  const isAuditor = profile?.role === 'AUDITOR' || isManager || isSuperAdmin;
+  const isStaff = profile?.role === 'STAFF' || isAccount || isAuditor || isAdmin || isSuperAdmin;
+
+  // Refined permissions
+  const canPostTransactions = isManager || isAccount || isSuperAdmin;
+  const canManageStaff = isAdmin || isManager || isSuperAdmin;
+  const canTransferStock = isAdmin || isManager || isSuperAdmin;
 
   const value = {
     user,
@@ -264,16 +521,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     company,
     loading,
     signIn,
+    signInWithEmail,
+    signUpWithEmail,
+    resetPassword,
+    changePassword,
     logout,
     registerCompany,
     approveCompany,
+    disapproveCompany,
     signInAsDemo,
     isAdmin,
+    isManager,
     isAccount,
     isAuditor,
     isStaff,
     isSuperAdmin,
-    isDemoMode
+    isDemoMode,
+    mustChangePassword,
+    isFirestoreConnected,
+    connectionError,
+    errorMessage,
+    setErrorMessage,
+    successMessage,
+    setSuccessMessage,
+    canPostTransactions,
+    canManageStaff,
+    canTransferStock
   };
 
   return (

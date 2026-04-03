@@ -8,7 +8,6 @@ import { getAuth } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfigFromJson from '../firebase-applet-config.json';
 
-// Use environment variables if available, otherwise fallback to the JSON config
 const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigFromJson.apiKey,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigFromJson.authDomain,
@@ -21,27 +20,17 @@ const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
 };
 
 // Initialize Firebase SDK
+console.log("Initializing Firebase with config:", { 
+  projectId: firebaseConfig.projectId, 
+  databaseId: firebaseConfig.firestoreDatabaseId 
+});
 const app = initializeApp(firebaseConfig);
 
 // Use initializeFirestore with long polling to bypass potential WebSocket issues in the iframe environment
+console.log("Initializing Firestore...");
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
 }, firebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);
-
-// Validate Connection to Firestore
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-    console.log("Firestore connection successful.");
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration. The client is offline.");
-    } else {
-      console.warn("Firestore connection test failed (expected if 'test/connection' doesn't exist):", error);
-    }
-  }
-}
-
-testConnection();
+console.log("Firebase initialized.");

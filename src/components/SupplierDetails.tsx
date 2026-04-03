@@ -28,30 +28,9 @@ import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, where, orderBy } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
-}
+import { handleFirestoreError, reportFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
+import { cn } from '../lib/utils';
 
 interface Props {
   supplier: Supplier;
@@ -59,7 +38,7 @@ interface Props {
 }
 
 export default function SupplierDetails({ supplier, onBack }: Props) {
-  const { profile, company, isStaff, isAccount, isAdmin } = useAuth();
+  const { profile, company, isStaff, isAccount, isAdmin, errorMessage, setErrorMessage } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
@@ -94,7 +73,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
       setTransactions(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
     const qPayments = query(
       collection(db, 'payments'), 
@@ -105,7 +84,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
       setPayments(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'payments'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'payments')));
 
     const qBagTx = query(
       collection(db, 'bag_transactions'), 
@@ -116,7 +95,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const unsubscribeBagTx = onSnapshot(qBagTx, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction));
       setBagTransactions(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'bag_transactions'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'bag_transactions')));
 
     const qJournal = query(
       collection(db, 'journal'), 
@@ -127,7 +106,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
       setJournal(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'journal'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
     const qWarehouses = query(
       collection(db, 'warehouses'), 
@@ -137,7 +116,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
       setWarehouses(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'warehouses'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     return () => {
       unsubscribeTx();
@@ -153,13 +132,14 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const allEntries = [
       ...transactions.map(t => ({
         date: t.date,
-        description: `Purchase: ${t.commodity} (${t.netWeight}kg)`,
+        description: `Purchase: ${t.commodity} (${t.netWeight || 0}kg)`,
         credit: t.totalValue || 0,
         debit: 0,
         ref: t.referenceId,
-        grossWeight: t.grossWeight,
-        netWeight: t.netWeight,
-        deductionWeight: t.grossWeight - t.netWeight,
+        grossWeight: t.grossWeight || 0,
+        netWeight: t.netWeight || 0,
+        deductionWeight: (t.grossWeight || 0) - (t.netWeight || 0),
+        deductions: t.deductions,
         pricePerKg: t.pricePerKg || 0,
         bags: t.noOfBags || t.bags || 0
       })),
@@ -167,11 +147,12 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         date: p.date,
         description: `Payment: ${p.method} - ${p.description}`,
         credit: 0,
-        debit: p.amount,
+        debit: p.amount || 0,
         ref: p.reference,
         grossWeight: 0,
         netWeight: 0,
         deductionWeight: 0,
+        deductions: undefined,
         pricePerKg: 0,
         bags: 0
       })),
@@ -179,33 +160,34 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         date: e.date,
         description: `Charge: ${e.category} - ${e.description}`,
         credit: 0,
-        debit: e.amount,
+        debit: e.amount || 0,
         ref: 'JOURNAL',
         grossWeight: 0,
         netWeight: 0,
         deductionWeight: 0,
+        deductions: undefined,
         pricePerKg: 0,
         bags: 0
       }))
-    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
 
     // Calculate Balance Brought Forward (BBF)
     let bbf = supplier.previousBalance || 0;
     const filtered = [];
     
     for (const entry of allEntries) {
-      const entryDate = entry.date.split('T')[0];
+      const entryDate = (entry.date || '').split('T')[0];
       if (entryDate < startDate) {
-        bbf += (entry.credit - entry.debit);
+        bbf += ((entry.credit || 0) - (entry.debit || 0));
       } else if (entryDate <= endDate) {
         filtered.push(entry);
       }
     }
 
-    const sortedEntries = filtered.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sortedEntries = filtered.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
     let runningBalance = bbf;
     const entriesWithBalance = sortedEntries.map(entry => {
-      runningBalance += (entry.credit - entry.debit);
+      runningBalance += ((entry.credit || 0) - (entry.debit || 0));
       return { ...entry, runningBalance };
     });
 
@@ -216,13 +198,13 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   }, [transactions, payments, journal, supplier.previousBalance, startDate, endDate, supplier.id]);
 
   const totalPurchases = useMemo(() => transactions.reduce((sum, t) => sum + (t.totalValue || 0), 0), [transactions]);
-  const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + p.amount, 0), [payments]);
-  const totalCharges = useMemo(() => journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + e.amount, 0), [journal]);
+  const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + (p.amount || 0), 0), [payments]);
+  const totalCharges = useMemo(() => journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + (e.amount || 0), 0), [journal]);
   const currentBalance = (supplier.previousBalance || 0) + totalPurchases - totalPayments - totalCharges;
 
   const bagBalance = useMemo(() => {
     return bagTransactions.reduce((sum, b) => {
-      return b.type === 'ISSUE' ? sum + b.quantity : sum - b.quantity;
+      return b.type === 'ISSUE' ? sum + (b.quantity || 0) : sum - (b.quantity || 0);
     }, 0);
   }, [bagTransactions]);
 
@@ -253,7 +235,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       setIsAddingPayment(false);
       setSuccessMessage('Payment successfully recorded!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `payments/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `payments/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -283,7 +265,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       setIsAddingBagTx(false);
       setSuccessMessage('Bag transaction successfully recorded!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -303,7 +285,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
 
     doc.setFontSize(10);
     doc.setTextColor(100);
-    doc.text(`Period: ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`, 148, 38, { align: 'center' });
+    doc.text(`Period: ${startDate ? new Date(startDate).toLocaleDateString() : 'N/A'} to ${endDate ? new Date(endDate).toLocaleDateString() : 'N/A'}`, 148, 38, { align: 'center' });
     
     doc.setDrawColor(200);
     doc.line(20, 45, 277, 45);
@@ -311,10 +293,10 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     // Supplier Info
     doc.setFontSize(12);
     doc.setTextColor(0);
-    doc.text(`Supplier: ${supplier.name}`, 20, 55);
+    doc.text(`Supplier: ${supplier.name || 'UNKNOWN'}`, 20, 55);
     doc.setFontSize(10);
-    doc.text(`Phone: ${supplier.phone}`, 20, 62);
-    doc.text(`Location: ${supplier.location}`, 20, 69);
+    doc.text(`Phone: ${supplier.phone || 'N/A'}`, 20, 62);
+    doc.text(`Location: ${supplier.location || 'N/A'}`, 20, 69);
 
     // Summary Box
     doc.setFillColor(248, 250, 252); // Slate-50
@@ -323,30 +305,47 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     doc.text('CURRENT BALANCE', 222, 58);
     doc.setFontSize(12);
     doc.setTextColor(16, 185, 129);
-    doc.text(`N${currentBalance.toLocaleString()}`, 222, 68);
+    doc.text(`N${(currentBalance || 0).toLocaleString()}`, 222, 68);
 
     const tableData = [
       ['Date', 'Description', 'Bags', 'Gross', 'Ded.', 'Net', 'Price', 'Credit (+)', 'Debit (-)', 'Balance'],
-      [new Date(startDate).toLocaleDateString(), 'Balance Brought Forward', '-', '-', '-', '-', '-', `NGN ${ledgerEntries.bbf.toLocaleString()}`, '-', `NGN ${ledgerEntries.bbf.toLocaleString()}`]
+      [startDate ? new Date(startDate).toLocaleDateString() : 'N/A', 'Balance Brought Forward', '-', '-', '-', '-', '-', `NGN ${(ledgerEntries.bbf || 0).toLocaleString()}`, '-', `NGN ${(ledgerEntries.bbf || 0).toLocaleString()}`]
     ];
 
-    let runningBalance = ledgerEntries.bbf;
+    let runningBalance = ledgerEntries.bbf || 0;
     // We need to reverse back to chronological for the PDF table calculation if it was reversed for UI
     const chronologicalEntries = [...ledgerEntries.entries].reverse();
+    let totalCredit = 0;
+    let totalDebit = 0;
     
     chronologicalEntries.forEach(entry => {
-      runningBalance += (entry.credit - entry.debit);
+      totalCredit += (entry.credit || 0);
+      totalDebit += (entry.debit || 0);
+      runningBalance += ((entry.credit || 0) - (entry.debit || 0));
+
+      let deductionBreakdown = '';
+      if (entry.deductions) {
+        const d = entry.deductions;
+        const mLoss = ((d.moistureActual - d.moistureBenchmark) * (entry.grossWeight || 0)) / 100;
+        const parts = [];
+        if (mLoss > 0) parts.push(`Moisture: ${mLoss.toFixed(2)}kg`);
+        if (d.tareWeight > 0) parts.push(`Tare: ${d.tareWeight}kg`);
+        if (d.moldWeight > 0) parts.push(`Mold: ${d.moldWeight}kg`);
+        if (d.otherDeduction > 0) parts.push(`Other: ${d.otherDeduction}kg`);
+        deductionBreakdown = parts.join(', ');
+      }
+
       tableData.push([
-        new Date(entry.date).toLocaleDateString(),
-        entry.description,
-        entry.bags > 0 ? entry.bags.toString() : '-',
-        entry.grossWeight > 0 ? `${entry.grossWeight}kg` : '-',
-        entry.deductionWeight > 0 ? `${entry.deductionWeight.toFixed(2)}kg` : '-',
-        entry.netWeight > 0 ? `${entry.netWeight}kg` : '-',
-        entry.pricePerKg > 0 ? `NGN ${entry.pricePerKg.toLocaleString()}` : '-',
-        entry.credit > 0 ? `NGN ${entry.credit.toLocaleString()}` : '-',
-        entry.debit > 0 ? `NGN ${entry.debit.toLocaleString()}` : '-',
-        `NGN ${runningBalance.toLocaleString()}`
+        entry.date ? new Date(entry.date).toLocaleDateString() : 'N/A',
+        entry.description + (deductionBreakdown ? `\n(${deductionBreakdown})` : ''),
+        (entry.bags || 0) > 0 ? entry.bags.toString() : '-',
+        (entry.grossWeight || 0) > 0 ? `${entry.grossWeight}kg` : '-',
+        (entry.deductionWeight || 0) > 0 ? `${entry.deductionWeight.toFixed(2)}kg` : '-',
+        (entry.netWeight || 0) > 0 ? `${entry.netWeight}kg` : '-',
+        (entry.pricePerKg || 0) > 0 ? `NGN ${(entry.pricePerKg || 0).toLocaleString()}` : '-',
+        (entry.credit || 0) > 0 ? `NGN ${(entry.credit || 0).toLocaleString()}` : '-',
+        (entry.debit || 0) > 0 ? `NGN ${(entry.debit || 0).toLocaleString()}` : '-',
+        `NGN ${(runningBalance || 0).toLocaleString()}`
       ]);
     });
 
@@ -354,8 +353,12 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       startY: 85,
       head: [tableData[0]],
       body: tableData.slice(1),
+      foot: [
+        ['TOTAL', '', '', '', '', '', '', `NGN ${totalCredit.toLocaleString()}`, `NGN ${totalDebit.toLocaleString()}`, `NGN ${runningBalance.toLocaleString()}`]
+      ],
       theme: 'grid',
       headStyles: { fillColor: [16, 185, 129], textColor: 255 },
+      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
       styles: { fontSize: 7, cellPadding: 2 },
       columnStyles: {
         0: { cellWidth: 25 },
@@ -391,6 +394,13 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
             <p className="font-bold text-sm">{successMessage}</p>
           </motion.div>
         )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
+        )}
       </AnimatePresence>
 
       {/* Header */}
@@ -416,14 +426,14 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
             <p className="text-[9px] font-bold text-emerald-600 uppercase mb-1">Current Balance</p>
             <p className={cn(
               "text-lg font-black",
-              currentBalance >= 0 ? "text-emerald-700" : "text-rose-700"
+              (currentBalance || 0) >= 0 ? "text-emerald-700" : "text-rose-700"
             )}>
-              ₦{currentBalance.toLocaleString()}
+              ₦{(currentBalance || 0).toLocaleString()}
             </p>
           </div>
           <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100">
             <p className="text-[9px] font-bold text-blue-600 uppercase mb-1">Bag Balance</p>
-            <p className="text-lg font-black text-blue-700">{bagBalance} <span className="text-xs font-normal">bags</span></p>
+            <p className="text-lg font-black text-blue-700">{(bagBalance || 0)} <span className="text-xs font-normal">bags</span></p>
           </div>
         </div>
 
@@ -492,9 +502,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                 <div className="flex items-center justify-between p-4 bg-slate-900 rounded-2xl shadow-lg text-white mb-4">
                   <div>
                     <p className="text-[10px] font-bold uppercase opacity-60">Balance Brought Forward</p>
-                    <p className="text-[8px] opacity-40 uppercase tracking-widest">As at {new Date(startDate).toLocaleDateString()}</p>
+                    <p className="text-[8px] opacity-40 uppercase tracking-widest">As at {startDate ? new Date(startDate).toLocaleDateString() : 'N/A'}</p>
                   </div>
-                  <p className="text-lg font-black">₦{ledgerEntries.bbf.toLocaleString()}</p>
+                  <p className="text-lg font-black">₦{(ledgerEntries.bbf || 0).toLocaleString()}</p>
                 </div>
 
                 <div className="space-y-3">
@@ -504,44 +514,71 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                         <div className="flex gap-3">
                           <div className={cn(
                             "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-                            entry.credit > 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                            (entry.credit || 0) > 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
                           )}>
-                            {entry.credit > 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
+                            {(entry.credit || 0) > 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-bold text-slate-900 truncate">
-                              {entry.description.includes('[ADVANCE]') ? (
+                              {(entry.description || '').includes('[ADVANCE]') ? (
                                 <span className="flex items-center gap-1">
                                   <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[8px] font-black uppercase">Advance</span>
-                                  {entry.description.replace('[ADVANCE] ', '')}
+                                  {(entry.description || '').replace('[ADVANCE] ', '')}
                                 </span>
                               ) : entry.description}
                             </p>
                             <div className="flex items-center gap-2 mt-0.5">
                               <p className="text-[10px] font-medium text-slate-400">
-                                {new Date(entry.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                {entry.date ? new Date(entry.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'N/A'}
                               </p>
-                              {entry.grossWeight > 0 && (
+                              {(entry.grossWeight || 0) > 0 && (
                                 <div className="flex flex-wrap gap-1">
                                   <span className="text-[8px] font-bold text-blue-600 bg-blue-50 px-1 rounded">Bags: {entry.bags}</span>
                                   <span className="text-[8px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">Net: {entry.netWeight}kg</span>
                                 </div>
                               )}
                             </div>
-                            {entry.grossWeight > 0 && (
-                              <div className="mt-2 grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-lg border border-slate-100">
-                                <div>
-                                  <p className="text-[7px] text-slate-400 uppercase font-bold">Gross</p>
-                                  <p className="text-[9px] font-black text-slate-700">{entry.grossWeight}kg</p>
+                            {(entry.grossWeight || 0) > 0 && (
+                              <div className="mt-2 space-y-2">
+                                <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-lg border border-slate-100">
+                                  <div>
+                                    <p className="text-[7px] text-slate-400 uppercase font-bold">Gross</p>
+                                    <p className="text-[9px] font-black text-slate-700">{entry.grossWeight}kg</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[7px] text-slate-400 uppercase font-bold">Ded.</p>
+                                    <p className="text-[9px] font-black text-rose-600">{(entry.deductionWeight || 0).toFixed(2)}kg</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[7px] text-slate-400 uppercase font-bold">Price</p>
+                                    <p className="text-[9px] font-black text-amber-600">₦{(entry.pricePerKg || 0).toLocaleString()}</p>
+                                  </div>
                                 </div>
-                                <div>
-                                  <p className="text-[7px] text-slate-400 uppercase font-bold">Ded.</p>
-                                  <p className="text-[9px] font-black text-rose-600">{entry.deductionWeight.toFixed(2)}kg</p>
-                                </div>
-                                <div>
-                                  <p className="text-[7px] text-slate-400 uppercase font-bold">Price</p>
-                                  <p className="text-[9px] font-black text-amber-600">₦{entry.pricePerKg.toLocaleString()}</p>
-                                </div>
+                                
+                                {entry.deductions && (
+                                  <div className="flex flex-wrap gap-2 px-1">
+                                    {((entry.deductions.moistureActual - entry.deductions.moistureBenchmark) * (entry.grossWeight || 0) / 100) > 0 && (
+                                      <span className="text-[8px] text-slate-500">
+                                        Moisture: <span className="font-bold text-rose-500">{(((entry.deductions.moistureActual - entry.deductions.moistureBenchmark) * (entry.grossWeight || 0)) / 100).toFixed(2)}kg</span>
+                                      </span>
+                                    )}
+                                    {entry.deductions.tareWeight > 0 && (
+                                      <span className="text-[8px] text-slate-500">
+                                        Tare: <span className="font-bold text-rose-500">{entry.deductions.tareWeight}kg</span>
+                                      </span>
+                                    )}
+                                    {entry.deductions.moldWeight > 0 && (
+                                      <span className="text-[8px] text-slate-500">
+                                        Mold: <span className="font-bold text-rose-500">{entry.deductions.moldWeight}kg</span>
+                                      </span>
+                                    )}
+                                    {entry.deductions.otherDeduction > 0 && (
+                                      <span className="text-[8px] text-slate-500">
+                                        Other: <span className="font-bold text-rose-500">{entry.deductions.otherDeduction}kg</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -549,16 +586,16 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                         <div className="text-right shrink-0 ml-4">
                           <p className={cn(
                             "text-base font-black leading-none",
-                            entry.credit > 0 ? "text-emerald-600" : "text-rose-600"
+                            (entry.credit || 0) > 0 ? "text-emerald-600" : "text-rose-600"
                           )}>
-                            {entry.credit > 0 ? '+' : '-'}₦{(entry.debit || entry.credit).toLocaleString()}
+                            {(entry.credit || 0) > 0 ? '+' : '-'}₦{((entry.debit || 0) || (entry.credit || 0)).toLocaleString()}
                           </p>
                           <p className="text-[8px] text-slate-400 uppercase font-bold tracking-tighter mt-1">
-                            {entry.credit > 0 ? 'Purchase' : 'Payment/Charge'}
+                            {(entry.credit || 0) > 0 ? 'Purchase' : 'Payment/Charge'}
                           </p>
                           <div className="mt-2 pt-1 border-t border-slate-100">
                             <p className="text-[7px] text-slate-400 uppercase font-bold">Balance</p>
-                            <p className="text-[10px] font-black text-slate-600">₦{entry.runningBalance.toLocaleString()}</p>
+                            <p className="text-[10px] font-black text-slate-600">₦{(entry.runningBalance || 0).toLocaleString()}</p>
                           </div>
                         </div>
                       </div>
@@ -595,7 +632,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                       </div>
                       <div>
                         <p className="text-sm font-bold text-slate-900">{bt.type === 'ISSUE' ? 'Issued Bags' : 'Returned Bags'}</p>
-                        <p className="text-[10px] text-slate-400">{new Date(bt.date).toLocaleDateString()} • Ref: {bt.reference}</p>
+                        <p className="text-[10px] text-slate-400">{bt.date ? new Date(bt.date).toLocaleDateString() : 'N/A'} • Ref: {bt.reference || 'N/A'}</p>
                       </div>
                     </div>
                     <div className="text-right">
@@ -603,7 +640,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                         "text-lg font-black",
                         bt.type === 'ISSUE' ? "text-blue-600" : "text-slate-600"
                       )}>
-                        {bt.type === 'ISSUE' ? '+' : '-'}{bt.quantity}
+                        {bt.type === 'ISSUE' ? '+' : '-'}{(bt.quantity || 0)}
                       </p>
                     </div>
                   </div>
@@ -636,11 +673,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                         </div>
                         <div>
                           <p className="text-sm font-bold text-slate-900">{p.method}</p>
-                          <p className="text-[10px] text-slate-400">{new Date(p.date).toLocaleDateString()} • {p.description}</p>
+                          <p className="text-[10px] text-slate-400">{p.date ? new Date(p.date).toLocaleDateString() : 'N/A'} • {p.description || 'N/A'}</p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-lg font-black text-emerald-600">₦{p.amount.toLocaleString()}</p>
+                        <p className="text-lg font-black text-emerald-600">₦{(p.amount || 0).toLocaleString()}</p>
                         <p className="text-[9px] text-slate-400 uppercase tracking-tighter">Paid</p>
                       </div>
                     </div>

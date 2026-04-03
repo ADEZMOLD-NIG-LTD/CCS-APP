@@ -22,26 +22,42 @@ import AnalyticsModule from './components/AnalyticsModule';
 import ReportsModule from './components/ReportsModule';
 import SuperAdminModule from './components/SuperAdminModule';
 import LoginPage from './components/LoginPage';
+import ChangePasswordPage from './components/ChangePasswordPage';
+import Toast from './components/Toast';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin';
 
 function AppContent() {
-  const { user, profile, company, loading, signIn, logout, registerCompany, signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode } = useAuth();
+  const { 
+    user, profile, company, loading, signIn, logout, registerCompany, 
+    signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode,
+    mustChangePassword,
+    errorMessage, setErrorMessage, successMessage, setSuccessMessage
+  } = useAuth();
   const [activeModule, setActiveModule] = useState<Module>('dashboard');
   const [newCompanyName, setNewCompanyName] = useState('');
   const [showDemoIntro, setShowDemoIntro] = useState(true);
+  const [showMenu, setShowMenu] = useState(false);
 
-  console.log('AppContent: State', { loading, user: user?.uid, isDemoMode, showDemoIntro });
+  console.log('AppContent: State', { loading, user: user?.uid, isDemoMode, showDemoIntro, mustChangePassword });
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
         <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Initializing System...</p>
+        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Connecting to secure database...</p>
       </div>
     );
+  }
+
+  if (!user) {
+    return <LoginPage onSignIn={signIn} onSignInAsDemo={signInAsDemo} />;
+  }
+
+  if (mustChangePassword) {
+    return <ChangePasswordPage />;
   }
 
   const navItems = [
@@ -52,16 +68,12 @@ function AppContent() {
     { id: 'warehouses', icon: Building2, label: 'Stores' },
     { id: 'purchases', icon: ShoppingCart, label: 'Buy' },
     { id: 'sales', icon: TrendingUp, label: 'Sales' },
-    { id: 'journal', icon: Receipt, label: 'Journal', hidden: !isAccount },
+    { id: 'journal', icon: Receipt, label: 'Journal', hidden: !isAccount && !isAuditor },
     { id: 'staff', icon: Users, label: 'Staff', hidden: !isAdmin && !isAccount },
     { id: 'analytics', icon: BarChart3, label: 'Data', hidden: !isAdmin && !isAuditor },
     { id: 'reports', icon: FileText, label: 'Docs' },
     { id: 'superadmin', icon: Settings, label: 'Admin', hidden: !isSuperAdmin },
   ].filter(item => !item.hidden);
-
-  if (!user) {
-    return <LoginPage onSignIn={signIn} onSignInAsDemo={signInAsDemo} />;
-  }
 
   if (user && isDemoMode && showDemoIntro) {
     return (
@@ -177,8 +189,131 @@ function AppContent() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
+      <AnimatePresence>
+        {successMessage && (
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Global Header */}
+      <header className="bg-white border-b border-slate-200 px-4 py-3 flex justify-between items-center z-50 shadow-sm shrink-0 relative">
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setShowMenu(!showMenu)}
+            className={`p-2 rounded-xl transition-all ${showMenu ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-slate-100 text-slate-600'}`}
+          >
+            <Menu size={24} />
+          </button>
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveModule('dashboard')}>
+            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg rotate-3">
+              <LayoutDashboard size={24} className="-rotate-3" />
+            </div>
+            <div className="flex flex-col">
+              <h1 className="text-sm font-black text-slate-900 tracking-tight leading-tight uppercase">
+                {company?.name || 'CCS System'}
+              </h1>
+              <div className="flex items-center gap-1.5">
+                <div className={`w-1.5 h-1.5 rounded-full ${isDemoMode ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
+                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                  {isDemoMode ? 'Training Mode' : 'Live System'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div 
+          onClick={() => { setActiveModule('settings'); setShowMenu(false); }}
+          className="flex items-center gap-3 pl-3 border-l border-slate-100 cursor-pointer group"
+        >
+          <div className="text-right hidden sm:block">
+            <p className="text-[11px] font-black text-slate-900 leading-none group-hover:text-indigo-600 transition-colors">{profile?.displayName}</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">{profile?.role}</p>
+          </div>
+          <div className="w-9 h-9 bg-slate-100 text-slate-600 rounded-xl flex items-center justify-center font-black text-xs border border-slate-200 group-hover:bg-indigo-50 group-hover:text-indigo-600 group-hover:border-indigo-100 transition-all">
+            {profile?.displayName?.charAt(0)}
+          </div>
+        </div>
+
+        {/* Dropdown Menu */}
+        <AnimatePresence>
+          {showMenu && (
+            <>
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowMenu(false)}
+                className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40"
+              />
+              <motion.div
+                initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                className="absolute top-full left-4 mt-2 w-64 bg-white rounded-3xl shadow-2xl border border-slate-200 z-50 overflow-hidden flex flex-col max-h-[calc(100vh-100px)]"
+              >
+                <div className="p-2 grid grid-cols-1 gap-1 overflow-y-auto flex-1 custom-scrollbar">
+                  {navItems.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => {
+                        setActiveModule(item.id as Module);
+                        setShowMenu(false);
+                      }}
+                      className={`flex items-center gap-3 w-full p-3 rounded-2xl transition-all ${
+                        activeModule === item.id 
+                          ? 'bg-indigo-50 text-indigo-600' 
+                          : 'hover:bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        activeModule === item.id ? 'bg-indigo-100' : 'bg-slate-100'
+                      }`}>
+                        <item.icon size={20} />
+                      </div>
+                      <span className="text-sm font-bold uppercase tracking-tight">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="p-2 border-t border-slate-100 bg-slate-50 shrink-0">
+                  <button
+                    onClick={() => {
+                      setActiveModule('settings');
+                      setShowMenu(false);
+                    }}
+                    className={`flex items-center gap-3 w-full p-3 rounded-2xl transition-all ${
+                      activeModule === 'settings' 
+                        ? 'bg-indigo-50 text-indigo-600' 
+                        : 'hover:bg-white text-slate-600'
+                    }`}
+                  >
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                      activeModule === 'settings' ? 'bg-indigo-100' : 'bg-white border border-slate-100'
+                    }`}>
+                      <Settings size={20} />
+                    </div>
+                    <span className="text-sm font-bold uppercase tracking-tight">User Settings</span>
+                  </button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </header>
+
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto pb-20">
+      <main className="flex-1 overflow-y-auto">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeModule}
@@ -235,43 +370,6 @@ function AppContent() {
           </motion.div>
         </AnimatePresence>
       </main>
-
-      {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 py-2 flex justify-around items-center z-50 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setActiveModule(item.id as Module)}
-            className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 ${
-              activeModule === item.id 
-                ? 'text-indigo-600 bg-indigo-50 scale-110' 
-                : 'text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            <item.icon size={20} strokeWidth={activeModule === item.id ? 2.5 : 2} />
-            <span className={`text-[10px] font-bold uppercase tracking-tighter ${
-              activeModule === item.id ? 'opacity-100' : 'opacity-60'
-            }`}>
-              {item.label}
-            </span>
-          </button>
-        ))}
-        <button
-          onClick={() => setActiveModule('settings')}
-          className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all duration-300 ${
-            activeModule === 'settings' 
-              ? 'text-indigo-600 bg-indigo-50 scale-110' 
-              : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Settings size={20} strokeWidth={activeModule === 'settings' ? 2.5 : 2} />
-          <span className={`text-[10px] font-bold uppercase tracking-tighter ${
-            activeModule === 'settings' ? 'opacity-100' : 'opacity-60'
-          }`}>
-            User
-          </span>
-        </button>
-      </nav>
     </div>
   );
 }

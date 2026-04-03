@@ -41,38 +41,18 @@ import { twMerge } from 'tailwind-merge';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
+import { cn } from '../lib/utils';
 
 const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
-}
 
 export default function AnalyticsModule() {
   const { profile } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [timeRange, setTimeRange] = useState<'7D' | '30D' | 'ALL'>('30D');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Load Data from Firestore
   useEffect(() => {
@@ -86,7 +66,7 @@ export default function AnalyticsModule() {
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Transaction);
       setTransactions(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
     const qJournal = query(
       collection(db, 'journal'), 
@@ -96,7 +76,7 @@ export default function AnalyticsModule() {
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as JournalEntry);
       setJournal(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'journal'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
     return () => {
       unsubscribeTx();
@@ -172,6 +152,15 @@ export default function AnalyticsModule() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
+      <AnimatePresence>
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
+        )}
+      </AnimatePresence>
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-xl font-bold text-slate-900">Advanced Analytics</h1>

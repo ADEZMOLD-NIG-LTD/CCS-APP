@@ -175,6 +175,7 @@
       "properties": {
         "id": { "type": "string" },
         "companyId": { "type": "string" },
+        "warehouseId": { "type": "string" },
         "date": { "type": "string", "format": "date-time" },
         "type": { "type": "string", "enum": ["INFLOW", "OUTFLOW"] },
         "category": { "type": "string" },
@@ -183,7 +184,7 @@
         "supplierId": { "type": "string" },
         "paymentMethod": { "type": "string", "enum": ["CASH", "BANK_TRANSFER"] }
       },
-      "required": ["id", "companyId", "date", "type", "category", "amount"]
+      "required": ["id", "companyId", "warehouseId", "date", "type", "category", "amount"]
     },
     "Buyer": {
       "title": "Buyer",

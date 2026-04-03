@@ -6,7 +6,7 @@ import { Company } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function SuperAdminModule() {
-  const { approveCompany } = useAuth();
+  const { approveCompany, disapproveCompany } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -69,7 +69,16 @@ export default function SuperAdminModule() {
                 )}
               </div>
 
-              {!company.isApproved && (
+              {company.isApproved ? (
+                <div className="mt-4 pt-4 border-t border-slate-50">
+                  <button 
+                    onClick={() => disapproveCompany(company.id)}
+                    className="w-full bg-rose-50 text-rose-600 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
+                  >
+                    <XCircle size={18} /> Disapprove Registration
+                  </button>
+                </div>
+              ) : (
                 <div className="mt-4 pt-4 border-t border-slate-50">
                   <button 
                     onClick={() => approveCompany(company.id)}

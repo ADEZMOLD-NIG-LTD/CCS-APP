@@ -22,36 +22,16 @@ import {
   DollarSign
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { JournalEntry, Supplier, Buyer } from '../types';
+import { JournalEntry, Supplier, Buyer, Warehouse } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
-}
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
+import ConfirmModal from './ConfirmModal';
+import { cn } from '../lib/utils';
 
 const INFLOW_CATEGORIES = [
   'CAPITAL',
@@ -74,14 +54,18 @@ const OUTFLOW_CATEGORIES = [
 ];
 
 export default function JournalModule() {
-  const { profile, isStaff, isAccount, isAdmin } = useAuth();
+  const { profile, isStaff, isAccount, isAdmin, canPostTransactions } = useAuth();
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [buyers, setBuyers] = useState<Buyer[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [entryType, setEntryType] = useState<'INFLOW' | 'OUTFLOW'>('OUTFLOW');
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
 
   // Success message auto-hide
   useEffect(() => {
@@ -105,7 +89,7 @@ export default function JournalModule() {
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
       setEntries(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'journal'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
     const qSuppliers = query(
       collection(db, 'suppliers'), 
@@ -115,7 +99,7 @@ export default function JournalModule() {
     const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
       setSuppliers(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'suppliers'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers')));
 
     const qBuyers = query(
       collection(db, 'buyers'), 
@@ -125,18 +109,35 @@ export default function JournalModule() {
     const unsubscribeBuyers = onSnapshot(qBuyers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Buyer));
       setBuyers(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'buyers'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyers')));
+
+    const qWarehouses = query(
+      collection(db, 'warehouses'),
+      where('companyId', '==', profile.companyId)
+    );
+    const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
+      setWarehouses(data);
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     return () => {
       unsubscribeJournal();
       unsubscribeSuppliers();
       unsubscribeBuyers();
+      unsubscribeWarehouses();
     };
   }, [profile?.companyId]);
 
+  // Default selected warehouse for staff
+  useEffect(() => {
+    if (profile?.assignedWarehouseId && !isAdmin) {
+      setSelectedWarehouseId(profile.assignedWarehouseId);
+    }
+  }, [profile, isAdmin]);
+
   const handleAddEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!isStaff || submitting || !profile?.companyId) return;
+    if (!canPostTransactions || submitting || !profile?.companyId) return;
 
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
@@ -144,10 +145,12 @@ export default function JournalModule() {
     
     const supplierId = formData.get('supplierId') as string;
     const buyerId = formData.get('buyerId') as string;
+    const warehouseId = formData.get('warehouseId') as string;
     
     const newEntry: JournalEntry = {
       id,
       companyId: profile.companyId,
+      warehouseId: warehouseId || profile.assignedWarehouseId || '',
       date: new Date().toISOString(),
       type: entryType,
       category: formData.get('category') as string,
@@ -169,7 +172,7 @@ export default function JournalModule() {
       setIsAdding(false);
       setSuccessMessage(`${entryType === 'INFLOW' ? 'Inflow' : 'Outflow'} successfully recorded!`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `journal/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `journal/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -177,51 +180,76 @@ export default function JournalModule() {
 
   const deleteEntry = async (id: string) => {
     if (!isAdmin) {
-      alert('Only Admins can delete journal entries.');
+      setErrorMessage('Only Admins can delete journal entries.');
       return;
     }
+    setDeleteConfirmId(id);
+  };
 
-    if (confirm('Are you sure you want to delete this entry?')) {
-      try {
-        await deleteDoc(doc(db, 'journal', id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `journal/${id}`);
-      }
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return;
+    try {
+      await deleteDoc(doc(db, 'journal', deleteConfirmId));
+      setSuccessMessage('Journal entry deleted successfully!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `journal/${deleteConfirmId}`));
+    } finally {
+      setDeleteConfirmId(null);
     }
   };
 
-  const filteredEntries = entries.filter(e => 
-    filterType === 'ALL' || e.type === filterType
-  );
+  const filteredEntries = entries.filter(e => {
+    const matchesType = filterType === 'ALL' || e.type === filterType;
+    const matchesWarehouse = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
+    return matchesType && matchesWarehouse;
+  });
 
   const totalInflow = useMemo(() => 
-    entries.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + e.amount, 0), 
-  [entries]);
+    entries.filter(e => {
+      const matchesType = e.type === 'INFLOW';
+      const matchesWarehouse = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
+      return matchesType && matchesWarehouse;
+    }).reduce((sum, e) => sum + e.amount, 0), 
+  [entries, selectedWarehouseId]);
 
   const totalOutflow = useMemo(() => 
-    entries.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + e.amount, 0), 
-  [entries]);
+    entries.filter(e => {
+      const matchesType = e.type === 'OUTFLOW';
+      const matchesWarehouse = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
+      return matchesType && matchesWarehouse;
+    }).reduce((sum, e) => sum + e.amount, 0), 
+  [entries, selectedWarehouseId]);
 
   const netCash = totalInflow - totalOutflow;
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      {/* Success Toast */}
       <AnimatePresence>
         {successMessage && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-24 left-4 right-4 bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl z-[100] flex items-center gap-3"
-          >
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <Plus size={18} className="rotate-45" />
-            </div>
-            <p className="font-bold text-sm">{successMessage}</p>
-          </motion.div>
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
         )}
       </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={!!deleteConfirmId}
+        title="Delete Journal Entry"
+        message="Are you sure you want to delete this journal entry? This action cannot be undone."
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
+        confirmText="Delete"
+        type="danger"
+      />
 
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
@@ -252,6 +280,22 @@ export default function JournalModule() {
             </button>
           ))}
         </div>
+
+        {isAdmin && (
+          <div className="mt-4">
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Warehouse Filter (Harmonize)</label>
+            <select 
+              value={selectedWarehouseId}
+              onChange={(e) => setSelectedWarehouseId(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none"
+            >
+              <option value="ALL">ALL WAREHOUSES (HARMONIZED)</option>
+              {warehouses.map(w => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
@@ -305,6 +349,21 @@ export default function JournalModule() {
                   <select name="category" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
                     {(entryType === 'INFLOW' ? INFLOW_CATEGORIES : OUTFLOW_CATEGORIES).map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                  <select 
+                    name="warehouseId" 
+                    required 
+                    defaultValue={profile?.assignedWarehouseId || ''}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                  >
+                    <option value="" disabled>Select Warehouse</option>
+                    {warehouses.map(w => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
                     ))}
                   </select>
                 </div>
@@ -440,6 +499,10 @@ export default function JournalModule() {
                             <div className="flex items-center gap-2 mt-0.5">
                               <Calendar size={10} className="text-slate-300" />
                               <p className="text-[10px] text-slate-400">{new Date(entry.date).toLocaleDateString()}</p>
+                              <span className="text-[10px] text-slate-300">•</span>
+                              <p className="text-[10px] font-bold text-indigo-400 uppercase">
+                                {warehouses.find(w => w.id === entry.warehouseId)?.name || 'Unknown Store'}
+                              </p>
                             </div>
                           </div>
                         </div>

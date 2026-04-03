@@ -27,8 +27,10 @@ import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
+import { reportFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -40,7 +42,7 @@ interface BuyerDetailsProps {
 }
 
 export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
-  const { profile } = useAuth();
+  const { profile, errorMessage, setErrorMessage } = useAuth();
   const [sales, setSales] = useState<Transaction[]>([]);
   const [payments, setPayments] = useState<JournalEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,7 +62,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
     const unsubscribeSales = onSnapshot(qSales, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
       setSales(data);
-    });
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
     // Load Payments (Inflows linked to this buyer)
     const qPayments = query(
@@ -73,7 +75,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
       setPayments(data);
-    });
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
     return () => {
       unsubscribeSales();
@@ -87,7 +89,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         id: s.id,
         date: s.date,
         type: 'SALE' as const,
-        description: `${s.commodity} Sale (${s.netWeight.toFixed(2)}kg @ ₦${s.pricePerKg?.toLocaleString()})`,
+        description: `${s.commodity} Sale (${(s.netWeight || 0).toFixed(2)}kg @ ₦${(s.pricePerKg || 0).toLocaleString()})`,
         debit: s.totalValue || 0,
         credit: 0,
         reference: s.referenceId
@@ -98,17 +100,17 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         type: 'PAYMENT' as const,
         description: p.description || 'Cash Payment',
         debit: 0,
-        credit: p.amount,
+        credit: p.amount || 0,
         reference: p.category
       }))
     ];
 
-    return entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return entries.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
   }, [sales, payments]);
 
   const stats = useMemo(() => {
     const totalSales = sales.reduce((sum, s) => sum + (s.totalValue || 0), 0);
-    const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0);
+    const totalPayments = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
     const currentBalance = (buyer.previousBalance || 0) + totalSales - totalPayments;
 
     return { totalSales, totalPayments, currentBalance };
@@ -134,12 +136,12 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
     
     doc.setFontSize(12);
     doc.setTextColor(15, 23, 42);
-    doc.text(buyer.name.toUpperCase(), 20, 45);
+    doc.text((buyer.name || 'UNKNOWN').toUpperCase(), 20, 45);
     
     doc.setFontSize(9);
     doc.setTextColor(100);
-    doc.text(`Phone: ${buyer.phone}`, 20, 52);
-    doc.text(`Location: ${buyer.location}`, 20, 58);
+    doc.text(`Phone: ${buyer.phone || 'N/A'}`, 20, 52);
+    doc.text(`Location: ${buyer.location || 'N/A'}`, 20, 58);
 
     // Summary Stats in PDF
     doc.setFontSize(10);
@@ -147,12 +149,12 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
     doc.text('SUMMARY', pageWidth - 80, 45);
     doc.setFontSize(9);
     doc.text(`Opening Balance: NGN ${(buyer.previousBalance || 0).toLocaleString()}`, pageWidth - 80, 52);
-    doc.text(`Total Sales: NGN ${stats.totalSales.toLocaleString()}`, pageWidth - 80, 58);
-    doc.text(`Total Payments: NGN ${stats.totalPayments.toLocaleString()}`, pageWidth - 80, 64);
+    doc.text(`Total Sales: NGN ${(stats.totalSales || 0).toLocaleString()}`, pageWidth - 80, 58);
+    doc.text(`Total Payments: NGN ${(stats.totalPayments || 0).toLocaleString()}`, pageWidth - 80, 64);
     
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.text(`CURRENT BALANCE: NGN ${stats.currentBalance.toLocaleString()}`, pageWidth - 80, 72);
+    doc.text(`CURRENT BALANCE: NGN ${(stats.currentBalance || 0).toLocaleString()}`, pageWidth - 80, 72);
     doc.setFont('helvetica', 'normal');
 
     // Table
@@ -161,20 +163,24 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       // Note: ledgerEntries is sorted desc, so we need to calculate from bottom up or use a different approach
       // For simplicity in PDF, let's just show the entries
       return [
-        new Date(entry.date).toLocaleDateString(),
-        entry.description,
-        entry.reference,
-        entry.debit > 0 ? `NGN ${entry.debit.toLocaleString()}` : '-',
-        entry.credit > 0 ? `NGN ${entry.credit.toLocaleString()}` : '-',
+        entry.date ? new Date(entry.date).toLocaleDateString() : 'N/A',
+        entry.description || '',
+        entry.reference || '',
+        (entry.debit || 0) > 0 ? `NGN ${(entry.debit || 0).toLocaleString()}` : '-',
+        (entry.credit || 0) > 0 ? `NGN ${(entry.credit || 0).toLocaleString()}` : '-',
       ];
     });
 
-    (doc as any).autoTable({
+    autoTable(doc, {
       startY: 80,
       head: [['Date', 'Description', 'Reference', 'Debit (Sales)', 'Credit (Payments)']],
       body: tableData,
+      foot: [
+        ['TOTAL', '', '', `NGN ${(stats.totalSales || 0).toLocaleString()}`, `NGN ${(stats.totalPayments || 0).toLocaleString()}`]
+      ],
       theme: 'striped',
       headStyles: { fillColor: [15, 23, 42], textColor: 255, fontSize: 9 },
+      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
       bodyStyles: { fontSize: 8 },
       columnStyles: {
         0: { cellWidth: 30 },
@@ -190,6 +196,15 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
+      <AnimatePresence>
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
+        )}
+      </AnimatePresence>
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -212,18 +227,18 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100">
             <p className="text-[8px] font-bold text-blue-600 uppercase mb-1">Total Sales</p>
-            <p className="text-sm font-black text-blue-900">₦{stats.totalSales.toLocaleString()}</p>
+            <p className="text-sm font-black text-blue-900">₦{(stats.totalSales || 0).toLocaleString()}</p>
           </div>
           <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-100">
             <p className="text-[8px] font-bold text-emerald-600 uppercase mb-1">Payments</p>
-            <p className="text-sm font-black text-emerald-900">₦{stats.totalPayments.toLocaleString()}</p>
+            <p className="text-sm font-black text-emerald-900">₦{(stats.totalPayments || 0).toLocaleString()}</p>
           </div>
           <div className={cn(
             "p-3 rounded-2xl border shadow-sm",
-            stats.currentBalance >= 0 ? "bg-slate-900 border-slate-800 text-white" : "bg-rose-600 border-rose-500 text-white"
+            (stats.currentBalance || 0) >= 0 ? "bg-slate-900 border-slate-800 text-white" : "bg-rose-600 border-rose-500 text-white"
           )}>
             <p className="text-[8px] font-bold uppercase mb-1 opacity-70">Balance</p>
-            <p className="text-sm font-black">₦{stats.currentBalance.toLocaleString()}</p>
+            <p className="text-sm font-black">₦{(stats.currentBalance || 0).toLocaleString()}</p>
           </div>
         </div>
       </header>
@@ -233,15 +248,15 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-4">
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Phone size={14} className="text-slate-400" />
-            <span className="font-medium">{buyer.phone}</span>
+            <span className="font-medium">{buyer.phone || 'N/A'}</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <MapPin size={14} className="text-slate-400" />
-            <span className="font-medium">{buyer.location}</span>
+            <span className="font-medium">{buyer.location || 'N/A'}</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Calendar size={14} className="text-slate-400" />
-            <span className="font-medium">Joined: {new Date(buyer.createdAt).toLocaleDateString()}</span>
+            <span className="font-medium">Joined: {buyer.createdAt ? new Date(buyer.createdAt).toLocaleDateString() : 'N/A'}</span>
           </div>
         </div>
 
@@ -269,9 +284,9 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
               <div className="text-right">
                 <p className={cn(
                   "text-sm font-black",
-                  buyer.previousBalance >= 0 ? "text-blue-600" : "text-rose-600"
+                  (buyer.previousBalance || 0) >= 0 ? "text-blue-600" : "text-rose-600"
                 )}>
-                  {buyer.previousBalance >= 0 ? '+' : ''}₦{buyer.previousBalance.toLocaleString()}
+                  {(buyer.previousBalance || 0) >= 0 ? '+' : ''}₦{(buyer.previousBalance || 0).toLocaleString()}
                 </p>
               </div>
             </div>
@@ -299,16 +314,16 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
                             <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 uppercase">
                               {entry.reference}
                             </span>
-                            <span className="text-[10px] text-slate-400">{new Date(entry.date).toLocaleDateString()}</span>
+                            <span className="text-[10px] text-slate-400">{entry.date ? new Date(entry.date).toLocaleDateString() : 'N/A'}</span>
                           </div>
                         </div>
                       </div>
                       <div className="text-right">
-                        {entry.debit > 0 && (
-                          <p className="text-sm font-black text-blue-600">+₦{entry.debit.toLocaleString()}</p>
+                        {(entry.debit || 0) > 0 && (
+                          <p className="text-sm font-black text-blue-600">+₦{(entry.debit || 0).toLocaleString()}</p>
                         )}
-                        {entry.credit > 0 && (
-                          <p className="text-sm font-black text-emerald-600">-₦{entry.credit.toLocaleString()}</p>
+                        {(entry.credit || 0) > 0 && (
+                          <p className="text-sm font-black text-emerald-600">-₦{(entry.credit || 0).toLocaleString()}</p>
                         )}
                         <p className="text-[9px] text-slate-400 uppercase font-bold">
                           {entry.type === 'SALE' ? 'Debit' : 'Credit'}

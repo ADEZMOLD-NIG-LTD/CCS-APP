@@ -23,6 +23,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, query, orderBy, limit, where } from 'firebase/firestore';
 import { Transaction, Payment, JournalEntry, Supplier } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { handleFirestoreError, OperationType } from '../lib/firestore';
 
 interface DashboardProps {
   onNavigate: (module: any) => void;
@@ -46,7 +47,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       setTransactions(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction)));
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
 
     const qPayments = query(
       collection(db, 'payments'), 
@@ -56,7 +57,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     );
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
       setPayments(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment)));
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'payments'));
 
     const qJournal = query(
       collection(db, 'journal'), 
@@ -66,7 +67,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     );
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       setJournal(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry)));
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'journal'));
 
     const qSuppliers = query(
       collection(db, 'suppliers'),
@@ -74,7 +75,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     );
     const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
       setSuppliers(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier)));
-    });
+    }, (error) => handleFirestoreError(error, OperationType.LIST, 'suppliers'));
 
     return () => {
       unsubscribeTx();
@@ -153,18 +154,6 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
   return (
     <div className="p-4 space-y-6 bg-slate-50 min-h-full pb-24">
-      <header className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-sm text-slate-500">Welcome back</p>
-        </div>
-        <div className="bg-white p-2 rounded-full shadow-sm border border-slate-200">
-          <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700 font-bold">
-            {profile?.name?.charAt(0) || 'U'}
-          </div>
-        </div>
-      </header>
-
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4">
         <motion.div

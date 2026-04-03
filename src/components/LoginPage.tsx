@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
-import { LogIn, LayoutDashboard, Package, Shield, BarChart3, Users, Building2, ArrowRight } from 'lucide-react';
-import { motion } from 'motion/react';
+import React, { useState } from 'react';
+import { LogIn, LayoutDashboard, Package, Shield, BarChart3, Users, Building2, ArrowRight, AlertCircle, CheckCircle2, WifiOff, Mail, Lock, User } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface LoginPageProps {
   onSignIn: () => void;
@@ -13,7 +14,30 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) {
-  console.log('LoginPage: Rendered');
+  const { 
+    isFirestoreConnected, connectionError, signInWithEmail, signUpWithEmail, 
+    resetPassword, errorMessage, setErrorMessage, successMessage, setSuccessMessage 
+  } = useAuth();
+  
+  const [view, setView] = useState<'login' | 'signup' | 'forgot'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    if (view === 'login') {
+      await signInWithEmail(email, password);
+    } else if (view === 'signup') {
+      await signUpWithEmail(email, password, name);
+    } else if (view === 'forgot') {
+      await resetPassword(email);
+    }
+    setIsSubmitting(false);
+  };
+
   return (
     <div className="min-h-screen bg-white flex flex-col lg:flex-row overflow-hidden">
       {/* Left Side - Hero / Branding */}
@@ -67,49 +91,167 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
       </div>
 
       {/* Right Side - Login Options */}
-      <div className="lg:w-1/2 flex items-center justify-center p-8 bg-slate-50">
+      <div className="lg:w-1/2 flex items-center justify-center p-8 bg-slate-50 overflow-y-auto">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="w-full max-w-md space-y-8"
+          className="w-full max-w-md space-y-8 py-12"
         >
           <div className="text-center lg:text-left">
-            <h2 className="text-3xl font-black text-slate-900 mb-2">Welcome Back</h2>
-            <p className="text-slate-500">Sign in to access your company dashboard and manage your operations.</p>
+            <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight uppercase">
+              {view === 'login' ? 'Welcome Back' : view === 'signup' ? 'Create Account' : 'Reset Password'}
+            </h2>
+            <p className="text-slate-500 text-sm">
+              {view === 'login' 
+                ? 'Sign in to access your company dashboard and manage your operations.' 
+                : view === 'signup' 
+                ? 'Register your account to start managing your commodity business.' 
+                : 'Enter your email to receive a password reset link.'}
+            </p>
           </div>
 
-          <div className="space-y-4">
-            <button 
-              onClick={onSignIn}
-              className="w-full bg-slate-900 text-white p-5 rounded-2xl font-bold shadow-xl flex items-center justify-center gap-4 hover:bg-slate-800 active:scale-[0.98] transition-all group"
-            >
-              <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center group-hover:bg-white/20 transition-colors">
-                <LogIn size={18} />
+          <div className="space-y-6">
+            {!isFirestoreConnected && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+                <div className="text-amber-600 shrink-0 mt-0.5">
+                  <WifiOff size={18} />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-amber-900">System Offline</p>
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs text-amber-700 leading-relaxed">
+                      {connectionError || "Connecting to secure database... Please wait."}
+                    </p>
+                    <button 
+                      onClick={() => window.location.reload()}
+                      className="text-[10px] font-bold uppercase tracking-widest text-amber-600 hover:text-amber-800 transition-colors text-left"
+                    >
+                      Tap to retry connection
+                    </button>
+                  </div>
+                </div>
               </div>
-              <span>Sign in with Google</span>
-              <ArrowRight size={18} className="ml-auto opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
-            </button>
+            )}
+
+            {/* Email/Password Form */}
+            <form onSubmit={handleEmailSubmit} className="space-y-4">
+              {view === 'signup' && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-4 mb-1 block">Full Name</label>
+                  <div className="relative">
+                    <User className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                      placeholder="John Doe"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-4 mb-1 block">Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input 
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                    placeholder="name@company.com"
+                  />
+                </div>
+              </div>
+
+              {view !== 'forgot' && (
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center ml-4 mr-1">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1 block">Password</label>
+                    {view === 'login' && (
+                      <button 
+                        type="button"
+                        onClick={() => setView('forgot')}
+                        className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 hover:text-indigo-800"
+                      >
+                        Forgot?
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <input 
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                      placeholder="••••••••"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button 
+                type="submit"
+                disabled={!isFirestoreConnected || isSubmitting}
+                className="w-full bg-indigo-600 text-white p-5 rounded-2xl font-bold shadow-xl flex items-center justify-center gap-4 active:scale-[0.98] transition-all group disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <span>{view === 'login' ? 'Sign In' : view === 'signup' ? 'Create Account' : 'Send Reset Link'}</span>
+                    <ArrowRight size={18} className="ml-auto opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                  </>
+                )}
+              </button>
+
+              <div className="text-center">
+                {view === 'login' ? (
+                  <p className="text-xs text-slate-500">
+                    Don't have an account? <button type="button" onClick={() => setView('signup')} className="text-indigo-600 font-bold hover:underline">Sign Up</button>
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    Already have an account? <button type="button" onClick={() => setView('login')} className="text-indigo-600 font-bold hover:underline">Sign In</button>
+                  </p>
+                )}
+              </div>
+            </form>
 
             <div className="relative py-4">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-slate-200"></div>
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-slate-50 px-4 text-slate-400 font-bold tracking-widest">Or try the system</span>
+                <span className="bg-slate-50 px-4 text-slate-400 font-bold tracking-widest">Or continue with</span>
               </div>
             </div>
 
-            <button 
-              onClick={onSignInAsDemo}
-              className="w-full bg-white text-slate-900 border-2 border-slate-200 p-5 rounded-2xl font-bold shadow-sm flex items-center justify-center gap-4 hover:border-indigo-500 hover:text-indigo-600 active:scale-[0.98] transition-all group"
-            >
-              <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-50 transition-colors">
+            <div className="grid grid-cols-2 gap-4">
+              <button 
+                onClick={onSignIn}
+                disabled={!isFirestoreConnected}
+                className={`p-5 rounded-2xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border-2 border-slate-200 hover:border-indigo-500 hover:text-indigo-600 disabled:opacity-50`}
+              >
+                <LogIn size={18} />
+                <span>Google</span>
+              </button>
+
+              <button 
+                onClick={onSignInAsDemo}
+                disabled={!isFirestoreConnected}
+                className={`p-5 rounded-2xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border-2 border-slate-200 hover:border-indigo-500 hover:text-indigo-600 disabled:opacity-50`}
+              >
                 <LayoutDashboard size={18} />
-              </div>
-              <span>Training Demo Mode</span>
-              <ArrowRight size={18} className="ml-auto opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
-            </button>
+                <span>Demo</span>
+              </button>
+            </div>
           </div>
 
           {/* Feature Highlights */}
@@ -119,17 +261,8 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
                 <Shield size={20} />
               </div>
               <div>
-                <h4 className="font-bold text-slate-900 text-sm">Secure & Compliant</h4>
-                <p className="text-xs text-slate-500 leading-relaxed">Enterprise-grade security with role-based access control for your staff.</p>
-              </div>
-            </div>
-            <div className="flex items-start gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
-              <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center shrink-0">
-                <BarChart3 size={20} />
-              </div>
-              <div>
-                <h4 className="font-bold text-slate-900 text-sm">Advanced Analytics</h4>
-                <p className="text-xs text-slate-500 leading-relaxed">Gain insights into your inventory, sales, and supplier performance instantly.</p>
+                <h4 className="font-bold text-slate-900 text-sm uppercase tracking-tight">Secure & Compliant</h4>
+                <p className="text-xs text-slate-500 leading-relaxed">Enterprise-grade security with password expiration and role-based access control.</p>
               </div>
             </div>
           </div>
@@ -147,3 +280,4 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
     </div>
   );
 }
+

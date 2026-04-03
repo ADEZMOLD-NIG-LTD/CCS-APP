@@ -17,26 +17,9 @@ import { Warehouse } from '../types';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
-}
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
+import ConfirmModal from './ConfirmModal';
 
 export default function WarehouseModule() {
   const { profile, company, isStaff, isAdmin } = useAuth();
@@ -44,6 +27,8 @@ export default function WarehouseModule() {
   const [isAdding, setIsAdding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   useEffect(() => {
     if (successMessage) {
@@ -63,7 +48,7 @@ export default function WarehouseModule() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
       setWarehouses(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'warehouses'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     return () => unsubscribe();
   }, [profile?.companyId]);
@@ -91,21 +76,29 @@ export default function WarehouseModule() {
       setIsAdding(false);
       setSuccessMessage('Warehouse successfully added!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `warehouses/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `warehouses/${id}`));
     } finally {
       setSubmitting(false);
     }
   };
 
   const deleteWarehouse = async (id: string) => {
-    if (!isAdmin) return;
-    if (confirm('Are you sure you want to delete this warehouse? This will not delete transactions associated with it.')) {
-      try {
-        await deleteDoc(doc(db, 'warehouses', id));
-        setSuccessMessage('Warehouse deleted.');
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `warehouses/${id}`);
-      }
+    if (!isAdmin) {
+      setErrorMessage('Only administrators can delete warehouses.');
+      return;
+    }
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return;
+    try {
+      await deleteDoc(doc(db, 'warehouses', deleteConfirmId));
+      setSuccessMessage('Warehouse deleted.');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `warehouses/${deleteConfirmId}`));
+    } finally {
+      setDeleteConfirmId(null);
     }
   };
 
@@ -113,17 +106,29 @@ export default function WarehouseModule() {
     <div className="flex flex-col h-full bg-slate-50">
       <AnimatePresence>
         {successMessage && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-24 left-4 right-4 bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl z-[100] flex items-center gap-3"
-          >
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <Plus size={18} className="rotate-45" />
-            </div>
-            <p className="font-bold text-sm">{successMessage}</p>
-          </motion.div>
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
+        )}
+        {deleteConfirmId && (
+          <ConfirmModal
+            isOpen={true}
+            title="Delete Warehouse"
+            message="Are you sure you want to delete this warehouse? This will not delete transactions associated with it."
+            onConfirm={confirmDelete}
+            onCancel={() => setDeleteConfirmId(null)}
+            confirmText="Delete"
+            type="danger"
+          />
         )}
       </AnimatePresence>
 

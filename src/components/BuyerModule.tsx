@@ -12,31 +12,11 @@ import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
+import ConfirmModal from './ConfirmModal';
+import { cn } from '../lib/utils';
 import BuyerDetails from './BuyerDetails';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
-}
 
 export default function BuyerModule() {
   const { profile, isStaff, isAdmin } = useAuth();
@@ -45,6 +25,9 @@ export default function BuyerModule() {
   const [searchQuery, setSearchQuery] = useState('');
   const [editingBuyer, setEditingBuyer] = useState<Buyer | null>(null);
   const [selectedBuyer, setSelectedBuyer] = useState<Buyer | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Load from Firestore
   useEffect(() => {
@@ -59,7 +42,7 @@ export default function BuyerModule() {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Buyer));
       setBuyers(data);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'buyers');
+      setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyers'));
     });
 
     return () => unsubscribe();
@@ -86,23 +69,29 @@ export default function BuyerModule() {
       await setDoc(doc(db, 'buyers', id), newBuyer);
       setIsAdding(false);
       setEditingBuyer(null);
+      setSuccessMessage(editingBuyer ? 'Buyer updated successfully!' : 'Buyer added successfully!');
     } catch (error) {
-      handleFirestoreError(error, editingBuyer ? OperationType.UPDATE : OperationType.CREATE, `buyers/${id}`);
+      setErrorMessage(reportFirestoreError(error, editingBuyer ? OperationType.UPDATE : OperationType.CREATE, `buyers/${id}`));
     }
   };
 
   const deleteBuyer = async (id: string) => {
     if (!isAdmin) {
-      alert('Only Admins can delete buyers.');
+      setErrorMessage('Only Admins can delete buyers.');
       return;
     }
+    setDeleteConfirmId(id);
+  };
 
-    if (confirm('Are you sure you want to delete this buyer?')) {
-      try {
-        await deleteDoc(doc(db, 'buyers', id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `buyers/${id}`);
-      }
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return;
+    try {
+      await deleteDoc(doc(db, 'buyers', deleteConfirmId));
+      setSuccessMessage('Buyer deleted successfully!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `buyers/${deleteConfirmId}`));
+    } finally {
+      setDeleteConfirmId(null);
     }
   };
 
@@ -118,6 +107,32 @@ export default function BuyerModule() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
+      <AnimatePresence>
+        {successMessage && (
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
+        )}
+      </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={!!deleteConfirmId}
+        title="Delete Buyer"
+        message="Are you sure you want to delete this buyer? This action cannot be undone."
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
+        confirmText="Delete"
+        type="danger"
+      />
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">

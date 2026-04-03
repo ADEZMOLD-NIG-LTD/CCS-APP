@@ -12,30 +12,10 @@ import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
-}
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
+import ConfirmModal from './ConfirmModal';
+import { cn } from '../lib/utils';
 
 import SupplierDetails from './SupplierDetails';
 
@@ -45,6 +25,8 @@ export default function SupplierModule() {
   const [isAdding, setIsAdding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Success message auto-hide
   useEffect(() => {
@@ -71,7 +53,7 @@ export default function SupplierModule() {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
       setSuppliers(data);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'suppliers');
+      setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers'));
     });
 
     return () => unsubscribe();
@@ -108,7 +90,7 @@ export default function SupplierModule() {
       setEditingSupplier(null);
       setSuccessMessage(editingSupplier ? 'Supplier updated successfully!' : 'Supplier added successfully!');
     } catch (error) {
-      handleFirestoreError(error, editingSupplier ? OperationType.UPDATE : OperationType.CREATE, `suppliers/${id}`);
+      setErrorMessage(reportFirestoreError(error, editingSupplier ? OperationType.UPDATE : OperationType.CREATE, `suppliers/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -116,16 +98,21 @@ export default function SupplierModule() {
 
   const deleteSupplier = async (id: string) => {
     if (!isAdmin) {
-      alert('Only Admins can delete suppliers.');
+      setErrorMessage('Only Admins can delete suppliers.');
       return;
     }
+    setDeleteConfirmId(id);
+  };
 
-    if (confirm('Are you sure you want to delete this supplier?')) {
-      try {
-        await deleteDoc(doc(db, 'suppliers', id));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.DELETE, `suppliers/${id}`);
-      }
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return;
+    try {
+      await deleteDoc(doc(db, 'suppliers', deleteConfirmId));
+      setSuccessMessage('Supplier deleted successfully!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `suppliers/${deleteConfirmId}`));
+    } finally {
+      setDeleteConfirmId(null);
     }
   };
 
@@ -144,19 +131,30 @@ export default function SupplierModule() {
       {/* Success Toast */}
       <AnimatePresence>
         {successMessage && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-24 left-4 right-4 bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl z-[100] flex items-center gap-3"
-          >
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <Plus size={18} className="rotate-45" />
-            </div>
-            <p className="font-bold text-sm">{successMessage}</p>
-          </motion.div>
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
         )}
       </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={!!deleteConfirmId}
+        title="Delete Supplier"
+        message="Are you sure you want to delete this supplier? This action cannot be undone."
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirmId(null)}
+        confirmText="Delete"
+        type="danger"
+      />
 
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">

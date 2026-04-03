@@ -7,10 +7,11 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
-  role: 'ADMIN' | 'ACCOUNT' | 'STAFF' | 'AUDITOR';
+  role: 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR';
   companyId: string;
   assignedWarehouseId?: string; // For staff assigned to specific warehouse
   createdAt: string;
+  lastPasswordUpdate?: string; // ISO string for password expiration tracking
 }
 
 export interface Company {
@@ -98,12 +99,12 @@ export interface Staff {
   companyId: string;
   name: string;
   email?: string;
-  role: 'ADMIN' | 'ACCOUNT' | 'STAFF' | 'AUDITOR';
+  role: 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR';
   phone: string;
   salary: number; // Basic Salary
   allowances?: number;
   joinedDate: string;
-  status: 'ACTIVE' | 'INACTIVE';
+  status: 'ACTIVE' | 'SUSPENDED' | 'DISMISSED' | 'INACTIVE';
   assignedWarehouseId?: string;
   bankName?: string;
   accountNumber?: string;
@@ -147,6 +148,7 @@ export interface Payroll {
 export interface JournalEntry {
   id: string;
   companyId: string;
+  warehouseId: string;
   date: string;
   type: 'INFLOW' | 'OUTFLOW';
   category: string;

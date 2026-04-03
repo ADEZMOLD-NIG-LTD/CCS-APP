@@ -12,29 +12,11 @@ import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
-}
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
 }
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
@@ -42,7 +24,7 @@ const PACKAGING: PackagingType[] = ['JUTE_BAG', 'NYLON_BAG'];
 const BENCHMARKS = { COCOA: 8, CASHEW: 10, PK: 8 };
 
 export default function InventoryModule() {
-  const { profile, isStaff } = useAuth();
+  const { profile, isStaff, isAdmin, canTransferStock } = useAuth();
   const [activeTab, setActiveTab] = useState<'COMMODITIES' | 'PACKAGING'>('COMMODITIES');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
@@ -52,9 +34,21 @@ export default function InventoryModule() {
   const [isTransferring, setIsTransferring] = useState(false);
   const [isTransferringBag, setIsTransferringBag] = useState(false);
   const [isAddingBag, setIsAddingBag] = useState(false);
+  const [transferSourceId, setTransferSourceId] = useState<string>('');
+  const [transferCommodity, setTransferCommodity] = useState<CommodityType>('COCOA');
+  const [transferBagSourceId, setTransferBagSourceId] = useState<string>('');
+  const [transferBagType, setTransferBagType] = useState<PackagingType>('JUTE_BAG');
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
+
+  // Default selected warehouse for staff
+  useEffect(() => {
+    if (profile?.assignedWarehouseId && !isAdmin) {
+      setSelectedWarehouseId(profile.assignedWarehouseId);
+    }
+  }, [profile, isAdmin]);
 
   // Success message auto-hide
   useEffect(() => {
@@ -88,7 +82,7 @@ export default function InventoryModule() {
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
       setTransactions(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
     const qSuppliers = query(
       collection(db, 'suppliers'), 
@@ -98,7 +92,7 @@ export default function InventoryModule() {
     const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
       setSuppliers(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'suppliers'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers')));
 
     const qWarehouses = query(
       collection(db, 'warehouses'), 
@@ -108,7 +102,7 @@ export default function InventoryModule() {
     const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
       setWarehouses(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'warehouses'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     const qBags = query(
       collection(db, 'bag_transactions'), 
@@ -118,7 +112,7 @@ export default function InventoryModule() {
     const unsubscribeBags = onSnapshot(qBags, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction));
       setBagTransactions(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'bag_transactions'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'bag_transactions')));
 
     return () => {
       unsubscribeTx();
@@ -190,11 +184,39 @@ export default function InventoryModule() {
     return summary;
   }, [bagTransactions, selectedWarehouseId]);
 
+  const getWarehouseStock = (warehouseId: string, commodityType: CommodityType) => {
+    return allTransactions.reduce((sum, tx) => {
+      if (tx.commodity !== commodityType) return sum;
+      if (tx.type === 'PURCHASE' && tx.warehouseId === warehouseId) return sum + tx.netWeight;
+      if (tx.type === 'SALE' && tx.warehouseId === warehouseId) return sum - tx.netWeight;
+      if (tx.type === 'TRANSFER') {
+        if (tx.sourceWarehouseId === warehouseId) return sum - tx.netWeight;
+        if (tx.destinationWarehouseId === warehouseId) return sum + tx.netWeight;
+      }
+      return sum;
+    }, 0);
+  };
+
+  const getWarehouseBagStock = (warehouseId: string, pkgType: PackagingType) => {
+    return bagTransactions.reduce((sum, tx) => {
+      if (tx.packagingType !== pkgType) return sum;
+      if (tx.type === 'TRANSFER') {
+        if (tx.sourceWarehouseId === warehouseId) return sum - tx.quantity;
+        if (tx.destinationWarehouseId === warehouseId) return sum + tx.quantity;
+      } else {
+        if (tx.warehouseId !== warehouseId) return sum;
+        if (tx.type === 'STOCK_IN' || tx.type === 'RETURN') return sum + tx.quantity;
+        if (tx.type === 'ISSUE') return sum - tx.quantity;
+      }
+      return sum;
+    }, 0);
+  };
+
   const handleAddEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     console.log('handleAddEntry triggered', { isStaff, submitting, companyId: profile?.companyId });
-    if (!isStaff || submitting || !profile?.companyId) {
-      console.warn('handleAddEntry early exit', { isStaff, submitting, companyId: profile?.companyId });
+    if (isAdmin || submitting || !profile?.companyId) {
+      console.warn('handleAddEntry early exit', { isAdmin, submitting, companyId: profile?.companyId });
       return;
     }
 
@@ -232,7 +254,7 @@ export default function InventoryModule() {
       resetForm();
       setSuccessMessage('Purchase record successfully updated!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `transactions/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `transactions/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -263,7 +285,7 @@ export default function InventoryModule() {
     }
 
     if (bagOpType === 'ISSUE' && !newTx.supplierId) {
-      alert('Supplier is required for bag issuance.');
+      setErrorMessage('Supplier is required for bag issuance.');
       setSubmitting(false);
       return;
     }
@@ -273,7 +295,7 @@ export default function InventoryModule() {
       setIsAddingBag(false);
       setSuccessMessage(`${packagingType.replace('_', ' ')} ${bagOpType === 'STOCK_IN' ? 'Stock-in' : 'Issuance'} recorded!`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -290,7 +312,7 @@ export default function InventoryModule() {
     const quantity = Number(formData.get('quantity'));
 
     if (sourceId === destId) {
-      alert('Source and destination warehouses must be different.');
+      setErrorMessage('Source and destination warehouses must be different.');
       return;
     }
 
@@ -309,7 +331,7 @@ export default function InventoryModule() {
     }, 0);
 
     if (quantity > sourceStock) {
-      alert(`Insufficient stock in source warehouse. Available: ${sourceStock.toLocaleString()} units`);
+      setErrorMessage(`Insufficient stock in source warehouse. Available: ${(sourceStock || 0).toLocaleString()} units`);
       return;
     }
 
@@ -332,7 +354,7 @@ export default function InventoryModule() {
       setIsTransferringBag(false);
       setSuccessMessage(`${pkgType.replace('_', ' ')} transfer recorded!`);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -350,7 +372,7 @@ export default function InventoryModule() {
     const bags = Number(formData.get('bags'));
 
     if (sourceId === destId) {
-      alert('Source and destination warehouses must be different.');
+      setErrorMessage('Source and destination warehouses must be different.');
       return;
     }
 
@@ -367,7 +389,7 @@ export default function InventoryModule() {
     }, 0);
 
     if (weight > sourceStock) {
-      alert(`Insufficient stock in source warehouse. Available: ${sourceStock.toFixed(2)}kg`);
+      setErrorMessage(`Insufficient stock in source warehouse. Available: ${sourceStock.toFixed(2)}kg`);
       return;
     }
 
@@ -400,7 +422,7 @@ export default function InventoryModule() {
       setIsTransferring(false);
       setSuccessMessage('Stock transfer completed successfully!');
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `transactions/${id}`);
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `transactions/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -424,17 +446,18 @@ export default function InventoryModule() {
       {/* Success Toast */}
       <AnimatePresence>
         {successMessage && (
-          <motion.div 
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 50 }}
-            className="fixed bottom-24 left-4 right-4 bg-emerald-600 text-white p-4 rounded-2xl shadow-2xl z-[100] flex items-center gap-3"
-          >
-            <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-              <Plus size={18} className="rotate-45" />
-            </div>
-            <p className="font-bold text-sm">{successMessage}</p>
-          </motion.div>
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
         )}
       </AnimatePresence>
 
@@ -444,39 +467,47 @@ export default function InventoryModule() {
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
             {activeTab === 'COMMODITIES' ? (
               <>
-                <button
-                  onClick={() => setIsTransferring(true)}
-                  className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
-                >
-                  <ArrowRightLeft size={18} /> Transfer
-                </button>
-                <button
-                  onClick={() => setIsAdding(true)}
-                  className="bg-emerald-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
-                >
-                  <Plus size={18} /> New Entry
-                </button>
+                {canTransferStock && (
+                  <button
+                    onClick={() => setIsTransferring(true)}
+                    className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
+                  >
+                    <ArrowRightLeft size={18} /> Transfer
+                  </button>
+                )}
+                {!isAdmin && (
+                  <button
+                    onClick={() => setIsAdding(true)}
+                    className="bg-emerald-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
+                  >
+                    <Plus size={18} /> New Entry
+                  </button>
+                )}
               </>
             ) : (
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    setIsTransferringBag(true);
-                    setIsAddingBag(false);
-                  }}
-                  className="bg-amber-50 text-amber-700 px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
-                >
-                  <ArrowRightLeft size={18} /> Transfer
-                </button>
-                <button
-                  onClick={() => {
-                    setIsAddingBag(true);
-                    setIsTransferringBag(false);
-                  }}
-                  className="bg-amber-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
-                >
-                  <Plus size={18} /> New Bag Entry
-                </button>
+                {canTransferStock && (
+                  <button
+                    onClick={() => {
+                      setIsTransferringBag(true);
+                      setIsAddingBag(false);
+                    }}
+                    className="bg-amber-50 text-amber-700 px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
+                  >
+                    <ArrowRightLeft size={18} /> Transfer
+                  </button>
+                )}
+                {!isAdmin && (
+                  <button
+                    onClick={() => {
+                      setIsAddingBag(true);
+                      setIsTransferringBag(false);
+                    }}
+                    className="bg-amber-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
+                  >
+                    <Plus size={18} /> New Bag Entry
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -524,8 +555,14 @@ export default function InventoryModule() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-                    <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500">
-                      <option value="">Select Warehouse</option>
+                    <select 
+                      name="warehouseId" 
+                      required 
+                      defaultValue={profile?.assignedWarehouseId || ''}
+                      disabled={!!profile?.assignedWarehouseId && profile?.role === 'STAFF'}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                    >
+                      <option value="" disabled>Select Warehouse</option>
                       {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </select>
                   </div>
@@ -698,17 +735,37 @@ export default function InventoryModule() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bag Type</label>
-                    <select name="packagingType" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                    <select 
+                      name="packagingType" 
+                      required 
+                      value={transferBagType}
+                      onChange={(e) => setTransferBagType(e.target.value as PackagingType)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                    >
                       {PACKAGING.map(p => <option key={p} value={p}>{p.replace('_', ' ')}</option>)}
                     </select>
                   </div>
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">From Warehouse</label>
-                    <select name="sourceWarehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                    <select 
+                      name="sourceWarehouseId" 
+                      required 
+                      value={transferBagSourceId}
+                      onChange={(e) => setTransferBagSourceId(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                    >
                       <option value="">Select Source</option>
                       {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </select>
                   </div>
+                  {transferBagSourceId && (
+                    <div className="col-span-2 bg-amber-50 p-3 rounded-xl border border-amber-100">
+                      <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">Available Stock in Source</p>
+                      <p className="text-lg font-black text-amber-700">
+                        {(getWarehouseBagStock(transferBagSourceId, transferBagType) || 0).toLocaleString()} units
+                      </p>
+                    </div>
+                  )}
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">To Warehouse</label>
                     <select name="destinationWarehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
@@ -777,7 +834,13 @@ export default function InventoryModule() {
                   </div>
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-                    <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                    <select 
+                      name="warehouseId" 
+                      required 
+                      defaultValue={profile?.assignedWarehouseId || ''}
+                      disabled={!!profile?.assignedWarehouseId && profile?.role === 'STAFF'}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none disabled:opacity-50"
+                    >
                       <option value="">Select Warehouse</option>
                       {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </select>
@@ -839,13 +902,25 @@ export default function InventoryModule() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
-                    <select name="commodity" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
+                    <select 
+                      name="commodity" 
+                      required 
+                      value={transferCommodity}
+                      onChange={(e) => setTransferCommodity(e.target.value as CommodityType)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
                       {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Source Warehouse</label>
-                    <select name="sourceWarehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
+                    <select 
+                      name="sourceWarehouseId" 
+                      required 
+                      value={transferSourceId}
+                      onChange={(e) => setTransferSourceId(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
                       <option value="">Source</option>
                       {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </select>
@@ -857,6 +932,14 @@ export default function InventoryModule() {
                       {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                     </select>
                   </div>
+                  {transferSourceId && (
+                    <div className="col-span-2 bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+                      <p className="text-[10px] font-bold text-indigo-600 uppercase mb-1">Available Stock in Source</p>
+                      <p className="text-lg font-black text-indigo-700">
+                        {(getWarehouseStock(transferSourceId, transferCommodity) || 0).toLocaleString()} kg
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Weight (kg)</label>
                     <input name="weight" type="number" step="0.01" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0.00" />
@@ -948,7 +1031,7 @@ export default function InventoryModule() {
                                 <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">
                                   {warehouses.find(w => w.id === tx.warehouseId)?.name || 'Main'}
                                 </span>
-                                <span className="text-[10px] text-slate-400">{new Date(tx.date).toLocaleDateString()}</span>
+                                <span className="text-[10px] text-slate-400">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
                               </div>
                               <h3 className="font-bold text-slate-900">
                                 {suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown Supplier'}
@@ -970,6 +1053,16 @@ export default function InventoryModule() {
                               <p className="text-[11px] font-bold text-rose-500">
                                 -{(tx.grossWeight - tx.netWeight).toFixed(1)}kg
                               </p>
+                              {tx.deductions && (
+                                <div className="mt-1 flex flex-wrap gap-1 text-[7px] font-bold uppercase tracking-tighter justify-center text-slate-400">
+                                  {((tx.deductions.moistureActual - tx.deductions.moistureBenchmark) * (tx.grossWeight || 0) / 100) > 0 && (
+                                    <span>M: {(((tx.deductions.moistureActual - tx.deductions.moistureBenchmark) * (tx.grossWeight || 0)) / 100).toFixed(1)}kg</span>
+                                  )}
+                                  {tx.deductions.tareWeight > 0 && <span>T: {tx.deductions.tareWeight}kg</span>}
+                                  {tx.deductions.moldWeight > 0 && <span>Q: {tx.deductions.moldWeight}kg</span>}
+                                  {tx.deductions.otherDeduction > 0 && <span>O: {tx.deductions.otherDeduction}kg</span>}
+                                </div>
+                              )}
                             </div>
                             <div className="text-center">
                               <p className="text-[9px] text-slate-400 uppercase">Value</p>
@@ -1000,7 +1093,7 @@ export default function InventoryModule() {
                                 <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">
                                   {tx.packagingType?.replace('_', ' ') || 'N/A'}
                                 </span>
-                                <span className="text-[10px] text-slate-400">{new Date(tx.date).toLocaleDateString()}</span>
+                                <span className="text-[10px] text-slate-400">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
                               </div>
                               <h3 className="font-bold text-slate-900">{tx.reference}</h3>
                               <p className="text-[10px] text-slate-400">

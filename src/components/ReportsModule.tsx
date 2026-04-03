@@ -15,7 +15,8 @@ import {
   Filter,
   Search,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  ArrowRightLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Supplier, Transaction, Payment, JournalEntry, Warehouse, Buyer, BagTransaction, PackagingType } from '../types';
@@ -26,32 +27,14 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
+import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import Toast from './Toast';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type ReportType = 'supplier_balances' | 'buyer_balances' | 'operational_purchases' | 'operational_sales' | 'packaging_inventory';
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    operationType,
-    path,
-    timestamp: new Date().toISOString()
-  };
-  console.error('Firestore Error:', JSON.stringify(errInfo));
-  alert(`Database Error (${operationType}): Please check your connection or permissions.`);
-}
+type ReportType = 'supplier_balances' | 'buyer_balances' | 'operational_purchases' | 'operational_sales' | 'packaging_inventory' | 'transfers';
 
 export default function ReportsModule() {
   const { profile, company } = useAuth();
@@ -62,6 +45,7 @@ export default function ReportsModule() {
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   const [activeReport, setActiveReport] = useState<ReportType>('supplier_balances');
   const [startDate, setStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
@@ -80,7 +64,7 @@ export default function ReportsModule() {
     const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
       setSuppliers(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'suppliers'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers')));
 
     const qBuyers = query(
       collection(db, 'buyers'), 
@@ -90,7 +74,7 @@ export default function ReportsModule() {
     const unsubscribeBuyers = onSnapshot(qBuyers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Buyer));
       setBuyers(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'buyers'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyers')));
 
     const qWarehouses = query(
       collection(db, 'warehouses'), 
@@ -100,7 +84,7 @@ export default function ReportsModule() {
     const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
       setWarehouses(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'warehouses'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     const qTx = query(
       collection(db, 'transactions'), 
@@ -110,7 +94,7 @@ export default function ReportsModule() {
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
       setTransactions(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
     const qPayments = query(
       collection(db, 'payments'), 
@@ -120,7 +104,7 @@ export default function ReportsModule() {
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
       setPayments(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'payments'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'payments')));
 
     const qJournal = query(
       collection(db, 'journal'), 
@@ -130,7 +114,7 @@ export default function ReportsModule() {
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
       setJournal(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'journal'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
     const qBags = query(
       collection(db, 'bag_transactions'), 
@@ -140,7 +124,7 @@ export default function ReportsModule() {
     const unsubscribeBags = onSnapshot(qBags, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction));
       setBagTransactions(data);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'bag_transactions'));
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'bag_transactions')));
 
     return () => {
       unsubscribeSuppliers();
@@ -231,6 +215,38 @@ export default function ReportsModule() {
     });
   }, [transactions, startDate, endDate, selectedWarehouseId, activeReport]);
 
+  const filteredTransfers = useMemo(() => {
+    const commodityTransfers = transactions.filter(t => {
+      if (t.type !== 'TRANSFER') return false;
+      const date = new Date(t.date).toISOString().split('T')[0];
+      const dateMatch = date >= startDate && date <= endDate;
+      const warehouseMatch = selectedWarehouseId === 'ALL' || 
+                             t.sourceWarehouseId === selectedWarehouseId || 
+                             t.destinationWarehouseId === selectedWarehouseId;
+      return dateMatch && warehouseMatch;
+    }).map(t => ({
+      ...t,
+      transferType: 'COMMODITY' as const
+    }));
+
+    const bagTransfers = bagTransactions.filter(t => {
+      if (t.type !== 'TRANSFER') return false;
+      const date = t.date.split('T')[0];
+      const dateMatch = date >= startDate && date <= endDate;
+      const warehouseMatch = selectedWarehouseId === 'ALL' || 
+                             t.sourceWarehouseId === selectedWarehouseId || 
+                             t.destinationWarehouseId === selectedWarehouseId;
+      return dateMatch && warehouseMatch;
+    }).map(t => ({
+      ...t,
+      transferType: 'BAG' as const
+    }));
+
+    return [...commodityTransfers, ...bagTransfers].sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  }, [transactions, bagTransactions, startDate, endDate, selectedWarehouseId]);
+
   const generatePDF = () => {
     const doc = new jsPDF(activeReport === 'supplier_balances' ? 'p' : 'l');
     const timestamp = new Date().toLocaleString();
@@ -283,21 +299,46 @@ export default function ReportsModule() {
         warehouseName,
         qty.toLocaleString()
       ]);
+    } else if (activeReport === 'transfers') {
+      title = `Stock Transfers Report (${startDate} to ${endDate})`;
+      tableHeaders = ['Date', 'Type', 'Item', 'From', 'To', 'Quantity/Weight'];
+      tableData = filteredTransfers.map(t => [
+        new Date(t.date).toLocaleDateString(),
+        t.transferType,
+        t.transferType === 'COMMODITY' ? (t as Transaction).commodity : (t as BagTransaction).packagingType.replace('_', ' '),
+        warehouses.find(w => w.id === t.sourceWarehouseId)?.name || 'Unknown',
+        warehouses.find(w => w.id === t.destinationWarehouseId)?.name || 'Unknown',
+        t.transferType === 'COMMODITY' ? `${(t as Transaction).netWeight}kg` : `${(t as BagTransaction).quantity} units`
+      ]);
     } else {
       title = activeReport === 'operational_purchases' ? 'Purchases Operational Report' : 'Sales Operational Report';
       tableHeaders = ['Date', 'Ref ID', 'Commodity', 'Warehouse', 'Bags', 'Gross', 'Ded', 'Net', 'Price/kg', 'Value (NGN)'];
-      tableData = filteredOperationalTx.map(t => [
-        new Date(t.date).toLocaleDateString(),
-        t.referenceId,
-        t.commodity,
-        warehouses.find(w => w.id === t.warehouseId)?.name || t.warehouse || 'Main',
-        t.noOfBags || t.bags || '-',
-        `${t.grossWeight}kg`,
-        `${(t.grossWeight - t.netWeight).toFixed(2)}kg`,
-        `${t.netWeight}kg`,
-        t.pricePerKg ? `NGN ${t.pricePerKg.toLocaleString()}` : '-',
-        (t.totalValue || 0).toLocaleString()
-      ]);
+      tableData = filteredOperationalTx.map(t => {
+        let deductionBreakdown = '';
+        if (t.deductions) {
+          const d = t.deductions;
+          const mLoss = ((d.moistureActual - d.moistureBenchmark) * (t.grossWeight || 0)) / 100;
+          const parts = [];
+          if (mLoss > 0) parts.push(`M: ${mLoss.toFixed(2)}kg`);
+          if (d.tareWeight > 0) parts.push(`T: ${d.tareWeight}kg`);
+          if (d.moldWeight > 0) parts.push(`Q: ${d.moldWeight}kg`);
+          if (d.otherDeduction > 0) parts.push(`O: ${d.otherDeduction}kg`);
+          deductionBreakdown = parts.join(', ');
+        }
+
+        return [
+          new Date(t.date).toLocaleDateString(),
+          t.referenceId,
+          t.commodity,
+          warehouses.find(w => w.id === t.warehouseId)?.name || t.warehouse || 'Main',
+          t.noOfBags || t.bags || '-',
+          `${t.grossWeight}kg`,
+          `${(t.grossWeight - t.netWeight).toFixed(2)}kg${deductionBreakdown ? `\n(${deductionBreakdown})` : ''}`,
+          `${t.netWeight}kg`,
+          t.pricePerKg ? `NGN ${t.pricePerKg.toLocaleString()}` : '-',
+          (t.totalValue || 0).toLocaleString()
+        ];
+      });
     }
 
     doc.text(title, 14, 42);
@@ -313,8 +354,25 @@ export default function ReportsModule() {
       startY: (activeReport === 'supplier_balances' || activeReport === 'buyer_balances') ? 52 : 60,
       head: [tableHeaders],
       body: tableData,
+      foot: activeReport === 'supplier_balances' ? [
+        ['TOTAL CREDIT (WE OWE)', '', totalCreditBalance.toLocaleString(), ''],
+        ['TOTAL DEBIT (THEY OWE)', '', totalDebitBalance.toLocaleString(), '']
+      ] : activeReport === 'buyer_balances' ? [
+        ['TOTAL DEBIT (THEY OWE)', '', totalBuyerDebit.toLocaleString(), ''],
+        ['TOTAL CREDIT (WE OWE)', '', totalBuyerCredit.toLocaleString(), '']
+      ] : (activeReport === 'operational_purchases' || activeReport === 'operational_sales') ? [
+        ['TOTAL', '', '', '', 
+          filteredOperationalTx.reduce((sum, t) => sum + (t.noOfBags || t.bags || 0), 0).toLocaleString(),
+          `${filteredOperationalTx.reduce((sum, t) => sum + t.grossWeight, 0).toLocaleString()}kg`,
+          `${filteredOperationalTx.reduce((sum, t) => sum + (t.grossWeight - t.netWeight), 0).toFixed(2)}kg`,
+          `${filteredOperationalTx.reduce((sum, t) => sum + t.netWeight, 0).toLocaleString()}kg`,
+          '',
+          filteredOperationalTx.reduce((sum, t) => sum + (t.totalValue || 0), 0).toLocaleString()
+        ]
+      ] : undefined,
       theme: 'grid',
       headStyles: { fillColor: [79, 70, 229] },
+      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
       styles: { fontSize: 8 },
       columnStyles: (activeReport === 'supplier_balances' || activeReport === 'buyer_balances') ? {
         2: { halign: 'right' }
@@ -333,6 +391,15 @@ export default function ReportsModule() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
+      <AnimatePresence>
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
+        )}
+      </AnimatePresence>
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-xl font-bold text-slate-900">Reports Module</h1>
@@ -389,6 +456,15 @@ export default function ReportsModule() {
             )}
           >
             Packaging
+          </button>
+          <button
+            onClick={() => setActiveReport('transfers')}
+            className={cn(
+              "px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap",
+              activeReport === 'transfers' ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+            )}
+          >
+            Transfers
           </button>
         </div>
       </header>
@@ -588,6 +664,57 @@ export default function ReportsModule() {
                 </div>
               </section>
             </div>
+          ) : activeReport === 'transfers' ? (
+            <div key="transfers" className="space-y-4">
+              <div className="bg-indigo-600 rounded-2xl p-4 text-white shadow-lg flex justify-between items-center">
+                <div>
+                  <p className="text-[10px] font-bold uppercase opacity-60">Total Transfers</p>
+                  <h2 className="text-2xl font-black">{filteredTransfers.length}</h2>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-bold uppercase opacity-60">Period</p>
+                  <h2 className="text-sm font-bold">{startDate} to {endDate}</h2>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {filteredTransfers.length === 0 ? (
+                  <p className="text-center py-12 text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200">No transfers found for this period</p>
+                ) : (
+                  filteredTransfers.map((t, idx) => (
+                    <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={cn(
+                              "text-[8px] font-bold px-1.5 py-0.5 rounded uppercase",
+                              t.transferType === 'COMMODITY' ? "bg-indigo-100 text-indigo-700" : "bg-amber-100 text-amber-700"
+                            )}>
+                              {t.transferType}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400">{new Date(t.date).toLocaleDateString()}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-slate-900 font-bold">
+                            <span className="text-sm">{warehouses.find(w => w.id === t.sourceWarehouseId)?.name || 'Unknown'}</span>
+                            <ArrowRightLeft size={14} className="text-slate-300" />
+                            <span className="text-sm">{warehouses.find(w => w.id === t.destinationWarehouseId)?.name || 'Unknown'}</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">
+                            {t.transferType === 'COMMODITY' ? (t as Transaction).commodity : (t as BagTransaction).packagingType.replace('_', ' ')}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-black text-slate-900">
+                            {t.transferType === 'COMMODITY' ? `${(t as Transaction).netWeight.toLocaleString()}kg` : `${(t as BagTransaction).quantity.toLocaleString()} units`}
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-bold uppercase">{(t as any).reference || (t as any).referenceId}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           ) : (
             <div key="operational" className="space-y-3">
               <div className="bg-indigo-600 rounded-2xl p-4 text-white shadow-lg flex justify-between items-center">
@@ -620,6 +747,16 @@ export default function ReportsModule() {
                         <span className="text-emerald-600">N: {t.netWeight}kg</span>
                         <span className="text-amber-600">Price: ₦{t.pricePerKg?.toLocaleString() || '-'}</span>
                       </div>
+                      {t.deductions && (
+                        <div className="mt-1 flex flex-wrap gap-1.5 text-[7px] font-bold uppercase tracking-tighter justify-end text-slate-400">
+                          {((t.deductions.moistureActual - t.deductions.moistureBenchmark) * (t.grossWeight || 0) / 100) > 0 && (
+                            <span>Moisture: {(((t.deductions.moistureActual - t.deductions.moistureBenchmark) * (t.grossWeight || 0)) / 100).toFixed(2)}kg</span>
+                          )}
+                          {t.deductions.tareWeight > 0 && <span>Tare: {t.deductions.tareWeight}kg</span>}
+                          {t.deductions.moldWeight > 0 && <span>Mold: {t.deductions.moldWeight}kg</span>}
+                          {t.deductions.otherDeduction > 0 && <span>Other: {t.deductions.otherDeduction}kg</span>}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
