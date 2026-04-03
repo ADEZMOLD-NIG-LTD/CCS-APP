@@ -13,6 +13,8 @@ jobs:
         with:
           node-version: 20
           cache: 'npm'
+      - name: Verify Project ID
+        run: echo "Deploying to project: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}"
       - run: npm ci && npm run build
         env:
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
