@@ -29,4 +29,4 @@ jobs:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
           channelId: live
-          projectId: gen-lang-client-0555602350
+          projectId: '${{ secrets.VITE_FIREBASE_PROJECT_ID }}'
