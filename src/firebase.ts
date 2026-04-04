@@ -26,9 +26,27 @@ const app = initializeApp(firebaseConfig);
 
 // Use initializeFirestore with long polling to bypass potential WebSocket issues in the iframe environment
 console.log("Initializing Firestore...");
+// Default to '(default)' if no database ID is provided, as this is the standard for most Firebase projects
+const databaseId = firebaseConfig.firestoreDatabaseId || "(default)";
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true,
-}, firebaseConfig.firestoreDatabaseId);
+}, databaseId);
 
 export const auth = getAuth(app);
 console.log("Firebase initialized.");
+
+// Test connection to Firestore
+async function testConnection() {
+  try {
+    console.log("Testing Firestore connection...");
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log("Firestore connection test successful.");
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Firestore Error: The client is offline. Please check your Firebase configuration and ensure the Firestore API is enabled.");
+    } else {
+      console.warn("Firestore connection test warning (this is normal if the 'test/connection' doc doesn't exist):", error);
+    }
+  }
+}
+testConnection();
