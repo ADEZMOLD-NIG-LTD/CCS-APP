@@ -7,6 +7,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
+  signInWithRedirect,
   GoogleAuthProvider, 
   signOut, 
   signInAnonymously,
@@ -259,9 +260,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setErrorMessage(null);
       const provider = new GoogleAuthProvider();
-      // Add custom parameters to help with iframe issues
       provider.setCustomParameters({ prompt: 'select_account' });
-      await signInWithPopup(auth, provider);
+      
+      // Detect mobile devices to use Redirect instead of Popup
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        console.log('Mobile detected, using signInWithRedirect');
+        await signInWithRedirect(auth, provider);
+      } else {
+        console.log('Desktop detected, using signInWithPopup');
+        await signInWithPopup(auth, provider);
+      }
     } catch (error: any) {
       console.error('Sign in failed:', error);
       if (error.code === 'auth/unauthorized-domain') {
