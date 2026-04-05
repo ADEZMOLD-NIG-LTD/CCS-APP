@@ -53,13 +53,10 @@ async function testConnection() {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.error("Firestore Error: The client is offline.");
       console.group("Troubleshooting Steps:");
-      console.error("1. Check your GitHub Secrets: Ensure VITE_FIREBASE_PROJECT_ID and others are correctly set in your repo settings.");
-      if (firebaseConfig.projectId?.includes('gen-lang-client')) {
-        console.error("   ⚠️ WARNING: Your app is still using the AI Studio project ID. This means your GitHub Secrets are NOT being applied.");
-      }
-      console.error("2. Enable Firestore API: Go to https://console.cloud.google.com/apis/library/firestore.googleapis.com and click 'Enable'.");
-      console.error("3. Create Database: Ensure you have created a database named '(default)' in the Firebase Console.");
-      console.error("4. Authorized Domains: Ensure 'commodityclick.com.ng' is added to Authentication > Settings > Authorized domains.");
+      console.error("1. Enable Firestore API: Go to https://console.cloud.google.com/apis/library/firestore.googleapis.com and click 'Enable'. This is the most common cause.");
+      console.error("2. Create Database: Go to the Firebase Console, click 'Firestore Database', and ensure you have created a database named '(default)'.");
+      console.error("3. Check GitHub Secrets: Ensure VITE_FIREBASE_PROJECT_ID and others are correctly set in your repo settings if you want to use your own keys.");
+      console.error("4. Authorized Domains: Ensure 'commodityclick.com.ng' is added to Authentication > Settings > Authorized domains in the Firebase Console.");
       console.groupEnd();
     } else {
       console.warn("Firestore connection test warning (this is normal if the 'test/connection' doc doesn't exist):", error);
