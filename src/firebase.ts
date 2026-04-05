@@ -7,21 +7,58 @@ import { initializeApp, FirebaseOptions } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyB8f_PfkgNSMhFxQ71yGXZLPzVOcvmKdmk",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "gen-lang-client-0555602350.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0555602350",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "gen-lang-client-0555602350.firebasestorage.app",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "828527972403",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:828527972403:web:88bcbd839ca8bfe226d346",
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "",
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || "ai-studio-086bebaa-d248-491f-a312-4b87527790a1",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || "(default)",
 };
 
 // Initialize Firebase SDK
-console.log("Initializing Firebase with config:", { 
-  projectId: firebaseConfig.projectId, 
-  databaseId: firebaseConfig.firestoreDatabaseId 
-});
+const currentProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+const currentDatabaseId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || "(default)";
+
+console.log("--- Firebase Environment Diagnostics ---");
+console.log("Mode:", import.meta.env.MODE);
+console.log("Base URL:", import.meta.env.BASE_URL);
+console.log("Project ID:", currentProjectId || "MISSING (VITE_FIREBASE_PROJECT_ID)");
+console.log("Auth Domain:", import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "MISSING (VITE_FIREBASE_AUTH_DOMAIN)");
+console.log("API Key (masked):", import.meta.env.VITE_FIREBASE_API_KEY ? `${import.meta.env.VITE_FIREBASE_API_KEY.substring(0, 5)}...` : "MISSING (VITE_FIREBASE_API_KEY)");
+console.log("App ID:", import.meta.env.VITE_FIREBASE_APP_ID ? "PRESENT" : "MISSING (VITE_FIREBASE_APP_ID)");
+
+// Log all VITE_ keys to see what's actually available
+const viteKeys = Object.keys(import.meta.env).filter(key => key.startsWith('VITE_'));
+console.log("Available VITE_ keys:", viteKeys.length > 0 ? viteKeys.join(", ") : "NONE");
+console.log("---------------------------------------");
+
+if (!currentProjectId || !import.meta.env.VITE_FIREBASE_API_KEY || !import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || !import.meta.env.VITE_FIREBASE_APP_ID) {
+  const missing = [];
+  if (!currentProjectId) missing.push("VITE_FIREBASE_PROJECT_ID");
+  if (!import.meta.env.VITE_FIREBASE_API_KEY) missing.push("VITE_FIREBASE_API_KEY");
+  if (!import.meta.env.VITE_FIREBASE_AUTH_DOMAIN) missing.push("VITE_FIREBASE_AUTH_DOMAIN");
+  if (!import.meta.env.VITE_FIREBASE_APP_ID) missing.push("VITE_FIREBASE_APP_ID");
+  
+  console.error("CRITICAL ERROR: The following Firebase secrets are missing from the build: " + missing.join(", "));
+  console.error("This means your GitHub Secrets are NOT being passed to the 'npm run build' command.");
+  console.error("1. Go to GitHub Repo > Settings > Secrets and variables > Actions.");
+  console.error("2. Ensure they are in the 'Secrets' tab, NOT the 'Variables' tab.");
+  console.error("3. Ensure the names are EXACTLY as listed above (all caps, with underscores).");
+}
+
+export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+  firestoreDatabaseId: currentDatabaseId,
+};
+
 const app = initializeApp(firebaseConfig);
 
 // Use initializeFirestore with long polling to bypass potential WebSocket issues in the iframe environment
@@ -43,7 +80,16 @@ async function testConnection() {
     console.log("Firestore connection test successful.");
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Firestore Error: The client is offline. Please check your Firebase configuration and ensure the Firestore API is enabled.");
+      console.error("Firestore Error: The client is offline.");
+      console.group("Troubleshooting Steps:");
+      console.error("1. Check your GitHub Secrets: Ensure VITE_FIREBASE_PROJECT_ID and others are correctly set in your repo settings.");
+      if (firebaseConfig.projectId?.includes('gen-lang-client')) {
+        console.error("   ⚠️ WARNING: Your app is still using the AI Studio project ID. This means your GitHub Secrets are NOT being applied.");
+      }
+      console.error("2. Enable Firestore API: Go to https://console.cloud.google.com/apis/library/firestore.googleapis.com and click 'Enable'.");
+      console.error("3. Create Database: Ensure you have created a database named '(default)' in the Firebase Console.");
+      console.error("4. Authorized Domains: Ensure 'commodityclick.com.ng' is added to Authentication > Settings > Authorized domains.");
+      console.groupEnd();
     } else {
       console.warn("Firestore connection test warning (this is normal if the 'test/connection' doc doesn't exist):", error);
     }
