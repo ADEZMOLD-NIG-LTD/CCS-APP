@@ -8,7 +8,7 @@ import { getAuth } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 
 // Initialize Firebase SDK
-const BUILD_TIME = "2026-04-05 18:55 UTC";
+const BUILD_TIME = "2026-04-05 22:18 UTC";
 const currentProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0555602350";
 const currentDatabaseId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || "(default)";
 
@@ -47,9 +47,12 @@ console.log("Firebase initialized.");
 async function testConnection() {
   try {
     console.log("Testing Firestore connection...");
+    // Attempt to get a document from a 'test' collection
     await getDocFromServer(doc(db, 'test', 'connection'));
-    console.log("Firestore connection test successful.");
+    console.log("Firestore connection test successful (or document not found, which is fine).");
   } catch (error) {
+    console.error("Firestore Connection Test Error:", error);
+    
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.error("Firestore Error: The client is offline.");
       console.group("Troubleshooting Steps:");
@@ -58,8 +61,6 @@ async function testConnection() {
       console.error("3. Check GitHub Secrets: Ensure VITE_FIREBASE_PROJECT_ID and others are correctly set in your repo settings if you want to use your own keys.");
       console.error("4. Authorized Domains: Ensure 'commodityclick.com.ng' is added to Authentication > Settings > Authorized domains in the Firebase Console.");
       console.groupEnd();
-    } else {
-      console.warn("Firestore connection test warning (this is normal if the 'test/connection' doc doesn't exist):", error);
     }
   }
 }
