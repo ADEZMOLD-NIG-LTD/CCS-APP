@@ -221,7 +221,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const isAdvance = formData.get('isAdvance') === 'on';
     const description = formData.get('description') as string;
     
-    const newPayment: Payment = {
+    const newPayment: any = {
       id,
       companyId: profile.companyId,
       date: new Date().toISOString(),
@@ -231,6 +231,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       reference: formData.get('reference') as string,
       description: isAdvance ? `[ADVANCE] ${description}` : description,
     };
+
+    // Clean up undefined values
+    Object.keys(newPayment).forEach(key => newPayment[key] === undefined && delete newPayment[key]);
 
     try {
       await setDoc(doc(db, 'payments', id), newPayment);
@@ -250,7 +253,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
     const id = crypto.randomUUID();
-    const newBagTx: BagTransaction = {
+    const newBagTx: any = {
       id,
       companyId: profile.companyId,
       date: new Date().toISOString(),
@@ -261,6 +264,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       quantity: Number(formData.get('quantity')),
       reference: (formData.get('reference') as string) || `BAG-${Date.now().toString().slice(-6)}`,
     };
+
+    // Clean up undefined values
+    Object.keys(newBagTx).forEach(key => newBagTx[key] === undefined && delete newBagTx[key]);
 
     try {
       await setDoc(doc(db, 'bag_transactions', id), newBagTx);

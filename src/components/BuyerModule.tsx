@@ -55,7 +55,7 @@ export default function BuyerModule() {
     const formData = new FormData(e.currentTarget);
     const id = editingBuyer?.id || crypto.randomUUID();
     
-    const newBuyer: Buyer = {
+    const newBuyer: any = {
       id,
       companyId: profile.companyId,
       name: formData.get('name') as string,
@@ -64,6 +64,9 @@ export default function BuyerModule() {
       previousBalance: Number(formData.get('previousBalance')) || 0,
       createdAt: editingBuyer?.createdAt || new Date().toISOString(),
     };
+
+    // Clean up undefined values
+    Object.keys(newBuyer).forEach(key => newBuyer[key] === undefined && delete newBuyer[key]);
 
     try {
       await setDoc(doc(db, 'buyers', id), newBuyer);

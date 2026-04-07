@@ -223,7 +223,7 @@ export default function SalesModule() {
     const formData = new FormData(e.currentTarget);
     const id = crypto.randomUUID();
     
-    const newTx: Transaction = {
+    const newTx: any = {
       id,
       companyId: profile.companyId,
       date: new Date().toISOString(),
@@ -239,7 +239,6 @@ export default function SalesModule() {
       pricePerKg: Number(formData.get('price')) || 0,
       totalValue: netWeight * (Number(formData.get('price')) || 0),
       referenceId: `SL-${Date.now().toString().slice(-6)}`,
-      warehouseId: isDirectDelivery ? undefined : selectedWarehouseId,
       truckNo: formData.get('truckNo') as string,
       driverName: formData.get('driverName') as string,
       driverPhone: formData.get('driverPhone') as string,
@@ -253,6 +252,13 @@ export default function SalesModule() {
         otherDeduction: Number(otherDeduction) || 0
       }
     };
+
+    if (!isDirectDelivery) {
+      newTx.warehouseId = selectedWarehouseId === 'ALL' ? (profile?.assignedWarehouseId || '') : selectedWarehouseId;
+    }
+
+    // Clean up undefined values
+    Object.keys(newTx).forEach(key => newTx[key] === undefined && delete newTx[key]);
 
     try {
       await setDoc(doc(db, 'transactions', id), newTx);

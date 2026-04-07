@@ -229,7 +229,7 @@ export default function InventoryModule() {
     const formData = new FormData(e.currentTarget);
     const id = crypto.randomUUID();
     
-    const newTx: Transaction = {
+    const newTx: any = {
       id: editingTransaction?.id || id,
       companyId: profile.companyId,
       date: editingTransaction?.date || new Date().toISOString(),
@@ -243,7 +243,7 @@ export default function InventoryModule() {
       pricePerKg: Number(formData.get('price')) || 0,
       totalValue: netWeight * (Number(formData.get('price')) || 0),
       referenceId: editingTransaction?.referenceId || `TX-${Date.now().toString().slice(-6)}`,
-      warehouseId: formData.get('warehouseId') as string,
+      warehouseId: (formData.get('warehouseId') as string) || profile?.assignedWarehouseId || '',
       deductions: {
         moistureActual: Number(moistureActual) || 0,
         moistureBenchmark: Number(moistureBenchmark) || 0,
@@ -252,6 +252,9 @@ export default function InventoryModule() {
         otherDeduction: Number(otherDeduction) || 0
       }
     };
+
+    // Clean up undefined values
+    Object.keys(newTx).forEach(key => newTx[key] === undefined && delete newTx[key]);
 
     try {
       await setDoc(doc(db, 'transactions', newTx.id), newTx);
@@ -274,7 +277,7 @@ export default function InventoryModule() {
     const formData = new FormData(e.currentTarget);
     const id = crypto.randomUUID();
     
-    const newTx: BagTransaction = {
+    const newTx: any = {
       id,
       companyId: profile.companyId,
       date: new Date().toISOString(),
@@ -282,13 +285,16 @@ export default function InventoryModule() {
       packagingType,
       quantity: Number(formData.get('quantity')) || 0,
       reference: (formData.get('reference') as string) || `BAG-${Date.now().toString().slice(-6)}`,
-      warehouseId: formData.get('warehouseId') as string,
+      warehouseId: (formData.get('warehouseId') as string) || profile?.assignedWarehouseId || '',
     };
 
     const supplierId = formData.get('supplierId') as string;
     if (supplierId) {
       newTx.supplierId = supplierId;
     }
+
+    // Clean up undefined values
+    Object.keys(newTx).forEach(key => newTx[key] === undefined && delete newTx[key]);
 
     if (bagOpType === 'ISSUE') {
       if (!newTx.supplierId) {
@@ -353,7 +359,7 @@ export default function InventoryModule() {
 
     setSubmitting(true);
     const id = crypto.randomUUID();
-    const transferTx: BagTransaction = {
+    const transferTx: any = {
       id,
       companyId: profile.companyId,
       date: new Date().toISOString(),
@@ -364,6 +370,9 @@ export default function InventoryModule() {
       quantity,
       reference: (formData.get('reference') as string) || `BTR-${Date.now().toString().slice(-6)}`,
     };
+
+    // Clean up undefined values
+    Object.keys(transferTx).forEach(key => transferTx[key] === undefined && delete transferTx[key]);
 
     try {
       await setDoc(doc(db, 'bag_transactions', id), transferTx);
@@ -411,7 +420,7 @@ export default function InventoryModule() {
 
     setSubmitting(true);
     const id = crypto.randomUUID();
-    const transferTx: Transaction = {
+    const transferTx: any = {
       id,
       companyId: profile.companyId,
       date: new Date().toISOString(),
@@ -432,6 +441,9 @@ export default function InventoryModule() {
         otherDeduction: 0
       }
     };
+
+    // Clean up undefined values
+    Object.keys(transferTx).forEach(key => transferTx[key] === undefined && delete transferTx[key]);
 
     try {
       await setDoc(doc(db, 'transactions', id), transferTx);

@@ -147,7 +147,7 @@ export default function JournalModule() {
     const buyerId = formData.get('buyerId') as string;
     const warehouseId = formData.get('warehouseId') as string;
     
-    const newEntry: JournalEntry = {
+    const newEntry: any = {
       id,
       companyId: profile.companyId,
       warehouseId: warehouseId || profile.assignedWarehouseId || '',
@@ -166,6 +166,9 @@ export default function JournalModule() {
     if (buyerId) {
       newEntry.buyerId = buyerId;
     }
+
+    // Clean up undefined values
+    Object.keys(newEntry).forEach(key => newEntry[key] === undefined && delete newEntry[key]);
 
     try {
       await setDoc(doc(db, 'journal', id), newEntry);

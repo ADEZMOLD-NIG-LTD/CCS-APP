@@ -71,7 +71,7 @@ export default function SupplierModule() {
     const formData = new FormData(e.currentTarget);
     const id = editingSupplier?.id || crypto.randomUUID();
     
-    const newSupplier: Supplier = {
+    const newSupplier: any = {
       id,
       companyId: profile.companyId,
       name: formData.get('name') as string,
@@ -83,6 +83,9 @@ export default function SupplierModule() {
       previousBalance: Number(formData.get('previousBalance')) || 0,
       createdAt: editingSupplier?.createdAt || new Date().toISOString(),
     };
+
+    // Clean up undefined values
+    Object.keys(newSupplier).forEach(key => newSupplier[key] === undefined && delete newSupplier[key]);
 
     try {
       await setDoc(doc(db, 'suppliers', id), newSupplier);

@@ -64,12 +64,15 @@ export default function WarehouseModule() {
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
     const id = crypto.randomUUID();
-    const newWarehouse: Warehouse = {
+    const newWarehouse: any = {
       id,
       companyId: profile.companyId,
       name: formData.get('name') as string,
       location: formData.get('location') as string,
     };
+
+    // Clean up undefined values
+    Object.keys(newWarehouse).forEach(key => newWarehouse[key] === undefined && delete newWarehouse[key]);
 
     try {
       await setDoc(doc(db, 'warehouses', id), newWarehouse);

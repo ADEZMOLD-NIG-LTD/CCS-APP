@@ -137,7 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function testConnection() {
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection test timeout')), 8000)
+        setTimeout(() => reject(new Error('Connection test timeout')), 20000)
       );
       
       try {
@@ -150,6 +150,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsFirestoreConnected(true);
         setConnectionError(null);
       } catch (error: any) {
+        if (error.message === 'Connection test timeout') {
+          console.warn("Firestore connection test timed out. Proceeding optimistically.");
+          setIsFirestoreConnected(true);
+          setConnectionError(null);
+          return;
+        }
+
         console.error("Firestore connection test failed:", error.message);
         
         if (error.message?.includes('the client is offline') || error.code === 'permission-denied') {
@@ -165,10 +172,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             `Error: ${error.code || 'unknown'}. ` +
             `Please ensure the Firestore API is enabled and a database named "${firebaseConfig.firestoreDatabaseId}" exists in the Firebase Console.`
           );
-        } else if (error.message === 'Connection test timeout') {
-          // Timeout is common in some network environments, we'll be optimistic
-          setIsFirestoreConnected(true);
-          setConnectionError(null);
         } else {
           // Other errors (like permission denied on the test doc) are actually signs of a successful connection
           setIsFirestoreConnected(true); 
@@ -256,7 +259,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Ensure the designated super admin always has the ADMIN role
             if (user.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' && data.role !== 'ADMIN') {
               try {
-                await setDoc(userRef, { ...data, role: 'ADMIN' }, { merge: true });
+                const updateData = { ...data, role: 'ADMIN' };
+                Object.keys(updateData).forEach(key => (updateData as any)[key] === undefined && delete (updateData as any)[key]);
+                await setDoc(userRef, updateData, { merge: true });
               } catch (error) {
                 setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`));
               }
@@ -273,7 +278,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 
                 if (!staffDocs.empty) {
                   const staffData = staffDocs.docs[0].data() as Staff;
-                  const newProfile: UserProfile = {
+                  const newProfile: any = {
                     uid: user.uid,
                     email: user.email.toLowerCase(),
                     displayName: user.displayName || staffData.name,
@@ -283,11 +288,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     createdAt: new Date().toISOString()
                   };
                   
+                  Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
                   await setDoc(userRef, newProfile);
                   // Profile will be set by the onSnapshot listener
                   
                   // Update staff record with UID to mark as joined
-                  await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
+                  const staffUpdate = { uid: user.uid };
+                  await setDoc(doc(db, 'staff', staffDocs.docs[0].id), staffUpdate, { merge: true });
                 } else {
                   setProfile(null);
                   setCompany(null);
@@ -400,7 +407,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Create profile
-      const newProfile: UserProfile = {
+      const newProfile: any = {
         uid: user.uid,
         email: email.toLowerCase(),
         displayName: name,
@@ -411,6 +418,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         lastPasswordUpdate: new Date().toISOString()
       };
       
+      Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
       await setDoc(doc(db, 'users', user.uid), newProfile);
       setProfile(newProfile);
     } catch (error: any) {
@@ -446,9 +454,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Update lastPasswordUpdate in Firestore
       if (profile) {
-        await setDoc(doc(db, 'users', user.uid), { 
+        const updateData = { 
           lastPasswordUpdate: new Date().toISOString() 
-        }, { merge: true });
+        };
+        await setDoc(doc(db, 'users', user.uid), updateData, { merge: true });
       }
       
       setMustChangePassword(false);
@@ -473,7 +482,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsDemoMode(true);
       
       const demoCompanyId = 'demo_company';
-      const demoProfile: UserProfile = {
+      const demoProfile: any = {
         uid: user.uid,
         email: 'demo@ccs.com',
         displayName: 'Training User',
@@ -482,7 +491,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString()
       };
       
-      const demoCompany: Company = {
+      const demoCompany: any = {
         id: demoCompanyId,
         name: 'CCS Training Demo',
         ownerEmail: 'demo@ccs.com',
@@ -491,22 +500,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       // Create/Update demo data in Firestore
+      Object.keys(demoCompany).forEach(key => demoCompany[key] === undefined && delete demoCompany[key]);
       await setDoc(doc(db, 'companies', demoCompanyId), demoCompany, { merge: true });
+      
+      Object.keys(demoProfile).forEach(key => demoProfile[key] === undefined && delete demoProfile[key]);
       await setDoc(doc(db, 'users', user.uid), demoProfile, { merge: true });
 
       // Seed some demo data if it's a fresh demo session
       const demoWarehouseId = 'demo_warehouse_1';
-      await setDoc(doc(db, 'warehouses', demoWarehouseId), {
+      const demoWarehouse: any = {
         id: demoWarehouseId,
         companyId: demoCompanyId,
         name: 'Main Demo Warehouse',
         location: 'Lagos, Nigeria',
         capacity: 5000,
         createdAt: new Date().toISOString()
-      }, { merge: true });
+      };
+      Object.keys(demoWarehouse).forEach(key => demoWarehouse[key] === undefined && delete demoWarehouse[key]);
+      await setDoc(doc(db, 'warehouses', demoWarehouseId), demoWarehouse, { merge: true });
 
       const demoSupplierId = 'demo_supplier_1';
-      await setDoc(doc(db, 'suppliers', demoSupplierId), {
+      const demoSupplier: any = {
         id: demoSupplierId,
         companyId: demoCompanyId,
         name: 'John Doe Farms',
@@ -515,7 +529,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: 'john@farms.com',
         previousBalance: 0,
         createdAt: new Date().toISOString()
-      }, { merge: true });
+      };
+      Object.keys(demoSupplier).forEach(key => demoSupplier[key] === undefined && delete demoSupplier[key]);
+      await setDoc(doc(db, 'suppliers', demoSupplierId), demoSupplier, { merge: true });
       
       setProfile(demoProfile);
       setCompany(demoCompany);
@@ -550,7 +566,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     const companyId = `comp_${Date.now()}`;
-    const newCompany: Company = {
+    const newCompany: any = {
       id: companyId,
       name: companyName,
       ownerEmail: user.email || '',
@@ -558,7 +574,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isApproved: false // Requires super admin approval
     };
 
-    const newProfile: UserProfile = {
+    const newProfile: any = {
       uid: user.uid,
       email: user.email || '',
       displayName: user.displayName || 'Admin',
@@ -567,7 +583,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       createdAt: new Date().toISOString()
     };
 
+    Object.keys(newCompany).forEach(key => newCompany[key] === undefined && delete newCompany[key]);
     await setDoc(doc(db, 'companies', companyId), newCompany);
+    
+    Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
     await setDoc(doc(db, 'users', user.uid), newProfile);
     
     setCompany(newCompany);

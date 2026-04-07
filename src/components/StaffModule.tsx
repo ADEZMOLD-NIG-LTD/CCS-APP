@@ -196,7 +196,7 @@ export default function StaffModule() {
         const netPay = gross - pension - paye;
 
         const payrollId = `${selectedMonth}_${staff.id}`;
-        const payrollRecord: Payroll = {
+        const payrollRecord: any = {
           id: payrollId,
           companyId: profile.companyId,
           staffId: staff.id,
@@ -212,6 +212,9 @@ export default function StaffModule() {
           status: 'PENDING',
           createdAt: new Date().toISOString()
         };
+
+        // Clean up undefined values
+        Object.keys(payrollRecord).forEach(key => payrollRecord[key] === undefined && delete payrollRecord[key]);
 
         await setDoc(doc(db, 'payrolls', payrollId), payrollRecord);
       }
@@ -273,10 +276,13 @@ export default function StaffModule() {
         }
       }
 
-      const finalStaff: Staff = {
+      const finalStaff: any = {
         ...newStaff,
         ...(authUid ? { uid: authUid } : {})
       };
+
+      // Clean up undefined values
+      Object.keys(finalStaff).forEach(key => finalStaff[key] === undefined && delete finalStaff[key]);
 
       await setDoc(doc(db, 'staff', id), finalStaff);
       setIsAddingStaff(false);
@@ -374,7 +380,7 @@ export default function StaffModule() {
 
     setSubmitting(true);
     const id = `${selectedDate}_${staffId}`;
-    const record: Attendance = {
+    const record: any = {
       id,
       companyId: profile.companyId,
       staffId,
@@ -382,6 +388,10 @@ export default function StaffModule() {
       date: selectedDate,
       status
     };
+
+    // Clean up undefined values
+    Object.keys(record).forEach(key => record[key] === undefined && delete record[key]);
+
     try {
       await setDoc(doc(db, 'attendance', id), record);
       setSuccessMessage(`Attendance marked as ${status.toLowerCase()}!`);
@@ -401,7 +411,7 @@ export default function StaffModule() {
 
     setSubmitting(true);
     const id = `${selectedDate}_${staffId}_roster`;
-    const record: Roster = {
+    const record: any = {
       id,
       companyId: profile.companyId,
       staffId,
@@ -409,6 +419,10 @@ export default function StaffModule() {
       date: selectedDate,
       shift
     };
+
+    // Clean up undefined values
+    Object.keys(record).forEach(key => record[key] === undefined && delete record[key]);
+
     try {
       await setDoc(doc(db, 'rosters', id), record);
       setSuccessMessage(`Roster updated for ${staff.name}`);
