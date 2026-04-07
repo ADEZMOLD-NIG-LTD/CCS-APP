@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { LogIn, LayoutDashboard, Package, Shield, BarChart3, Users, Building2, ArrowRight, AlertCircle, CheckCircle2, WifiOff, Mail, Lock, User } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
+import { firebaseConfig } from '../firebase';
 
 interface LoginPageProps {
   onSignIn: () => void;
@@ -129,6 +130,30 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
                     >
                       Tap to retry connection
                     </button>
+                    <div className="flex flex-col gap-1 mt-1">
+                      {firebaseConfig.firestoreDatabaseId !== '(default)' && (
+                        <button 
+                          onClick={() => {
+                            const url = new URL(window.location.href);
+                            url.searchParams.set('forceDefaultDb', 'true');
+                            window.location.href = url.toString();
+                          }}
+                          className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 hover:text-indigo-800 transition-colors text-left"
+                        >
+                          Try (default) database instead
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => {
+                          const url = new URL(window.location.href);
+                          url.searchParams.set('forceDefaultAuth', 'true');
+                          window.location.href = url.toString();
+                        }}
+                        className="text-[10px] font-bold uppercase tracking-widest text-slate-500 hover:text-slate-700 transition-colors text-left"
+                      >
+                        Trouble staying logged in? Try default auth
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

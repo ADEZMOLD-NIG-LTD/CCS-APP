@@ -25,7 +25,7 @@ import { CommodityType, Transaction, Buyer, DeductionParams, Warehouse } from '.
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import Toast from './Toast';
@@ -84,7 +84,9 @@ export default function SalesModule() {
       orderBy('date', 'desc')
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
+        .filter(tx => !tx.isDeleted);
       setTransactions(data);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
@@ -113,7 +115,9 @@ export default function SalesModule() {
       where('companyId', '==', profile.companyId)
     );
     const unsubscribeAll = onSnapshot(qAll, (snapshot) => {
-      const data = snapshot.docs.map(doc => doc.data() as Transaction);
+      const data = snapshot.docs
+        .map(doc => doc.data() as Transaction)
+        .filter(tx => !tx.isDeleted);
       setAllTransactions(data);
     });
 
@@ -220,6 +224,11 @@ export default function SalesModule() {
       totalValue: netWeight * (Number(formData.get('price')) || 0),
       referenceId: `SL-${Date.now().toString().slice(-6)}`,
       warehouseId: selectedWarehouseId,
+      truckNo: formData.get('truckNo') as string,
+      driverName: formData.get('driverName') as string,
+      driverPhone: formData.get('driverPhone') as string,
+      staffName: formData.get('staffName') as string,
+      notes: formData.get('notes') as string,
       deductions: {
         moistureActual: Number(moistureActual) || 0,
         moistureBenchmark: Number(moistureBenchmark) || 0,
@@ -248,6 +257,18 @@ export default function SalesModule() {
     setTareWeight('');
     setMoldWeight('');
     setOtherDeduction('');
+  };
+
+  const handleDeleteSale = async (txId: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm('Are you sure you want to remove this sales record? This action will be logged and cannot be undone.')) return;
+
+    try {
+      await updateDoc(doc(db, 'transactions', txId), { isDeleted: true });
+      setSuccessMessage('Sales record removed.');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `transactions/${txId}`));
+    }
   };
 
   useEffect(() => {
@@ -368,6 +389,33 @@ export default function SalesModule() {
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Selling Price per kg (₦)</label>
                     <input name="price" type="number" step="0.01" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" placeholder="0.00" />
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Truck No</label>
+                    <input name="truckNo" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="ABC-123" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Staff Name</label>
+                    <input name="staffName" type="text" defaultValue={profile?.displayName} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Staff Name" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Driver's Name</label>
+                    <input name="driverName" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="John Doe" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Driver's Phone</label>
+                    <input name="driverPhone" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="080..." />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Notes</label>
+                  <textarea name="notes" rows={2} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none" placeholder="Additional details..."></textarea>
                 </div>
 
                 {/* Deduction Logic (Same as Purchase) */}
@@ -509,10 +557,21 @@ export default function SalesModule() {
                               </span>
                               <span className="text-[10px] text-slate-400">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
                             </div>
-                            <h3 className="font-bold text-slate-900">
-                              {buyers.find(b => b.id === tx.buyerId)?.name || 'Unknown Buyer'}
-                            </h3>
-                          </div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-bold text-slate-900">
+                                  {buyers.find(b => b.id === tx.buyerId)?.name || 'Unknown Buyer'}
+                                </h3>
+                                {isAdmin && (
+                                  <button 
+                                    onClick={() => handleDeleteSale(tx.id)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                                    title="Remove Sale"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
                           <div className="text-right">
                             <p className="text-sm font-black text-slate-900">{tx.netWeight.toFixed(2)} kg</p>
                             <p className="text-[10px] text-slate-400">Net Weight</p>
@@ -528,6 +587,35 @@ export default function SalesModule() {
                             <p className="text-[11px] font-bold text-slate-600">{tx.referenceId}</p>
                           </div>
                         </div>
+
+                        {(tx.truckNo || tx.driverName || tx.notes) && (
+                          <div className="mt-3 pt-3 border-t border-slate-50 grid grid-cols-2 gap-x-4 gap-y-2">
+                            {tx.truckNo && (
+                              <div>
+                                <p className="text-[8px] text-slate-400 uppercase">Truck No</p>
+                                <p className="text-[10px] font-medium text-slate-700">{tx.truckNo}</p>
+                              </div>
+                            )}
+                            {tx.driverName && (
+                              <div>
+                                <p className="text-[8px] text-slate-400 uppercase">Driver</p>
+                                <p className="text-[10px] font-medium text-slate-700">{tx.driverName} {tx.driverPhone ? `(${tx.driverPhone})` : ''}</p>
+                              </div>
+                            )}
+                            {tx.staffName && (
+                              <div>
+                                <p className="text-[8px] text-slate-400 uppercase">Staff</p>
+                                <p className="text-[10px] font-medium text-slate-700">{tx.staffName}</p>
+                              </div>
+                            )}
+                            {tx.notes && (
+                              <div className="col-span-2">
+                                <p className="text-[8px] text-slate-400 uppercase">Notes</p>
+                                <p className="text-[10px] font-medium text-slate-700 italic">"{tx.notes}"</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))
                   )}

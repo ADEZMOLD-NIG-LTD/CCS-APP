@@ -4,13 +4,13 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Package, ArrowRightLeft, ArrowLeftRight, X, History, Calculator, Warehouse as WarehouseIcon, Scale, Droplets, Trash2, AlertCircle } from 'lucide-react';
+import { Plus, Package, ArrowRightLeft, ArrowLeftRight, X, History, Calculator, Warehouse as WarehouseIcon, Scale, Droplets, Trash2, AlertCircle, Edit } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CommodityType, PackagingType, Transaction, BagTransaction, Supplier, InventoryItem, DeductionParams, Warehouse } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import Toast from './Toast';
@@ -34,6 +34,7 @@ export default function InventoryModule() {
   const [isTransferring, setIsTransferring] = useState(false);
   const [isTransferringBag, setIsTransferringBag] = useState(false);
   const [isAddingBag, setIsAddingBag] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [transferSourceId, setTransferSourceId] = useState<string>('');
   const [transferCommodity, setTransferCommodity] = useState<CommodityType>('COCOA');
   const [transferBagSourceId, setTransferBagSourceId] = useState<string>('');
@@ -80,7 +81,9 @@ export default function InventoryModule() {
       orderBy('date', 'desc')
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
+        .filter(tx => !tx.isDeleted);
       setTransactions(data);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
@@ -143,7 +146,9 @@ export default function InventoryModule() {
       where('companyId', '==', profile.companyId)
     );
     const unsubscribe = onSnapshot(qAll, (snapshot) => {
-      const data = snapshot.docs.map(doc => doc.data() as Transaction);
+      const data = snapshot.docs
+        .map(doc => doc.data() as Transaction)
+        .filter(tx => !tx.isDeleted);
       setAllTransactions(data);
     });
     return () => unsubscribe();
@@ -225,9 +230,9 @@ export default function InventoryModule() {
     const id = crypto.randomUUID();
     
     const newTx: Transaction = {
-      id,
+      id: editingTransaction?.id || id,
       companyId: profile.companyId,
-      date: new Date().toISOString(),
+      date: editingTransaction?.date || new Date().toISOString(),
       type: 'PURCHASE',
       commodity,
       supplierId: formData.get('supplierId') as string,
@@ -237,7 +242,7 @@ export default function InventoryModule() {
       noOfBags: Number(formData.get('bags')) || 0,
       pricePerKg: Number(formData.get('price')) || 0,
       totalValue: netWeight * (Number(formData.get('price')) || 0),
-      referenceId: `TX-${Date.now().toString().slice(-6)}`,
+      referenceId: editingTransaction?.referenceId || `TX-${Date.now().toString().slice(-6)}`,
       warehouseId: formData.get('warehouseId') as string,
       deductions: {
         moistureActual: Number(moistureActual) || 0,
@@ -249,12 +254,13 @@ export default function InventoryModule() {
     };
 
     try {
-      await setDoc(doc(db, 'transactions', id), newTx);
+      await setDoc(doc(db, 'transactions', newTx.id), newTx);
       setIsAdding(false);
+      setEditingTransaction(null);
       resetForm();
-      setSuccessMessage('Purchase record successfully updated!');
+      setSuccessMessage(editingTransaction ? 'Purchase record updated!' : 'Purchase record successfully updated!');
     } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `transactions/${id}`));
+      setErrorMessage(reportFirestoreError(error, editingTransaction ? OperationType.UPDATE : OperationType.CREATE, `transactions/${newTx.id}`));
     } finally {
       setSubmitting(false);
     }
@@ -284,10 +290,20 @@ export default function InventoryModule() {
       newTx.supplierId = supplierId;
     }
 
-    if (bagOpType === 'ISSUE' && !newTx.supplierId) {
-      setErrorMessage('Supplier is required for bag issuance.');
-      setSubmitting(false);
-      return;
+    if (bagOpType === 'ISSUE') {
+      if (!newTx.supplierId) {
+        setErrorMessage('Supplier is required for bag issuance.');
+        setSubmitting(false);
+        return;
+      }
+      
+      // Check stock availability
+      const currentStock = getWarehouseBagStock(newTx.warehouseId, packagingType);
+      if (newTx.quantity > currentStock) {
+        setErrorMessage(`Insufficient ${packagingType.replace('_', ' ')} stock. Available: ${currentStock.toLocaleString()} units`);
+        setSubmitting(false);
+        return;
+      }
     }
 
     try {
@@ -435,6 +451,31 @@ export default function InventoryModule() {
     setTareWeight('');
     setMoldWeight('');
     setOtherDeduction('');
+    setEditingTransaction(null);
+  };
+
+  const handleEditClick = (tx: Transaction) => {
+    setEditingTransaction(tx);
+    setCommodity(tx.commodity);
+    setGrossWeight(tx.grossWeight);
+    setMoistureActual(tx.deductions.moistureActual);
+    setMoistureBenchmark(tx.deductions.moistureBenchmark);
+    setTareWeight(tx.deductions.tareWeight);
+    setMoldWeight(tx.deductions.moldWeight);
+    setOtherDeduction(tx.deductions.otherDeduction);
+    setIsAdding(true);
+  };
+
+  const handleDeleteEntry = async (txId: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm('Are you sure you want to remove this purchase record? This action will be logged and cannot be undone.')) return;
+
+    try {
+      await updateDoc(doc(db, 'transactions', txId), { isDeleted: true });
+      setSuccessMessage('Purchase record removed.');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `transactions/${txId}`));
+    }
   };
 
   useEffect(() => {
@@ -537,7 +578,7 @@ export default function InventoryModule() {
           </button>
         </div>
         <AnimatePresence mode="wait">
-          {isAdding ? (
+          {isAdding || editingTransaction ? (
             <motion.div
               key="form"
               initial={{ opacity: 0, y: 20 }}
@@ -546,8 +587,8 @@ export default function InventoryModule() {
               className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200"
             >
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold">New Purchase Entry</h2>
-                <button onClick={() => setIsAdding(false)} className="text-slate-400">Cancel</button>
+                <h2 className="text-lg font-bold">{editingTransaction ? 'Adjust Purchase Entry' : 'New Purchase Entry'}</h2>
+                <button onClick={() => { setIsAdding(false); setEditingTransaction(null); }} className="text-slate-400">Cancel</button>
               </div>
 
               <form onSubmit={handleAddEntry} className="space-y-6">
@@ -558,7 +599,7 @@ export default function InventoryModule() {
                     <select 
                       name="warehouseId" 
                       required 
-                      defaultValue={profile?.assignedWarehouseId || ''}
+                      defaultValue={editingTransaction?.warehouseId || profile?.assignedWarehouseId || ''}
                       disabled={!!profile?.assignedWarehouseId && profile?.role === 'STAFF'}
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
                     >
@@ -568,7 +609,7 @@ export default function InventoryModule() {
                   </div>
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier</label>
-                    <select name="supplierId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500">
+                    <select name="supplierId" required defaultValue={editingTransaction?.supplierId || ''} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500">
                       <option value="">Select Supplier</option>
                       {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
@@ -585,7 +626,7 @@ export default function InventoryModule() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">No of Bags</label>
-                    <input name="bags" type="number" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
+                    <input name="bags" type="number" defaultValue={editingTransaction?.bags || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
                   </div>
                 </div>
 
@@ -605,7 +646,7 @@ export default function InventoryModule() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price per kg (₦)</label>
-                    <input name="price" type="number" step="0.01" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" placeholder="0.00" />
+                    <input name="price" type="number" step="0.01" required defaultValue={editingTransaction?.pricePerKg || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" placeholder="0.00" />
                   </div>
                 </div>
 
@@ -1033,9 +1074,29 @@ export default function InventoryModule() {
                                 </span>
                                 <span className="text-[10px] text-slate-400">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
                               </div>
-                              <h3 className="font-bold text-slate-900">
-                                {suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown Supplier'}
-                              </h3>
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-bold text-slate-900">
+                                  {suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown Supplier'}
+                                </h3>
+                                {isAdmin && (
+                                  <div className="flex items-center gap-1">
+                                    <button 
+                                      onClick={() => handleEditClick(tx)}
+                                      className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                                      title="Adjust Purchase"
+                                    >
+                                      <Edit size={14} />
+                                    </button>
+                                    <button 
+                                      onClick={() => handleDeleteEntry(tx.id)}
+                                      className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                                      title="Remove Purchase"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                             <div className="text-right">
                               <p className="text-sm font-black text-slate-900">{tx.netWeight.toFixed(2)} kg</p>

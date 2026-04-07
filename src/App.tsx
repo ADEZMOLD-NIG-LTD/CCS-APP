@@ -18,6 +18,7 @@ import SalesModule from './components/SalesModule';
 import JournalModule from './components/JournalModule';
 import StaffModule from './components/StaffModule';
 import WarehouseModule from './components/WarehouseModule';
+import StoreKeeperModule from './components/StoreKeeperModule';
 import AnalyticsModule from './components/AnalyticsModule';
 import ReportsModule from './components/ReportsModule';
 import SuperAdminModule from './components/SuperAdminModule';
@@ -27,13 +28,13 @@ import Toast from './components/Toast';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin';
+type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin' | 'store';
 
 function AppContent() {
   const { 
     user, profile, company, loading, signIn, logout, registerCompany, 
     signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode,
-    mustChangePassword,
+    mustChangePassword, can,
     errorMessage, setErrorMessage, successMessage, setSuccessMessage
   } = useAuth();
   const [activeModule, setActiveModule] = useState<Module>('dashboard');
@@ -47,7 +48,15 @@ function AppContent() {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
         <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Connecting to secure database...</p>
+        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-2">Connecting to secure database...</p>
+        <div className="mt-8 p-4 bg-slate-100 rounded-2xl border border-slate-200 text-center max-w-xs">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">System Diagnostics</p>
+          <div className="space-y-1">
+            <p className="text-[10px] text-slate-500 font-mono">Project: <span className="text-indigo-600 font-bold">{import.meta.env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0555602350"}</span></p>
+            <p className="text-[10px] text-slate-500 font-mono">Database: <span className="text-indigo-600 font-bold">{import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || "ai-studio-086bebaa-d248-491f-a312-4b87527790a1"}</span></p>
+            <p className="text-[10px] text-slate-500 font-mono">Mode: <span className="text-slate-900 font-bold">{import.meta.env.MODE}</span></p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -62,16 +71,17 @@ function AppContent() {
 
   const navItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
-    { id: 'suppliers', icon: Users, label: 'Suppliers' },
-    { id: 'buyers', icon: UserPlus, label: 'Buyers' },
-    { id: 'inventory', icon: Package, label: 'Stock' },
-    { id: 'warehouses', icon: Building2, label: 'Stores' },
-    { id: 'purchases', icon: ShoppingCart, label: 'Buy' },
-    { id: 'sales', icon: TrendingUp, label: 'Sales' },
-    { id: 'journal', icon: Receipt, label: 'Journal', hidden: !isAccount && !isAuditor },
-    { id: 'staff', icon: Users, label: 'Staff', hidden: !isAdmin && !isAccount },
-    { id: 'analytics', icon: BarChart3, label: 'Data', hidden: !isAdmin && !isAuditor },
-    { id: 'reports', icon: FileText, label: 'Docs' },
+    { id: 'suppliers', icon: Users, label: 'Suppliers', hidden: !can('manage_suppliers') },
+    { id: 'buyers', icon: UserPlus, label: 'Buyers', hidden: !can('manage_buyers') },
+    { id: 'inventory', icon: Package, label: 'Stock', hidden: !can('manage_inventory') },
+    { id: 'store', icon: Package, label: 'Store Records', hidden: !can('manage_store_records') },
+    { id: 'warehouses', icon: Building2, label: 'Stores', hidden: !can('manage_warehouses') },
+    { id: 'purchases', icon: ShoppingCart, label: 'Buy', hidden: !can('manage_inventory') },
+    { id: 'sales', icon: TrendingUp, label: 'Sales', hidden: !can('manage_inventory') },
+    { id: 'journal', icon: Receipt, label: 'Journal', hidden: !can('manage_journal') },
+    { id: 'staff', icon: Users, label: 'Staff', hidden: !can('manage_staff') },
+    { id: 'analytics', icon: BarChart3, label: 'Data', hidden: !can('view_analytics') },
+    { id: 'reports', icon: FileText, label: 'Docs', hidden: !can('view_reports') },
     { id: 'superadmin', icon: Settings, label: 'Admin', hidden: !isSuperAdmin },
   ].filter(item => !item.hidden);
 
@@ -332,6 +342,7 @@ function AppContent() {
             { activeModule === 'journal' && <JournalModule /> }
             {activeModule === 'staff' && <StaffModule />}
             {activeModule === 'warehouses' && <WarehouseModule />}
+            {activeModule === 'store' && <StoreKeeperModule />}
             {activeModule === 'analytics' && <AnalyticsModule />}
             {activeModule === 'reports' && <ReportsModule />}
             {activeModule === 'superadmin' && <SuperAdminModule />}

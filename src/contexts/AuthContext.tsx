@@ -30,7 +30,7 @@ import {
   getDocs,
   getDocFromServer
 } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth, db, firebaseConfig } from '../firebase';
 import { UserProfile, Company, Staff } from '../types';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 
@@ -53,6 +53,7 @@ interface AuthContextType {
   isManager: boolean;
   isAccount: boolean;
   isAuditor: boolean;
+  isStoreKeeper: boolean;
   isStaff: boolean;
   isSuperAdmin: boolean;
   isDemoMode: boolean;
@@ -63,10 +64,25 @@ interface AuthContextType {
   setErrorMessage: (msg: string | null) => void;
   successMessage: string | null;
   setSuccessMessage: (msg: string | null) => void;
+  can: (action: PermissionAction) => boolean;
   canPostTransactions: boolean;
   canManageStaff: boolean;
   canTransferStock: boolean;
 }
+
+export type PermissionAction = 
+  | 'manage_users' 
+  | 'manage_companies' 
+  | 'manage_suppliers' 
+  | 'manage_buyers' 
+  | 'manage_inventory' 
+  | 'manage_staff' 
+  | 'manage_payroll' 
+  | 'view_reports' 
+  | 'view_analytics' 
+  | 'manage_warehouses' 
+  | 'manage_journal'
+  | 'manage_store_records';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -82,12 +98,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // Permission Engine Logic
+  const can = (action: PermissionAction): boolean => {
+    if (user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com') return true; // Super Admin bypass
+    if (isDemoMode) return true; // Demo mode has all permissions
+    if (!profile) return false;
+
+    const role = profile.role;
+
+    switch (action) {
+      case 'manage_users':
+        return role === 'ADMIN';
+      case 'manage_companies':
+        return false; // Only super admin via direct DB or special UI
+      case 'manage_suppliers':
+      case 'manage_buyers':
+      case 'manage_inventory':
+        return ['ADMIN', 'MANAGER', 'STAFF'].includes(role);
+      case 'manage_staff':
+        return ['ADMIN', 'MANAGER'].includes(role);
+      case 'manage_payroll':
+      case 'manage_journal':
+        return ['ADMIN', 'ACCOUNT'].includes(role);
+      case 'view_reports':
+      case 'view_analytics':
+        return ['ADMIN', 'MANAGER', 'ACCOUNT', 'AUDITOR'].includes(role);
+      case 'manage_warehouses':
+        return ['ADMIN', 'MANAGER'].includes(role);
+      case 'manage_store_records':
+        return ['ADMIN', 'MANAGER', 'STORE_KEEPER'].includes(role);
+      default:
+        return false;
+    }
+  };
+
   console.log('AuthProvider: State', { loading, user: user?.uid, isDemoMode, isFirestoreConnected });
 
   useEffect(() => {
     async function testConnection() {
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection test timeout')), 5000)
+        setTimeout(() => reject(new Error('Connection test timeout')), 8000)
       );
       
       try {
@@ -100,13 +150,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsFirestoreConnected(true);
         setConnectionError(null);
       } catch (error: any) {
-        if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration. The client is offline.");
-          setConnectionError("The client is offline. Check your internet or Firebase config.");
+        console.error("Firestore connection test failed:", error.message);
+        
+        if (error.message?.includes('the client is offline') || error.code === 'permission-denied') {
+          if (error.code === 'permission-denied') {
+            // Permission denied is actually a success! It means we reached the server.
+            setIsFirestoreConnected(true);
+            setConnectionError(null);
+            return;
+          }
           setIsFirestoreConnected(false);
+          setConnectionError(
+            `Firestore is offline for project "${firebaseConfig.projectId}". ` +
+            `Error: ${error.code || 'unknown'}. ` +
+            `Please ensure the Firestore API is enabled and a database named "${firebaseConfig.firestoreDatabaseId}" exists in the Firebase Console.`
+          );
+        } else if (error.message === 'Connection test timeout') {
+          // Timeout is common in some network environments, we'll be optimistic
+          setIsFirestoreConnected(true);
+          setConnectionError(null);
         } else {
-          console.warn("Firestore connection test failed or timed out:", error.message);
-          // We allow the app to proceed even if the test doc doesn't exist
+          // Other errors (like permission denied on the test doc) are actually signs of a successful connection
           setIsFirestoreConnected(true); 
           setConnectionError(null);
         }
@@ -262,20 +326,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
       
-      // Detect mobile devices to use Redirect instead of Popup
+      // Detect mobile devices and iframe environment
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      const isIframe = window.self !== window.top;
       
-      if (isMobile) {
-        console.log('Mobile detected, using signInWithRedirect');
+      // In an iframe (like AI Studio), signInWithRedirect almost always fails with a 403 or redirect loop
+      // We should prefer Popup in iframes if possible, or show a clear warning
+      if (isMobile && !isIframe) {
+        console.log('Mobile (non-iframe) detected, using signInWithRedirect');
         await signInWithRedirect(auth, provider);
       } else {
-        console.log('Desktop detected, using signInWithPopup');
+        console.log(isIframe ? 'Iframe detected, using signInWithPopup' : 'Desktop detected, using signInWithPopup');
         await signInWithPopup(auth, provider);
       }
     } catch (error: any) {
       console.error('Sign in failed:', error);
-      if (error.code === 'auth/unauthorized-domain') {
-        setErrorMessage('This domain is not authorized for Google Sign-In. Please add "' + window.location.hostname + '" to the authorized list in the Firebase Console (Authentication > Settings > Authorized domains).');
+      if (error.code === 'auth/unauthorized-domain' || error.message?.includes('403')) {
+        const domain = window.location.hostname;
+        setErrorMessage(
+          `Unauthorized Domain: The domain "${domain}" is not authorized for Google Sign-In in your Firebase Console. ` +
+          `Please go to Authentication > Settings > Authorized domains and add "${domain}".`
+        );
       } else if (error.code === 'auth/popup-blocked') {
         setErrorMessage('The sign-in popup was blocked by your browser. Please allow popups for this site and try again.');
       } else if (error.code === 'auth/cancelled-popup-request') {
@@ -518,7 +589,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isManager = profile?.role === 'MANAGER' || isSuperAdmin;
   const isAccount = profile?.role === 'ACCOUNT' || isManager || isSuperAdmin;
   const isAuditor = profile?.role === 'AUDITOR' || isManager || isSuperAdmin;
-  const isStaff = profile?.role === 'STAFF' || isAccount || isAuditor || isAdmin || isSuperAdmin;
+  const isStoreKeeper = profile?.role === 'STORE_KEEPER' || isAdmin || isSuperAdmin;
+  const isStaff = profile?.role === 'STAFF' || isAccount || isAuditor || isAdmin || isSuperAdmin || isStoreKeeper;
 
   // Refined permissions
   const canPostTransactions = isManager || isAccount || isSuperAdmin;
@@ -544,6 +616,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isManager,
     isAccount,
     isAuditor,
+    isStoreKeeper,
     isStaff,
     isSuperAdmin,
     isDemoMode,
@@ -554,6 +627,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setErrorMessage,
     successMessage,
     setSuccessMessage,
+    can,
     canPostTransactions,
     canManageStaff,
     canTransferStock

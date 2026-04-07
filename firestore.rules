@@ -60,6 +60,10 @@ service cloud.firestore {
       return isAuthenticated() && (isAccount() || isAuditor() || (userExists() && getUserData().get('role', '') == 'STAFF' && isCompanyApproved(getUserData().get('companyId', ''))));
     }
 
+    function isStoreKeeper() {
+      return isAuthenticated() && (isAdmin() || (userExists() && getUserData().get('role', '') == 'STORE_KEEPER' && isCompanyApproved(getUserData().get('companyId', ''))));
+    }
+
     function belongsToCompany(companyId) {
       return isAuthenticated() && 
              (isSuperAdmin() || 
@@ -211,11 +215,25 @@ service cloud.firestore {
              isValidString('name', 1, 100);
     }
 
+    function isValidStoreRecord(data) {
+      return hasRequiredFields(['id', 'companyId', 'date', 'type', 'customerName', 'nominalWeight', 'actualWeight', 'noOfBags']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'date', 'type', 'customerName', 'location', 'nominalWeight', 'actualWeight', 'noOfBags', 'moisture', 'tare', 'fieldOfficer', 'truckNo', 'commodity', 'warehouseId', 'sourceWarehouseId', 'destinationWarehouseId', 'isDeleted']) &&
+             isValidDateString(data.date) &&
+             data.type in ['IN', 'OUT', 'TRANSFER'] &&
+             data.nominalWeight is number &&
+             data.actualWeight is number &&
+             data.noOfBags is number;
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
 
     match /test/connection {
+      allow read: if true;
+    }
+
+    match /_health_check_/ping {
       allow read: if true;
     }
 
@@ -328,9 +346,16 @@ service cloud.firestore {
     }
 
     match /warehouses/{id} {
-      allow read: if isStaff() && belongsToCompany(resource.data.companyId);
+      allow read: if (isStaff() || isStoreKeeper()) && belongsToCompany(resource.data.companyId);
       allow create: if isManager() && belongsToCompany(request.resource.data.companyId) && isValidWarehouse(request.resource.data);
       allow update: if isManager() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidWarehouse(request.resource.data);
+      allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
+    }
+
+    match /store_records/{id} {
+      allow read: if (isStoreKeeper() || isManager()) && belongsToCompany(resource.data.companyId);
+      allow create: if isStoreKeeper() && belongsToCompany(request.resource.data.companyId) && isValidStoreRecord(request.resource.data);
+      allow update: if isStoreKeeper() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidStoreRecord(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 

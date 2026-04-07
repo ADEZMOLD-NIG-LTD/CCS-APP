@@ -15,6 +15,32 @@
       },
       "required": ["uid", "email", "role", "companyId"]
     },
+    "StoreRecord": {
+      "title": "StoreRecord",
+      "description": "Store keeper's independent inventory record for dual control",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["IN", "OUT", "TRANSFER"] },
+        "customerName": { "type": "string" },
+        "location": { "type": "string" },
+        "nominalWeight": { "type": "number" },
+        "actualWeight": { "type": "number" },
+        "noOfBags": { "type": "number" },
+        "moisture": { "type": "number" },
+        "tare": { "type": "number" },
+        "fieldOfficer": { "type": "string" },
+        "truckNo": { "type": "string" },
+        "commodity": { "type": "string", "enum": ["COCOA", "CASHEW", "PK"] },
+        "warehouseId": { "type": "string" },
+        "sourceWarehouseId": { "type": "string" },
+        "destinationWarehouseId": { "type": "string" },
+        "isDeleted": { "type": "boolean" }
+      },
+      "required": ["id", "companyId", "date", "type", "customerName", "nominalWeight", "actualWeight", "noOfBags"]
+    },
     "Company": {
       "title": "Company",
       "description": "Company information for SaaS multi-tenancy",
@@ -281,6 +307,10 @@
     "warehouses": {
       "schema": "Warehouse",
       "description": "Collection of warehouses"
+    },
+    "store_records": {
+      "schema": "StoreRecord",
+      "description": "Collection of store keeper inventory records"
     }
   }
 }

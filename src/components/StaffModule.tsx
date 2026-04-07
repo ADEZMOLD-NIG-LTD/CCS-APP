@@ -600,6 +600,7 @@ export default function StaffModule() {
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium"
                     >
                       <option value="STAFF">Staff</option>
+                      <option value="STORE_KEEPER">Store Keeper</option>
                       <option value="ACCOUNT">Account/Finance</option>
                       <option value="MANAGER">Manager</option>
                       <option value="AUDITOR">Auditor</option>

@@ -7,7 +7,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
-  role: 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR';
+  role: 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR' | 'STORE_KEEPER';
   companyId: string;
   assignedWarehouseId?: string; // For staff assigned to specific warehouse
   createdAt: string;
@@ -99,7 +99,7 @@ export interface Staff {
   companyId: string;
   name: string;
   email?: string;
-  role: 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR';
+  role: 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR' | 'STORE_KEEPER';
   phone: string;
   salary: number; // Basic Salary
   allowances?: number;
@@ -190,4 +190,31 @@ export interface Transaction {
   totalValue?: number;
   deductions: DeductionParams;
   referenceId: string;
+  truckNo?: string;
+  driverName?: string;
+  driverPhone?: string;
+  staffName?: string;
+  notes?: string;
+  isDeleted?: boolean;
+}
+
+export interface StoreRecord {
+  id: string;
+  companyId: string;
+  date: string;
+  type: 'IN' | 'OUT' | 'TRANSFER';
+  customerName: string;
+  location: string;
+  nominalWeight: number;
+  actualWeight: number;
+  noOfBags: number;
+  moisture: number;
+  tare: number;
+  fieldOfficer: string;
+  truckNo: string;
+  commodity: CommodityType;
+  warehouseId: string; // For IN/OUT
+  sourceWarehouseId?: string; // For TRANSFER
+  destinationWarehouseId?: string; // For TRANSFER
+  isDeleted?: boolean;
 }
