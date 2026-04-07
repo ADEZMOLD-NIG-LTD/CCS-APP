@@ -190,6 +190,7 @@ export interface Transaction {
   totalValue?: number;
   deductions: DeductionParams;
   referenceId: string;
+  isDirectDelivery?: boolean;
   truckNo?: string;
   driverName?: string;
   driverPhone?: string;

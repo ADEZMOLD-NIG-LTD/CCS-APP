@@ -132,7 +132,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const allEntries = [
       ...transactions.map(t => ({
         date: t.date,
-        description: `Purchase: ${t.commodity} (${t.netWeight || 0}kg)`,
+        description: t.type === 'SALE' && t.isDirectDelivery 
+          ? `Direct Delivery: ${t.commodity} (${t.netWeight || 0}kg)` 
+          : `Purchase: ${t.commodity} (${t.netWeight || 0}kg)`,
         credit: t.totalValue || 0,
         debit: 0,
         ref: t.referenceId,

@@ -104,7 +104,8 @@
             "otherDeduction": { "type": "number" }
           }
         },
-        "referenceId": { "type": "string" }
+        "referenceId": { "type": "string" },
+        "isDirectDelivery": { "type": "boolean" }
       },
       "required": ["id", "companyId", "date", "type", "commodity", "netWeight", "deductions"]
     },

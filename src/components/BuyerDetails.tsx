@@ -89,7 +89,9 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         id: s.id,
         date: s.date,
         type: 'SALE' as const,
-        description: `${s.commodity} Sale (${(s.netWeight || 0).toFixed(2)}kg @ ₦${(s.pricePerKg || 0).toLocaleString()})`,
+        description: s.isDirectDelivery 
+          ? `Direct Delivery: ${s.commodity} (${(s.netWeight || 0).toFixed(2)}kg @ ₦${(s.pricePerKg || 0).toLocaleString()})`
+          : `${s.commodity} Sale (${(s.netWeight || 0).toFixed(2)}kg @ ₦${(s.pricePerKg || 0).toLocaleString()})`,
         debit: s.totalValue || 0,
         credit: 0,
         reference: s.referenceId

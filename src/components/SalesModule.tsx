@@ -18,10 +18,11 @@ import {
   UserPlus,
   ArrowUpRight,
   ArrowDownRight,
-  Trash2
+  Trash2,
+  Truck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CommodityType, Transaction, Buyer, DeductionParams, Warehouse } from '../types';
+import { CommodityType, Transaction, Buyer, DeductionParams, Warehouse, Supplier } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
@@ -38,9 +39,11 @@ export default function SalesModule() {
   const { profile, isStaff, isAccount, isAdmin, canPostTransactions } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [buyers, setBuyers] = useState<Buyer[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [isAddingSale, setIsAddingSale] = useState(false);
   const [isAddingBuyer, setIsAddingBuyer] = useState(false);
+  const [isDirectDelivery, setIsDirectDelivery] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -110,6 +113,16 @@ export default function SalesModule() {
       setWarehouses(data);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
+    const qSuppliers = query(
+      collection(db, 'suppliers'), 
+      where('companyId', '==', profile.companyId),
+      orderBy('name', 'asc')
+    );
+    const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
+      setSuppliers(data);
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers')));
+
     const qAll = query(
       collection(db, 'transactions'),
       where('companyId', '==', profile.companyId)
@@ -125,6 +138,7 @@ export default function SalesModule() {
       unsubscribeTx();
       unsubscribeBuyers();
       unsubscribeWarehouses();
+      unsubscribeSuppliers();
       unsubscribeAll();
     };
   }, [profile?.companyId]);
@@ -198,9 +212,9 @@ export default function SalesModule() {
       return;
     }
 
-    // Check inventory availability
+    // Check inventory availability (Skip for direct delivery)
     const availableStock = inventory[commodity];
-    if (netWeight > availableStock) {
+    if (!isDirectDelivery && netWeight > availableStock) {
       setErrorMessage(`Insufficient inventory! Available ${commodity} stock is only ${(availableStock || 0).toLocaleString()} kg.`);
       return;
     }
@@ -216,6 +230,8 @@ export default function SalesModule() {
       type: 'SALE',
       commodity,
       buyerId: formData.get('buyerId') as string,
+      supplierId: isDirectDelivery ? (formData.get('supplierId') as string) : undefined,
+      isDirectDelivery,
       grossWeight: Number(grossWeight) || 0,
       netWeight,
       bags: Number(formData.get('bags')) || 0,
@@ -223,7 +239,7 @@ export default function SalesModule() {
       pricePerKg: Number(formData.get('price')) || 0,
       totalValue: netWeight * (Number(formData.get('price')) || 0),
       referenceId: `SL-${Date.now().toString().slice(-6)}`,
-      warehouseId: selectedWarehouseId,
+      warehouseId: isDirectDelivery ? undefined : selectedWarehouseId,
       truckNo: formData.get('truckNo') as string,
       driverName: formData.get('driverName') as string,
       driverPhone: formData.get('driverPhone') as string,
@@ -257,6 +273,7 @@ export default function SalesModule() {
     setTareWeight('');
     setMoldWeight('');
     setOtherDeduction('');
+    setIsDirectDelivery(false);
   };
 
   const handleDeleteSale = async (txId: string) => {
@@ -336,19 +353,55 @@ export default function SalesModule() {
               </div>
 
               <form onSubmit={handleAddSale} className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-                    <select 
-                      value={selectedWarehouseId} 
-                      onChange={(e) => setSelectedWarehouseId(e.target.value)}
-                      required 
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Truck size={18} className="text-slate-400" />
+                      <span className="text-sm font-bold text-slate-700">Direct Delivery</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsDirectDelivery(!isDirectDelivery)}
+                      className={cn(
+                        "w-12 h-6 rounded-full transition-all relative",
+                        isDirectDelivery ? "bg-blue-600" : "bg-slate-300"
+                      )}
                     >
-                      <option value="ALL">ALL WAREHOUSES</option>
-                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
+                      <div className={cn(
+                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                        isDirectDelivery ? "left-7" : "left-1"
+                      )} />
+                    </button>
                   </div>
+                  <p className="text-[10px] text-slate-500 font-medium leading-tight">
+                    Enable this if the supplier is delivering directly to the buyer. This will bypass warehouse inventory checks and credit the supplier's ledger.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  {!isDirectDelivery && (
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                      <select 
+                        value={selectedWarehouseId} 
+                        onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                        required 
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="ALL">ALL WAREHOUSES</option>
+                        {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {isDirectDelivery && (
+                    <div className="col-span-2">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier (Direct Delivery From)</label>
+                      <select name="supplierId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select Supplier</option>
+                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    </div>
+                  )}
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Buyer</label>
                     <select name="buyerId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
@@ -462,24 +515,34 @@ export default function SalesModule() {
 
                 <div className={cn(
                   "rounded-2xl p-4 text-white flex flex-col gap-4 shadow-lg transition-all",
-                  netWeight > inventory[commodity] ? "bg-rose-600" : "bg-blue-600"
+                  !isDirectDelivery && netWeight > inventory[commodity] ? "bg-rose-600" : "bg-blue-600"
                 )}>
                   <div className="flex justify-between items-center">
                     <div>
                       <p className="text-[10px] uppercase font-bold opacity-80">Final Net Weight</p>
                       <p className="text-2xl font-black">{netWeight.toFixed(2)} <span className="text-sm font-normal">kg</span></p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] uppercase font-bold opacity-80">Available {commodity} Stock</p>
-                      <p className="text-xl font-black">
-                        {(inventory[commodity] || 0).toLocaleString()} <span className="text-xs font-normal">kg</span>
-                      </p>
-                      {netWeight > inventory[commodity] && (
-                        <p className="text-[9px] font-bold text-rose-200 mt-1 uppercase tracking-tighter animate-pulse">
-                          Insufficient Stock
+                    {!isDirectDelivery && (
+                      <div className="text-right">
+                        <p className="text-[10px] uppercase font-bold opacity-80">Available {commodity} Stock</p>
+                        <p className="text-xl font-black">
+                          {(inventory[commodity] || 0).toLocaleString()} <span className="text-xs font-normal">kg</span>
                         </p>
-                      )}
-                    </div>
+                        {netWeight > inventory[commodity] && (
+                          <p className="text-[9px] font-bold text-rose-200 mt-1 uppercase tracking-tighter animate-pulse">
+                            Insufficient Stock
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {isDirectDelivery && (
+                      <div className="text-right">
+                        <div className="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg">
+                          <Truck size={14} />
+                          <span className="text-[10px] font-bold uppercase">Direct Delivery</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="pt-3 border-t border-white/20 flex justify-between items-center">
                     <p className="text-[10px] uppercase font-bold opacity-80">Total Value</p>
@@ -552,9 +615,15 @@ export default function SalesModule() {
                               <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded uppercase">
                                 {tx.commodity}
                               </span>
-                              <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">
-                                {warehouses.find(w => w.id === tx.warehouseId)?.name || 'Main'}
-                              </span>
+                              {tx.isDirectDelivery ? (
+                                <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded uppercase flex items-center gap-1">
+                                  <Truck size={10} /> Direct Delivery
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">
+                                  {warehouses.find(w => w.id === tx.warehouseId)?.name || 'Main'}
+                                </span>
+                              )}
                               <span className="text-[10px] text-slate-400">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
                             </div>
                               <div className="flex items-center gap-2">
@@ -571,6 +640,11 @@ export default function SalesModule() {
                                   </button>
                                 )}
                               </div>
+                              {tx.isDirectDelivery && tx.supplierId && (
+                                <p className="text-[10px] text-slate-500 font-medium">
+                                  From: <span className="font-bold">{suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown Supplier'}</span>
+                                </p>
+                              )}
                             </div>
                           <div className="text-right">
                             <p className="text-sm font-black text-slate-900">{tx.netWeight.toFixed(2)} kg</p>
