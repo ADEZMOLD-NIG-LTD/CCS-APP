@@ -423,7 +423,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(newProfile);
     } catch (error: any) {
       console.error('Signup failed:', error);
-      if (error.code === 'auth/email-already-in-use') {
+      if (error.code === 'auth/operation-not-allowed') {
+        setErrorMessage('Email/Password sign-up is not enabled in the Firebase Console. Please enable it in Authentication > Sign-in method.');
+      } else if (error.code === 'auth/email-already-in-use') {
         setErrorMessage('This email is already registered.');
       } else if (error.code === 'auth/weak-password') {
         setErrorMessage('Password is too weak. Please use at least 6 characters.');
