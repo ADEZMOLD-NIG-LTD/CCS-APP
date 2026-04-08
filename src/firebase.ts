@@ -7,19 +7,27 @@ import { initializeApp, FirebaseOptions } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 
-// Import the Firebase configuration
-import firebaseConfigData from '../firebase-applet-config.json';
-
-console.log("Firebase Config Data:", JSON.stringify({
-  projectId: firebaseConfigData.projectId,
-  databaseId: firebaseConfigData.firestoreDatabaseId,
-  authDomain: firebaseConfigData.authDomain
-}));
+// Use import.meta.glob to optionally load the config file if it exists (AI Studio environment)
+// This prevents build failures in environments like GitHub Actions where the file is missing.
+const configFiles = import.meta.glob('../firebase-applet-config.json', { eager: true });
+const configJson = (configFiles['../firebase-applet-config.json'] as any)?.default || {};
 
 export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
-  ...firebaseConfigData,
-  firestoreDatabaseId: firebaseConfigData.firestoreDatabaseId || "(default)"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || configJson.apiKey,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || configJson.authDomain,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || configJson.projectId,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || configJson.storageBucket,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || configJson.messagingSenderId,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || configJson.appId,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || configJson.measurementId,
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || configJson.firestoreDatabaseId || "(default)"
 };
+
+console.log("Firebase Config initialized from env/json.");
+
+if (!firebaseConfig.apiKey) {
+  console.error("CRITICAL: Firebase API Key is missing. Please ensure firebase-applet-config.json exists or VITE_FIREBASE_API_KEY is set.");
+}
 
 const app = initializeApp(firebaseConfig);
 
