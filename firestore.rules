@@ -57,7 +57,7 @@ service cloud.firestore {
     }
 
     function isStaff() {
-      return isAuthenticated() && (isAccount() || isAuditor() || (userExists() && getUserData().get('role', '') == 'STAFF' && isCompanyApproved(getUserData().get('companyId', ''))));
+      return isAuthenticated() && (isAccount() || isAuditor() || isStoreKeeper() || (userExists() && getUserData().get('role', '') == 'STAFF' && isCompanyApproved(getUserData().get('companyId', ''))));
     }
 
     function isStoreKeeper() {
@@ -112,7 +112,7 @@ service cloud.firestore {
              hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'companyId', 'assignedWarehouseId', 'createdAt', 'lastPasswordUpdate']) &&
              data.uid == request.auth.uid &&
              isValidEmail(data.email) &&
-             data.role in ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'AUDITOR'] &&
+             data.role in ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'AUDITOR', 'STORE_KEEPER'] &&
              data.companyId is string &&
              data.companyId.size() < 50 &&
              isValidDateString(data.createdAt);
@@ -138,7 +138,7 @@ service cloud.firestore {
 
     function isValidTransaction(data) {
       return hasRequiredFields(['id', 'companyId', 'date', 'type', 'commodity', 'netWeight', 'deductions']) &&
-             hasOnlyAllowedFields(['id', 'companyId', 'date', 'type', 'commodity', 'supplierId', 'buyerId', 'buyerName', 'sourceWarehouseId', 'destinationWarehouseId', 'warehouseId', 'warehouse', 'grossWeight', 'netWeight', 'bags', 'noOfBags', 'pricePerKg', 'totalValue', 'deductions', 'referenceId']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'date', 'type', 'commodity', 'supplierId', 'buyerId', 'buyerName', 'sourceWarehouseId', 'destinationWarehouseId', 'warehouseId', 'warehouse', 'grossWeight', 'netWeight', 'bags', 'noOfBags', 'pricePerKg', 'totalValue', 'deductions', 'referenceId', 'isDirectDelivery', 'truckNo', 'driverName', 'driverPhone', 'staffName', 'notes']) &&
              isValidDateString(data.date) &&
              data.type in ['PURCHASE', 'SALE', 'TRANSFER'] &&
              data.commodity in ['COCOA', 'CASHEW', 'PK'] &&
@@ -159,7 +159,7 @@ service cloud.firestore {
       return hasRequiredFields(['id', 'companyId', 'name', 'role']) &&
              hasOnlyAllowedFields(['id', 'companyId', 'name', 'role', 'phone', 'salary', 'allowances', 'joinedDate', 'status', 'assignedWarehouseId', 'bankName', 'accountNumber', 'email', 'uid']) &&
              isValidString('name', 1, 100) &&
-             data.role in ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'AUDITOR'] &&
+             data.role in ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'AUDITOR', 'STORE_KEEPER'] &&
              (!('salary' in data) || data.salary is number) &&
              (!('status' in data) || data.status in ['ACTIVE', 'SUSPENDED', 'DISMISSED', 'INACTIVE']) &&
              (!('phone' in data) || data.phone is string) &&

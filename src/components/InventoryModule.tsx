@@ -24,7 +24,7 @@ const PACKAGING: PackagingType[] = ['JUTE_BAG', 'NYLON_BAG'];
 const BENCHMARKS = { COCOA: 8, CASHEW: 10, PK: 8 };
 
 export default function InventoryModule() {
-  const { profile, isStaff, isAdmin, canTransferStock } = useAuth();
+  const { profile, isStaff, isAdmin, canTransferStock, canPostTransactions } = useAuth();
   const [activeTab, setActiveTab] = useState<'COMMODITIES' | 'PACKAGING'>('COMMODITIES');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
@@ -220,8 +220,8 @@ export default function InventoryModule() {
   const handleAddEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     console.log('handleAddEntry triggered', { isStaff, submitting, companyId: profile?.companyId });
-    if (isAdmin || submitting || !profile?.companyId) {
-      console.warn('handleAddEntry early exit', { isAdmin, submitting, companyId: profile?.companyId });
+    if (submitting || !profile?.companyId) {
+      console.warn('handleAddEntry early exit', { submitting, companyId: profile?.companyId });
       return;
     }
 
@@ -528,7 +528,7 @@ export default function InventoryModule() {
                     <ArrowRightLeft size={18} /> Transfer
                   </button>
                 )}
-                {!isAdmin && (
+                {canPostTransactions && (
                   <button
                     onClick={() => setIsAdding(true)}
                     className="bg-emerald-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
@@ -550,7 +550,7 @@ export default function InventoryModule() {
                     <ArrowRightLeft size={18} /> Transfer
                   </button>
                 )}
-                {!isAdmin && (
+                {canPostTransactions && (
                   <button
                     onClick={() => {
                       setIsAddingBag(true);

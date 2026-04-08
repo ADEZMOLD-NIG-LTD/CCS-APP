@@ -605,16 +605,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isSuperAdmin = user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' || user?.email?.toLowerCase() === 'abdullahiwasiu07@gmail.com';
   const isAdmin = profile?.role === 'ADMIN' || isSuperAdmin;
-  const isManager = profile?.role === 'MANAGER' || isSuperAdmin;
-  const isAccount = profile?.role === 'ACCOUNT' || isManager || isSuperAdmin;
-  const isAuditor = profile?.role === 'AUDITOR' || isManager || isSuperAdmin;
-  const isStoreKeeper = profile?.role === 'STORE_KEEPER' || isAdmin || isSuperAdmin;
-  const isStaff = profile?.role === 'STAFF' || isAccount || isAuditor || isAdmin || isSuperAdmin || isStoreKeeper;
+  const isManager = profile?.role === 'MANAGER' || isAdmin;
+  const isAccount = profile?.role === 'ACCOUNT' || isManager;
+  const isAuditor = profile?.role === 'AUDITOR' || isManager;
+  const isStoreKeeper = profile?.role === 'STORE_KEEPER' || isAdmin;
+  const isStaff = profile?.role === 'STAFF' || isAccount || isAuditor || isStoreKeeper;
 
   // Refined permissions
-  const canPostTransactions = isManager || isAccount || isSuperAdmin;
-  const canManageStaff = isAdmin || isManager || isSuperAdmin;
-  const canTransferStock = isAdmin || isManager || isSuperAdmin;
+  const canPostTransactions = isManager || isAccount;
+  const canManageStaff = isAdmin || isManager;
+  const canTransferStock = isAdmin || isManager;
 
   const value = {
     user,

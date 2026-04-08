@@ -333,12 +333,14 @@ export default function SalesModule() {
                 <UserPlus size={18} /> Add Buyer
               </button>
             )}
-            <button
-              onClick={() => setIsAddingSale(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all"
-            >
-              <Plus size={18} /> New Sale
-            </button>
+            {canPostTransactions && (
+              <button
+                onClick={() => setIsAddingSale(true)}
+                className="bg-blue-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all"
+              >
+                <Plus size={18} /> New Sale
+              </button>
+            )}
           </div>
         </div>
       </header>
