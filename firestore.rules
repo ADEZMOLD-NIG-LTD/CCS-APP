@@ -266,7 +266,12 @@ service cloud.firestore {
          request.resource.data.role == 'ADMIN') // Company owner can be admin
       );
       allow update: if isAuthenticated() && (
-        (request.auth.uid == userId && isValidUserProfile(request.resource.data) && request.resource.data.role == resource.data.role) || // User can update profile but not role
+        (request.auth.uid == userId && isValidUserProfile(request.resource.data) && (
+          request.resource.data.role == resource.data.role ||
+          (request.resource.data.role == 'ADMIN' && 
+           exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) && 
+           get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.ownerEmail.lower() == request.auth.token.email.lower())
+        )) || // User can update profile, and can become ADMIN if they own the company
         (isAdmin() && isValidUserProfile(request.resource.data)) // Admin can update roles
       );
       allow delete: if isSuperAdmin();

@@ -113,6 +113,47 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
           </div>
 
           <div className="space-y-6">
+            <AnimatePresence>
+              {errorMessage && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-start gap-3 overflow-hidden"
+                >
+                  <AlertCircle className="text-rose-600 shrink-0 mt-0.5" size={18} />
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-rose-900">{errorMessage}</p>
+                    <button 
+                      onClick={() => setErrorMessage(null)}
+                      className="text-[10px] font-bold uppercase tracking-widest text-rose-600 hover:text-rose-800 mt-1"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+              {successMessage && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3 overflow-hidden"
+                >
+                  <CheckCircle2 className="text-emerald-600 shrink-0 mt-0.5" size={18} />
+                  <div className="flex-1">
+                    <p className="text-xs font-bold text-emerald-900">{successMessage}</p>
+                    <button 
+                      onClick={() => setSuccessMessage(null)}
+                      className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 hover:text-emerald-800 mt-1"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {!isFirestoreConnected && (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
                 <div className="text-amber-600 shrink-0 mt-0.5">

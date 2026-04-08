@@ -564,38 +564,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const registerCompany = async (companyName: string) => {
     if (!user) return;
+    setLoading(true);
+    setErrorMessage(null);
 
-    const companyId = `comp_${Date.now()}`;
-    const newCompany: any = {
-      id: companyId,
-      name: companyName,
-      ownerEmail: user.email || '',
-      createdAt: new Date().toISOString(),
-      isApproved: false // Requires super admin approval
-    };
+    try {
+      const companyId = `comp_${Date.now()}`;
+      const newCompany: any = {
+        id: companyId,
+        name: companyName,
+        ownerEmail: user.email || '',
+        createdAt: new Date().toISOString(),
+        isApproved: false // Requires super admin approval
+      };
 
-    const newProfile: any = {
-      uid: user.uid,
-      email: user.email || '',
-      displayName: user.displayName || 'Admin',
-      role: 'ADMIN',
-      companyId: companyId,
-      createdAt: new Date().toISOString()
-    };
+      const newProfile: any = {
+        uid: user.uid,
+        email: user.email || '',
+        displayName: profile?.displayName || user.displayName || 'Admin',
+        role: 'ADMIN',
+        companyId: companyId,
+        createdAt: profile?.createdAt || new Date().toISOString(),
+        lastPasswordUpdate: profile?.lastPasswordUpdate || new Date().toISOString()
+      };
 
-    Object.keys(newCompany).forEach(key => newCompany[key] === undefined && delete newCompany[key]);
-    await setDoc(doc(db, 'companies', companyId), newCompany);
-    
-    Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
-    await setDoc(doc(db, 'users', user.uid), newProfile);
-    
-    setCompany(newCompany);
-    setProfile(newProfile);
+      Object.keys(newCompany).forEach(key => newCompany[key] === undefined && delete newCompany[key]);
+      await setDoc(doc(db, 'companies', companyId), newCompany);
+      
+      Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
+      await setDoc(doc(db, 'users', user.uid), newProfile);
+      
+      setCompany(newCompany);
+      setProfile(newProfile);
+      setSuccessMessage('Company registered successfully! Awaiting admin approval.');
+    } catch (error: any) {
+      console.error('Company registration failed:', error);
+      setErrorMessage(`Registration failed: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const approveCompany = async (companyId: string) => {
     if (user?.email?.toLowerCase() !== 'wasiuadebisi89@gmail.com') return;
-    await setDoc(doc(db, 'companies', companyId), { isApproved: true }, { merge: true });
+    try {
+      await setDoc(doc(db, 'companies', companyId), { isApproved: true }, { merge: true });
+      setSuccessMessage('Company approved successfully.');
+    } catch (error: any) {
+      console.error('Company approval failed:', error);
+      setErrorMessage(`Approval failed: ${error.message}`);
+    }
   };
 
   const disapproveCompany = async (companyId: string) => {

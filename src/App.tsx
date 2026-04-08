@@ -179,10 +179,14 @@ function AppContent() {
             
             <button 
               onClick={() => registerCompany(newCompanyName)}
-              disabled={!newCompanyName.trim()}
+              disabled={!newCompanyName.trim() || loading}
               className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
             >
-              Create Account
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                'Create Account'
+              )}
             </button>
             
             <button 
