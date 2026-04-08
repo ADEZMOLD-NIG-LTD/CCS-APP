@@ -25,6 +25,13 @@ export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } 
 
 console.log("Firebase Config initialized from env/json.");
 
+// Debugging API key loading
+const apiKeySource = import.meta.env.VITE_FIREBASE_API_KEY ? "env" : (configJson.apiKey ? "json" : "none");
+console.log(`Firebase API Key source: ${apiKeySource}`);
+if (firebaseConfig.apiKey) {
+  console.log(`Firebase API Key loaded (first 5 chars): ${firebaseConfig.apiKey.substring(0, 5)}...`);
+}
+
 if (!firebaseConfig.apiKey) {
   console.error("CRITICAL: Firebase API Key is missing. Please ensure firebase-applet-config.json exists or VITE_FIREBASE_API_KEY is set.");
 }
