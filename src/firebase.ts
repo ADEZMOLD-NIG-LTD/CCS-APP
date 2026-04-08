@@ -12,15 +12,18 @@ import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 const configFiles = import.meta.glob('../firebase-applet-config.json', { eager: true });
 const configJson = (configFiles['../firebase-applet-config.json'] as any)?.default || {};
 
+// Helper to sanitize env variables (strip accidental quotes)
+const sanitize = (val: any) => typeof val === 'string' ? val.replace(/['"]/g, '').trim() : val;
+
 export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || configJson.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || configJson.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || configJson.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || configJson.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || configJson.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || configJson.appId,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || configJson.measurementId,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || configJson.firestoreDatabaseId || "(default)"
+  apiKey: sanitize(import.meta.env.VITE_FIREBASE_API_KEY || configJson.apiKey),
+  authDomain: sanitize(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || configJson.authDomain),
+  projectId: sanitize(import.meta.env.VITE_FIREBASE_PROJECT_ID || configJson.projectId),
+  storageBucket: sanitize(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || configJson.storageBucket),
+  messagingSenderId: sanitize(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || configJson.messagingSenderId),
+  appId: sanitize(import.meta.env.VITE_FIREBASE_APP_ID || configJson.appId),
+  measurementId: sanitize(import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || configJson.measurementId),
+  firestoreDatabaseId: sanitize(import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || configJson.firestoreDatabaseId || "(default)")
 };
 
 console.log("Firebase Config initialized from env/json.");
