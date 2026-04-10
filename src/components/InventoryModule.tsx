@@ -25,7 +25,7 @@ const PACKAGING: PackagingType[] = ['JUTE_BAG', 'NYLON_BAG'];
 const BENCHMARKS = { COCOA: 8, CASHEW: 10, PK: 8 };
 
 export default function InventoryModule() {
-  const { profile, isStaff, isAdmin, canTransferStock, canPostTransactions } = useAuth();
+  const { profile, isStaff, isAdmin, canTransferStock, canPostTransactions, isOnline } = useAuth();
   const [activeTab, setActiveTab] = useState<'COMMODITIES' | 'PACKAGING'>('COMMODITIES');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
@@ -259,10 +259,16 @@ export default function InventoryModule() {
     Object.keys(newTx).forEach(key => newTx[key] === undefined && delete newTx[key]);
 
     try {
-      await setDoc(doc(db, 'transactions', newTx.id), newTx);
+      const writePromise = setDoc(doc(db, 'transactions', newTx.id), newTx);
       
-      // Record Audit Log
-      await recordAuditLog({
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
         userEmail: profile.email,
@@ -272,7 +278,7 @@ export default function InventoryModule() {
         details: `${editingTransaction ? 'Updated' : 'Created'} purchase transaction for ${newTx.commodity} (${newTx.netWeight}kg)`,
         newData: newTx,
         previousData: editingTransaction || undefined
-      });
+      }).catch(err => console.error('Audit log failed:', err));
 
       setIsAdding(false);
       setEditingTransaction(null);
@@ -329,7 +335,26 @@ export default function InventoryModule() {
     }
 
     try {
-      await setDoc(doc(db, 'bag_transactions', id), newTx);
+      const writePromise = setDoc(doc(db, 'bag_transactions', id), newTx);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Inventory (Bags)',
+        recordId: id,
+        details: `Recorded ${bagOpType.replace('_', ' ')}: ${newTx.quantity} ${newTx.packagingType.replace('_', ' ')}`,
+        newData: newTx
+      }).catch(err => console.error('Audit log failed:', err));
+
       setIsAddingBag(false);
       setSuccessMessage(`${packagingType.replace('_', ' ')} ${bagOpType === 'STOCK_IN' ? 'Stock-in' : 'Issuance'} recorded!`);
     } catch (error) {
@@ -391,7 +416,26 @@ export default function InventoryModule() {
     Object.keys(transferTx).forEach(key => transferTx[key] === undefined && delete transferTx[key]);
 
     try {
-      await setDoc(doc(db, 'bag_transactions', id), transferTx);
+      const writePromise = setDoc(doc(db, 'bag_transactions', id), transferTx);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Inventory (Bag Transfer)',
+        recordId: id,
+        details: `Transferred ${quantity} ${pkgType.replace('_', ' ')} from ${warehouses.find(w => w.id === sourceId)?.name} to ${warehouses.find(w => w.id === destId)?.name}`,
+        newData: transferTx
+      }).catch(err => console.error('Audit log failed:', err));
+
       setIsTransferringBag(false);
       setSuccessMessage(`${pkgType.replace('_', ' ')} transfer recorded!`);
     } catch (error) {
@@ -462,7 +506,26 @@ export default function InventoryModule() {
     Object.keys(transferTx).forEach(key => transferTx[key] === undefined && delete transferTx[key]);
 
     try {
-      await setDoc(doc(db, 'transactions', id), transferTx);
+      const writePromise = setDoc(doc(db, 'transactions', id), transferTx);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Inventory (Transfer)',
+        recordId: id,
+        details: `Transferred ${weight}kg of ${commodityType} from ${warehouses.find(w => w.id === sourceId)?.name} to ${warehouses.find(w => w.id === destId)?.name}`,
+        newData: transferTx
+      }).catch(err => console.error('Audit log failed:', err));
+
       setIsTransferring(false);
       setSuccessMessage('Stock transfer completed successfully!');
     } catch (error) {
@@ -499,7 +562,14 @@ export default function InventoryModule() {
     if (!window.confirm('Are you sure you want to remove this purchase record? This action will be logged and cannot be undone.')) return;
 
     try {
-      await updateDoc(doc(db, 'transactions', txId), { isDeleted: true });
+      const writePromise = updateDoc(doc(db, 'transactions', txId), { isDeleted: true });
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
       setSuccessMessage('Purchase record removed.');
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `transactions/${txId}`));

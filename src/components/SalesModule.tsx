@@ -37,7 +37,7 @@ const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 const BENCHMARKS = { COCOA: 8, CASHEW: 10, PK: 8 };
 
 export default function SalesModule() {
-  const { profile, isStaff, isAccount, isAdmin, canPostTransactions } = useAuth();
+  const { profile, isStaff, isAccount, isAdmin, canPostTransactions, isOnline } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -264,10 +264,16 @@ export default function SalesModule() {
     Object.keys(newTx).forEach(key => newTx[key] === undefined && delete newTx[key]);
 
     try {
-      await setDoc(doc(db, 'transactions', id), newTx);
+      const writePromise = setDoc(doc(db, 'transactions', id), newTx);
       
-      // Record Audit Log
-      await recordAuditLog({
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
         userEmail: profile.email,
@@ -276,7 +282,7 @@ export default function SalesModule() {
         recordId: id,
         details: `Created sale transaction for ${newTx.commodity} (${newTx.netWeight}kg)`,
         newData: newTx
-      });
+      }).catch(err => console.error('Audit log failed:', err));
 
       setIsAddingSale(false);
       resetForm();

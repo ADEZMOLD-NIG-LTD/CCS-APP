@@ -21,7 +21,7 @@ import { cn } from '../lib/utils';
 import SupplierDetails from './SupplierDetails';
 
 export default function SupplierModule() {
-  const { profile, company, isStaff, isAccount, isAdmin } = useAuth();
+  const { profile, company, isStaff, isAccount, isAdmin, isOnline } = useAuth();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -89,10 +89,18 @@ export default function SupplierModule() {
     Object.keys(newSupplier).forEach(key => newSupplier[key] === undefined && delete newSupplier[key]);
 
     try {
-      await setDoc(doc(db, 'suppliers', id), newSupplier);
+      const writePromise = setDoc(doc(db, 'suppliers', id), newSupplier);
       
-      // Record Audit Log
-      await recordAuditLog({
+      // If offline, we don't wait for the server to acknowledge.
+      // Firestore will sync it in the background.
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
         userEmail: profile.email,
@@ -102,7 +110,7 @@ export default function SupplierModule() {
         details: `${editingSupplier ? 'Updated' : 'Created'} supplier: ${newSupplier.name}`,
         newData: newSupplier,
         previousData: editingSupplier || undefined
-      });
+      }).catch(err => console.error('Audit log failed:', err));
 
       setIsAdding(false);
       setEditingSupplier(null);
@@ -125,10 +133,16 @@ export default function SupplierModule() {
   const confirmDelete = async () => {
     if (!deleteConfirmId) return;
     try {
-      await deleteDoc(doc(db, 'suppliers', deleteConfirmId));
+      const writePromise = deleteDoc(doc(db, 'suppliers', deleteConfirmId));
       
-      // Record Audit Log
-      await recordAuditLog({
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
         companyId: profile?.companyId || '',
         userId: profile?.uid || '',
         userEmail: profile?.email || '',
@@ -136,7 +150,7 @@ export default function SupplierModule() {
         module: 'Suppliers',
         recordId: deleteConfirmId,
         details: `Deleted supplier: ${suppliers.find(s => s.id === deleteConfirmId)?.name || deleteConfirmId}`
-      });
+      }).catch(err => console.error('Audit log failed:', err));
 
       setSuccessMessage('Supplier deleted successfully!');
     } catch (error) {

@@ -39,7 +39,7 @@ interface Props {
 }
 
 export default function SupplierDetails({ supplier, onBack }: Props) {
-  const { profile, company, isStaff, isAccount, isAdmin, errorMessage, setErrorMessage } = useAuth();
+  const { profile, company, isStaff, isAccount, isAdmin, isOnline, errorMessage, setErrorMessage } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
@@ -238,10 +238,16 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     Object.keys(newPayment).forEach(key => newPayment[key] === undefined && delete newPayment[key]);
 
     try {
-      await setDoc(doc(db, 'payments', id), newPayment);
+      const writePromise = setDoc(doc(db, 'payments', id), newPayment);
       
-      // Record Audit Log
-      await recordAuditLog({
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
         userEmail: profile.email,
@@ -250,7 +256,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         recordId: id,
         details: `Recorded payment of ₦${newPayment.amount.toLocaleString()} to ${supplier.name}`,
         newData: newPayment
-      });
+      }).catch(err => console.error('Audit log failed:', err));
 
       setIsAddingPayment(false);
       setSuccessMessage('Payment successfully recorded!');
@@ -284,10 +290,16 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     Object.keys(newBagTx).forEach(key => newBagTx[key] === undefined && delete newBagTx[key]);
 
     try {
-      await setDoc(doc(db, 'bag_transactions', id), newBagTx);
+      const writePromise = setDoc(doc(db, 'bag_transactions', id), newBagTx);
       
-      // Record Audit Log
-      await recordAuditLog({
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
         userEmail: profile.email,
@@ -296,7 +308,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         recordId: id,
         details: `${newBagTx.type === 'ISSUE' ? 'Issued' : 'Returned'} ${newBagTx.quantity} bags to/from ${supplier.name}`,
         newData: newBagTx
-      });
+      }).catch(err => console.error('Audit log failed:', err));
 
       setIsAddingBagTx(false);
       setSuccessMessage('Bag transaction successfully recorded!');

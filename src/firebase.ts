@@ -48,13 +48,14 @@ const databaseId = forceDefaultDb ? "(default)" : (firebaseConfig.firestoreDatab
 
 console.log("Initializing Firestore with Database ID:", databaseId);
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
   host: "firestore.googleapis.com",
   ssl: true,
 }, databaseId);
 
 // Enable offline persistence
-enableIndexedDbPersistence(db).catch((err) => {
+import { enableMultiTabIndexedDbPersistence } from 'firebase/firestore';
+
+enableMultiTabIndexedDbPersistence(db).catch((err) => {
   if (err.code === 'failed-precondition') {
     // Multiple tabs open, persistence can only be enabled in one tab at a time.
     console.warn('Firestore persistence failed: Multiple tabs open');

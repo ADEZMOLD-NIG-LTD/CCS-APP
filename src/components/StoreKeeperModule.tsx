@@ -23,7 +23,7 @@ function cn(...inputs: ClassValue[]) {
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 
 export default function StoreKeeperModule() {
-  const { profile, isStoreKeeper, isAdmin, isManager } = useAuth();
+  const { profile, isStoreKeeper, isAdmin, isManager, isOnline } = useAuth();
   const [records, setRecords] = useState<StoreRecord[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -170,10 +170,16 @@ export default function StoreKeeperModule() {
         date: new Date(formData.date!).toISOString()
       } as StoreRecord;
 
-      await setDoc(doc(db, 'store_records', recordId), recordData);
+      const writePromise = setDoc(doc(db, 'store_records', recordId), recordData);
       
-      // Record Audit Log
-      await recordAuditLog({
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
         userEmail: profile.email,
@@ -183,7 +189,7 @@ export default function StoreKeeperModule() {
         details: `${editingRecord ? 'Updated' : 'Created'} store record (${recordData.type}) for ${recordData.commodity} - ${recordData.customerName}`,
         newData: recordData,
         previousData: editingRecord || undefined
-      });
+      }).catch(err => console.error('Audit log failed:', err));
 
       setSuccessMessage(editingRecord ? 'Record updated successfully' : 'Record added successfully');
       resetForm();
@@ -197,10 +203,16 @@ export default function StoreKeeperModule() {
   const handleDelete = async (id: string) => {
     if (!window.confirm('Are you sure you want to delete this record?')) return;
     try {
-      await updateDoc(doc(db, 'store_records', id), { isDeleted: true });
+      const writePromise = updateDoc(doc(db, 'store_records', id), { isDeleted: true });
       
-      // Record Audit Log
-      await recordAuditLog({
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      // Record Audit Log (non-blocking for UI)
+      recordAuditLog({
         companyId: profile?.companyId || '',
         userId: profile?.uid || '',
         userEmail: profile?.email || '',
@@ -208,7 +220,7 @@ export default function StoreKeeperModule() {
         module: 'Store Keeper',
         recordId: id,
         details: `Deleted store record ${id}`
-      });
+      }).catch(err => console.error('Audit log failed:', err));
 
       setSuccessMessage('Record deleted successfully');
     } catch (error) {
