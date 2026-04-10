@@ -221,3 +221,17 @@ export interface StoreRecord {
   destinationWarehouseId?: string; // For TRANSFER
   isDeleted?: boolean;
 }
+
+export interface AuditLog {
+  id: string;
+  companyId: string;
+  timestamp: string;
+  userId: string;
+  userEmail: string;
+  action: 'CREATE' | 'UPDATE' | 'DELETE';
+  module: string;
+  recordId: string;
+  details: string;
+  previousData?: any;
+  newData?: any;
+}

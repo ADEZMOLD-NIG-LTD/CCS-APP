@@ -13,6 +13,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc, deleteDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, OperationType } from '../lib/firestore';
+import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 
 function cn(...inputs: ClassValue[]) {
@@ -170,6 +171,20 @@ export default function StoreKeeperModule() {
       } as StoreRecord;
 
       await setDoc(doc(db, 'store_records', recordId), recordData);
+      
+      // Record Audit Log
+      await recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: editingRecord ? AuditAction.UPDATE : AuditAction.CREATE,
+        module: 'Store Keeper',
+        recordId: recordId,
+        details: `${editingRecord ? 'Updated' : 'Created'} store record (${recordData.type}) for ${recordData.commodity} - ${recordData.customerName}`,
+        newData: recordData,
+        previousData: editingRecord || undefined
+      });
+
       setSuccessMessage(editingRecord ? 'Record updated successfully' : 'Record added successfully');
       resetForm();
     } catch (error) {
@@ -183,6 +198,18 @@ export default function StoreKeeperModule() {
     if (!window.confirm('Are you sure you want to delete this record?')) return;
     try {
       await updateDoc(doc(db, 'store_records', id), { isDeleted: true });
+      
+      // Record Audit Log
+      await recordAuditLog({
+        companyId: profile?.companyId || '',
+        userId: profile?.uid || '',
+        userEmail: profile?.email || '',
+        action: AuditAction.DELETE,
+        module: 'Store Keeper',
+        recordId: id,
+        details: `Deleted store record ${id}`
+      });
+
       setSuccessMessage('Record deleted successfully');
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.DELETE, 'store_records'));

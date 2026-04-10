@@ -255,6 +255,25 @@
         "location": { "type": "string" }
       },
       "required": ["id", "companyId", "name"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Tracks changes to sensitive data for accountability",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "action": { "type": "string", "enum": ["CREATE", "UPDATE", "DELETE"] },
+        "module": { "type": "string" },
+        "recordId": { "type": "string" },
+        "details": { "type": "string" },
+        "previousData": { "type": "object" },
+        "newData": { "type": "object" }
+      },
+      "required": ["id", "companyId", "timestamp", "userId", "action", "module", "recordId"]
     }
   },
   "firestore": {
@@ -313,6 +332,10 @@
     "store_records": {
       "schema": "StoreRecord",
       "description": "Collection of store keeper inventory records"
+    },
+    "audit_logs": {
+      "schema": "AuditLog",
+      "description": "Collection of audit logs"
     }
   }
 }

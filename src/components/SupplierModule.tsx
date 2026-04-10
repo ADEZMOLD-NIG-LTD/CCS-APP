@@ -13,6 +13,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import ConfirmModal from './ConfirmModal';
 import { cn } from '../lib/utils';
@@ -89,6 +90,20 @@ export default function SupplierModule() {
 
     try {
       await setDoc(doc(db, 'suppliers', id), newSupplier);
+      
+      // Record Audit Log
+      await recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: editingSupplier ? AuditAction.UPDATE : AuditAction.CREATE,
+        module: 'Suppliers',
+        recordId: id,
+        details: `${editingSupplier ? 'Updated' : 'Created'} supplier: ${newSupplier.name}`,
+        newData: newSupplier,
+        previousData: editingSupplier || undefined
+      });
+
       setIsAdding(false);
       setEditingSupplier(null);
       setSuccessMessage(editingSupplier ? 'Supplier updated successfully!' : 'Supplier added successfully!');
@@ -111,6 +126,18 @@ export default function SupplierModule() {
     if (!deleteConfirmId) return;
     try {
       await deleteDoc(doc(db, 'suppliers', deleteConfirmId));
+      
+      // Record Audit Log
+      await recordAuditLog({
+        companyId: profile?.companyId || '',
+        userId: profile?.uid || '',
+        userEmail: profile?.email || '',
+        action: AuditAction.DELETE,
+        module: 'Suppliers',
+        recordId: deleteConfirmId,
+        details: `Deleted supplier: ${suppliers.find(s => s.id === deleteConfirmId)?.name || deleteConfirmId}`
+      });
+
       setSuccessMessage('Supplier deleted successfully!');
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `suppliers/${deleteConfirmId}`));

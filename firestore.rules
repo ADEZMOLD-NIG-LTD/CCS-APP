@@ -225,6 +225,14 @@ service cloud.firestore {
              data.noOfBags is number;
     }
 
+    function isValidAuditLog(data) {
+      return hasRequiredFields(['id', 'companyId', 'timestamp', 'userId', 'action', 'module', 'recordId']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'timestamp', 'userId', 'userEmail', 'action', 'module', 'recordId', 'details', 'previousData', 'newData']) &&
+             data.action in ['CREATE', 'UPDATE', 'DELETE'] &&
+             data.userId == request.auth.uid &&
+             isValidDateString(data.timestamp);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -362,6 +370,11 @@ service cloud.firestore {
       allow create: if isStoreKeeper() && belongsToCompany(request.resource.data.companyId) && isValidStoreRecord(request.resource.data);
       allow update: if isStoreKeeper() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidStoreRecord(request.resource.data);
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
+    }
+
+    match /audit_logs/{id} {
+      allow read: if (isManager() || isAuditor()) && belongsToCompany(resource.data.companyId);
+      allow create: if isAuthenticated() && belongsToCompany(request.resource.data.companyId) && isValidAuditLog(request.resource.data);
     }
 
     match /{path=**} {

@@ -16,10 +16,14 @@ import {
   Search,
   ArrowUpRight,
   ArrowDownRight,
-  ArrowRightLeft
+  ArrowRightLeft,
+  ShieldCheck,
+  Edit2,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Supplier, Transaction, Payment, JournalEntry, Warehouse, Buyer, BagTransaction, PackagingType } from '../types';
+import { Supplier, Transaction, Payment, JournalEntry, Warehouse, Buyer, BagTransaction, PackagingType, AuditLog } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -34,7 +38,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type ReportType = 'supplier_balances' | 'buyer_balances' | 'operational_purchases' | 'operational_sales' | 'packaging_inventory' | 'transfers' | 'search';
+type ReportType = 'supplier_balances' | 'buyer_balances' | 'operational_purchases' | 'operational_sales' | 'packaging_inventory' | 'transfers' | 'search' | 'audit_logs';
 
 export default function ReportsModule() {
   const { profile, company } = useAuth();
@@ -45,6 +49,7 @@ export default function ReportsModule() {
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   const [activeReport, setActiveReport] = useState<ReportType>('supplier_balances');
@@ -107,6 +112,16 @@ export default function ReportsModule() {
       setPayments(data);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'payments')));
 
+    const qAuditLogs = query(
+      collection(db, 'audit_logs'),
+      where('companyId', '==', profile.companyId),
+      orderBy('timestamp', 'desc')
+    );
+    const unsubscribeAuditLogs = onSnapshot(qAuditLogs, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AuditLog));
+      setAuditLogs(data);
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'audit_logs')));
+
     const qJournal = query(
       collection(db, 'journal'), 
       where('companyId', '==', profile.companyId),
@@ -133,6 +148,7 @@ export default function ReportsModule() {
       unsubscribeWarehouses();
       unsubscribeTx();
       unsubscribePayments();
+      unsubscribeAuditLogs();
       unsubscribeJournal();
       unsubscribeBags();
     };
@@ -494,6 +510,17 @@ export default function ReportsModule() {
           >
             <Search size={12} /> Search Tranx ID
           </button>
+          {(profile?.role === 'ADMIN' || profile?.role === 'AUDITOR' || profile?.role === 'MANAGER') && (
+            <button
+              onClick={() => setActiveReport('audit_logs')}
+              className={cn(
+                "px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5",
+                activeReport === 'audit_logs' ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+              )}
+            >
+              <ShieldCheck size={12} /> Audit Logs
+            </button>
+          )}
         </div>
       </header>
 
@@ -539,7 +566,79 @@ export default function ReportsModule() {
         )}
 
         <AnimatePresence mode="wait">
-          {activeReport === 'search' ? (
+          {activeReport === 'audit_logs' ? (
+            <div key="audit-logs" className="space-y-4">
+              <div className="flex items-center justify-between px-2">
+                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">System Audit Trail</h2>
+                <div className="text-[10px] font-bold text-slate-400 uppercase">
+                  {auditLogs.length} Actions Tracked
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {auditLogs.length === 0 ? (
+                  <div className="bg-white rounded-2xl p-12 border border-dashed border-slate-300 text-center">
+                    <ShieldCheck className="mx-auto text-slate-200 mb-4" size={48} />
+                    <p className="text-slate-400 font-medium">No audit logs found</p>
+                  </div>
+                ) : (
+                  auditLogs.map((log) => (
+                    <div key={log.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm hover:border-indigo-300 transition-colors">
+                      <div className="flex justify-between items-start">
+                        <div className="flex gap-3">
+                          <div className={cn(
+                            "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                            log.action === 'CREATE' ? "bg-emerald-50 text-emerald-600" :
+                            log.action === 'UPDATE' ? "bg-amber-50 text-amber-600" :
+                            "bg-rose-50 text-rose-600"
+                          )}>
+                            {log.action === 'CREATE' ? <Plus size={20} /> : 
+                             log.action === 'UPDATE' ? <Edit2 size={20} /> : 
+                             <Trash2 size={20} />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-slate-900 leading-tight">{log.details}</p>
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded uppercase tracking-tighter">
+                                {log.module}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-medium">
+                                {new Date(log.timestamp).toLocaleString('en-GB', { 
+                                  day: '2-digit', 
+                                  month: 'short', 
+                                  year: 'numeric',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <div className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center text-[8px] font-bold text-slate-500">
+                                {log.userEmail?.[0].toUpperCase()}
+                              </div>
+                              <p className="text-[10px] text-slate-500 font-medium">
+                                {log.userEmail}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className={cn(
+                            "text-[8px] font-black uppercase px-2 py-1 rounded-lg",
+                            log.action === 'CREATE' ? "bg-emerald-100 text-emerald-700" :
+                            log.action === 'UPDATE' ? "bg-amber-100 text-amber-700" :
+                            "bg-rose-100 text-rose-700"
+                          )}>
+                            {log.action}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : activeReport === 'search' ? (
             <div key="search-results" className="space-y-4">
               {searchQuery.trim() === '' ? (
                 <div className="bg-white rounded-2xl p-12 border border-dashed border-slate-300 text-center">

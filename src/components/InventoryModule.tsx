@@ -13,6 +13,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 
 function cn(...inputs: ClassValue[]) {
@@ -259,6 +260,20 @@ export default function InventoryModule() {
 
     try {
       await setDoc(doc(db, 'transactions', newTx.id), newTx);
+      
+      // Record Audit Log
+      await recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: editingTransaction ? AuditAction.UPDATE : AuditAction.CREATE,
+        module: 'Inventory (Purchase)',
+        recordId: newTx.id,
+        details: `${editingTransaction ? 'Updated' : 'Created'} purchase transaction for ${newTx.commodity} (${newTx.netWeight}kg)`,
+        newData: newTx,
+        previousData: editingTransaction || undefined
+      });
+
       setIsAdding(false);
       setEditingTransaction(null);
       resetForm();

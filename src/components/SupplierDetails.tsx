@@ -29,6 +29,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, where, orderBy } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, OperationType } from '../lib/firestore';
+import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import { cn } from '../lib/utils';
 
@@ -238,6 +239,19 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
 
     try {
       await setDoc(doc(db, 'payments', id), newPayment);
+      
+      // Record Audit Log
+      await recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Payments',
+        recordId: id,
+        details: `Recorded payment of ₦${newPayment.amount.toLocaleString()} to ${supplier.name}`,
+        newData: newPayment
+      });
+
       setIsAddingPayment(false);
       setSuccessMessage('Payment successfully recorded!');
     } catch (error) {
@@ -271,6 +285,19 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
 
     try {
       await setDoc(doc(db, 'bag_transactions', id), newBagTx);
+      
+      // Record Audit Log
+      await recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Bag Transactions',
+        recordId: id,
+        details: `${newBagTx.type === 'ISSUE' ? 'Issued' : 'Returned'} ${newBagTx.quantity} bags to/from ${supplier.name}`,
+        newData: newBagTx
+      });
+
       setIsAddingBagTx(false);
       setSuccessMessage('Bag transaction successfully recorded!');
     } catch (error) {

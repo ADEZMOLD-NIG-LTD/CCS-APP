@@ -29,6 +29,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import { cn } from '../lib/utils';
 
@@ -264,6 +265,19 @@ export default function SalesModule() {
 
     try {
       await setDoc(doc(db, 'transactions', id), newTx);
+      
+      // Record Audit Log
+      await recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Sales',
+        recordId: id,
+        details: `Created sale transaction for ${newTx.commodity} (${newTx.netWeight}kg)`,
+        newData: newTx
+      });
+
       setIsAddingSale(false);
       resetForm();
       setSuccessMessage('Sale record successfully recorded!');
