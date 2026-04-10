@@ -118,7 +118,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const recentActivity = useMemo(() => {
     const activities = [
       ...transactions.map(t => ({
-        id: t.id,
+        id: `tx-${t.id}`,
         type: t.type === 'PURCHASE' ? 'PURCHASE' : 'SALE',
         title: `${t.type === 'PURCHASE' ? 'Purchase' : 'Sale'}: ${t.commodity}`,
         amount: t.totalValue || 0,
@@ -128,7 +128,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         bgColor: t.type === 'PURCHASE' ? 'bg-emerald-50' : 'bg-blue-50'
       })),
       ...payments.map(p => ({
-        id: p.id,
+        id: `pay-${p.id}`,
         type: 'PAYMENT',
         title: `Payment: ${p.method}`,
         amount: p.amount,
@@ -138,7 +138,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         bgColor: 'bg-amber-50'
       })),
       ...journal.map(e => ({
-        id: e.id,
+        id: `jr-${e.id}`,
         type: e.type,
         title: `${e.type === 'INFLOW' ? 'Inflow' : 'Outflow'}: ${e.category}`,
         amount: e.amount,
@@ -153,58 +153,58 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   }, [transactions, payments, journal]);
 
   return (
-    <div className="p-4 space-y-6 bg-slate-50 min-h-full pb-24">
+    <div className="p-4 space-y-6 bg-[var(--bg-app)] min-h-full pb-24">
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200"
+          className="google-card p-4"
         >
-          <div className="bg-blue-500 w-8 h-8 rounded-lg flex items-center justify-center text-white mb-3">
+          <div className="bg-blue-100 w-8 h-8 rounded-lg flex items-center justify-center text-[var(--accent)] mb-3">
             <TrendingUp size={18} />
           </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Total Sales</p>
-          <p className="text-lg font-bold text-slate-900">₦{(stats.totalSales || 0).toLocaleString()}</p>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Sales</p>
+          <p className="text-lg font-bold text-[var(--text-primary)]">₦{(stats.totalSales || 0).toLocaleString()}</p>
         </motion.div>
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200"
+          className="google-card p-4"
         >
-          <div className="bg-rose-500 w-8 h-8 rounded-lg flex items-center justify-center text-white mb-3">
+          <div className="bg-rose-100 w-8 h-8 rounded-lg flex items-center justify-center text-rose-600 mb-3">
             <TrendingDown size={18} />
           </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Total Purchases</p>
-          <p className="text-lg font-bold text-slate-900">₦{(stats.totalPurchases || 0).toLocaleString()}</p>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Purchases</p>
+          <p className="text-lg font-bold text-[var(--text-primary)]">₦{(stats.totalPurchases || 0).toLocaleString()}</p>
         </motion.div>
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200"
+          className="google-card p-4"
         >
-          <div className="bg-emerald-500 w-8 h-8 rounded-lg flex items-center justify-center text-white mb-3">
+          <div className="bg-emerald-100 w-8 h-8 rounded-lg flex items-center justify-center text-emerald-600 mb-3">
             <TrendingUp size={18} />
           </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Total Inflow</p>
-          <p className="text-lg font-bold text-slate-900">₦{(stats.totalInflow || 0).toLocaleString()}</p>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Inflow</p>
+          <p className="text-lg font-bold text-[var(--text-primary)]">₦{(stats.totalInflow || 0).toLocaleString()}</p>
         </motion.div>
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200"
+          className="google-card p-4"
         >
-          <div className="bg-rose-500 w-8 h-8 rounded-lg flex items-center justify-center text-white mb-3">
+          <div className="bg-rose-100 w-8 h-8 rounded-lg flex items-center justify-center text-rose-600 mb-3">
             <TrendingDown size={18} />
           </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">Total Outflow</p>
-          <p className="text-lg font-bold text-slate-900">₦{(stats.totalOutflow || 0).toLocaleString()}</p>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Outflow</p>
+          <p className="text-lg font-bold text-[var(--text-primary)]">₦{(stats.totalOutflow || 0).toLocaleString()}</p>
         </motion.div>
       </div>
 
@@ -212,11 +212,11 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-slate-900 rounded-3xl p-6 text-white shadow-xl flex items-center justify-between overflow-hidden relative"
+        className="bg-[var(--text-primary)] rounded-[var(--radius-lg)] p-6 text-white shadow-lg flex items-center justify-between overflow-hidden relative"
       >
         <div className="relative z-10">
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">Total Accounts Payable</p>
-          <h2 className="text-3xl font-black">₦{(stats.totalSupplierBalance || 0).toLocaleString()}</h2>
+          <h2 className="text-3xl font-bold">₦{(stats.totalSupplierBalance || 0).toLocaleString()}</h2>
           <p className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
             <AlertCircle size={10} /> Total outstanding balance to all suppliers
           </p>
@@ -226,7 +226,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
       {/* Recent Activity */}
       <section className="space-y-3">
-        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Recent Activity</h2>
+        <h2 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-wider">Recent Activity</h2>
         <div className="space-y-3">
           {recentActivity.map((activity, i) => (
             <motion.div
@@ -234,19 +234,19 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.1 }}
-              className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-indigo-200 transition-all cursor-pointer"
+              className="google-card p-4 flex items-center justify-between group cursor-pointer"
             >
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 ${activity.bgColor} ${activity.color} rounded-xl flex items-center justify-center`}>
                   <activity.icon size={20} />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-900">{activity.title}</h3>
-                  <p className="text-xs text-slate-500">{activity.date ? new Date(activity.date).toLocaleString() : 'N/A'}</p>
+                  <h3 className="font-bold text-[var(--text-primary)]">{activity.title}</h3>
+                  <p className="text-xs text-[var(--text-secondary)]">{activity.date ? new Date(activity.date).toLocaleString() : 'N/A'}</p>
                 </div>
               </div>
               <div className="text-right">
-                <p className={`font-black ${activity.color}`}>
+                <p className={`font-bold ${activity.color}`}>
                   {activity.type === 'PURCHASE' || activity.type === 'EXPENSE' ? '-' : '+'}₦{(activity.amount || 0).toLocaleString()}
                 </p>
               </div>
@@ -257,7 +257,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
       {/* Quick Actions */}
       <section className="space-y-3">
-        <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Quick Actions</h2>
+        <h2 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-wider">Quick Actions</h2>
         <div className="grid grid-cols-4 gap-4">
           {[
             { icon: ShoppingCart, label: 'Buy', color: 'bg-emerald-50 text-emerald-600', module: 'purchases' },
@@ -268,11 +268,11 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             <div key={action.label} className="flex flex-col items-center gap-2">
               <button 
                 onClick={() => onNavigate(action.module)}
-                className={`${action.color} w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm active:scale-95 transition-all`}
+                className={`${action.color} w-12 h-12 rounded-xl flex items-center justify-center shadow-sm active:scale-95 transition-all border border-transparent hover:border-current`}
               >
                 <action.icon size={20} />
               </button>
-              <span className="text-[10px] font-bold text-slate-500 uppercase">{action.label}</span>
+              <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase">{action.label}</span>
             </div>
           ))}
         </div>

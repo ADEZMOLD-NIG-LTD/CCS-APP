@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Shield, Lock, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Shield, Lock, ArrowRight, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -14,6 +14,10 @@ export default function ChangePasswordPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,13 +52,20 @@ export default function ChangePasswordPage() {
             <div className="relative">
               <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
-                type="password"
+                type={showCurrentPassword ? "text" : "password"}
                 required
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all font-medium"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-12 py-4 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all font-medium"
                 placeholder="••••••••"
               />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-600 transition-colors p-1"
+              >
+                {showCurrentPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
           </div>
 
@@ -63,14 +74,21 @@ export default function ChangePasswordPage() {
             <div className="relative">
               <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
-                type="password"
+                type={showNewPassword ? "text" : "password"}
                 required
                 minLength={6}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all font-medium"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-12 pr-12 py-4 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all font-medium"
                 placeholder="••••••••"
               />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword(!showNewPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-600 transition-colors p-1"
+              >
+                {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
           </div>
 
@@ -79,17 +97,24 @@ export default function ChangePasswordPage() {
             <div className="relative">
               <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
               <input 
-                type="password"
+                type={showConfirmPassword ? "text" : "password"}
                 required
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                className={`w-full bg-slate-50 border rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 transition-all font-medium ${
+                className={`w-full bg-slate-50 border rounded-2xl pl-12 pr-12 py-4 focus:outline-none focus:ring-2 transition-all font-medium ${
                   confirmPassword && newPassword !== confirmPassword 
                     ? 'border-rose-200 focus:ring-rose-500' 
                     : 'border-slate-200 focus:ring-amber-500'
                 }`}
                 placeholder="••••••••"
               />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-amber-600 transition-colors p-1"
+              >
+                {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
             {confirmPassword && newPassword !== confirmPassword && (
               <p className="text-[10px] text-rose-500 font-bold ml-4 mt-1 uppercase tracking-widest">Passwords do not match</p>

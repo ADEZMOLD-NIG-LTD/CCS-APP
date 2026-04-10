@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Package, ArrowRightLeft, ArrowLeftRight, X, History, Calculator, Warehouse as WarehouseIcon, Scale, Droplets, Trash2, AlertCircle, Edit, Filter, Download, Search } from 'lucide-react';
+import { Plus, Package, ArrowRightLeft, ArrowLeftRight, X, History, Calculator, Warehouse as WarehouseIcon, Scale, Droplets, Trash2, AlertCircle, Edit, Filter, Download, Search, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CommodityType, StoreRecord, Warehouse } from '../types';
 import { clsx, type ClassValue } from 'clsx';
@@ -31,10 +31,17 @@ export default function StoreKeeperModule() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState({
     start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
   });
+
+  const handleCopyId = (id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   // Default selected warehouse for staff
   useEffect(() => {
@@ -464,6 +471,7 @@ export default function StoreKeeperModule() {
                 <th className="px-6 py-4 text-sm font-semibold text-gray-900 text-right">Actual (kg)</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-900">Bags</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-900">Truck/Officer</th>
+                <th className="px-6 py-4 text-sm font-semibold text-gray-900">Tranx ID</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-900">Actions</th>
               </tr>
             </thead>
@@ -506,6 +514,20 @@ export default function StoreKeeperModule() {
                   <td className="px-6 py-4">
                     <div className="text-sm text-gray-900">{record.truckNo}</div>
                     <div className="text-xs text-gray-500">{record.fieldOfficer}</div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <code className="text-[10px] bg-gray-100 px-1.5 py-0.5 rounded font-mono text-gray-600">
+                        {record.id}
+                      </code>
+                      <button
+                        onClick={() => handleCopyId(record.id)}
+                        className="p-1 text-gray-400 hover:text-indigo-600 transition-colors"
+                        title="Copy Transaction ID"
+                      >
+                        {copiedId === record.id ? <Check size={12} className="text-green-600" /> : <Copy size={12} />}
+                      </button>
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">

@@ -230,6 +230,7 @@ export default function SalesModule() {
       type: 'SALE',
       commodity,
       buyerId: formData.get('buyerId') as string,
+      storeRecordId: formData.get('storeRecordId') as string,
       supplierId: isDirectDelivery ? (formData.get('supplierId') as string) : undefined,
       isDirectDelivery,
       grossWeight: Number(grossWeight) || 0,
@@ -416,6 +417,15 @@ export default function SalesModule() {
                       <option value="">Select Buyer</option>
                       {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Store Record ID (Tranx ID)</label>
+                    <input 
+                      name="storeRecordId" 
+                      type="text" 
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
+                      placeholder="Quote Tranx ID from Store Keeper" 
+                    />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
@@ -657,6 +667,11 @@ export default function SalesModule() {
                           <div className="text-right">
                             <p className="text-sm font-black text-slate-900">{tx.netWeight.toFixed(2)} kg</p>
                             <p className="text-[10px] text-slate-400">Net Weight</p>
+                            {tx.storeRecordId && (
+                              <p className="text-[9px] font-bold text-blue-600 mt-1">
+                                Store ID: {tx.storeRecordId}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-50">

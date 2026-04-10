@@ -105,6 +105,7 @@
           }
         },
         "referenceId": { "type": "string" },
+        "storeRecordId": { "type": "string" },
         "isDirectDelivery": { "type": "boolean" }
       },
       "required": ["id", "companyId", "date", "type", "commodity", "netWeight", "deductions"]

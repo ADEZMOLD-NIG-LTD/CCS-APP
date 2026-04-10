@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { LogIn, LayoutDashboard, Package, Shield, BarChart3, Users, Building2, ArrowRight, AlertCircle, CheckCircle2, WifiOff, Mail, Lock, User } from 'lucide-react';
+import { LogIn, LayoutDashboard, Package, Shield, BarChart3, Users, Building2, ArrowRight, AlertCircle, CheckCircle2, WifiOff, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { firebaseConfig } from '../firebase';
@@ -25,6 +25,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,22 +40,24 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
     setIsSubmitting(false);
   };
 
+  const togglePasswordVisibility = () => setShowPassword(!showPassword);
+
   return (
     <div className="min-h-screen bg-white flex flex-col lg:flex-row overflow-hidden">
       {/* Left Side - Hero / Branding */}
-      <div className="lg:w-1/2 bg-slate-900 p-8 lg:p-16 flex flex-col justify-between relative overflow-hidden">
+      <div className="lg:w-1/2 bg-[var(--text-primary)] p-8 lg:p-16 flex flex-col justify-between relative overflow-hidden">
         {/* Abstract Background Elements */}
         <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500 rounded-full blur-[120px]" />
+          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-500 rounded-full blur-[120px]" />
           <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-500 rounded-full blur-[120px]" />
         </div>
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-12">
-            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg rotate-3">
-              <Package className="text-white -rotate-3" size={24} />
+            <div className="w-12 h-12 bg-[var(--accent)] rounded-xl flex items-center justify-center shadow-lg">
+              <Package className="text-white" size={24} />
             </div>
-            <span className="text-xl font-black text-white tracking-tight">Commodity Control System</span>
+            <span className="text-xl font-bold text-white tracking-tight">Commodity Control System</span>
           </div>
 
           <motion.div
@@ -62,19 +65,19 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6 }}
           >
-            <h1 className="text-5xl lg:text-7xl font-black text-white leading-[0.9] mb-8">
+            <h1 className="text-5xl lg:text-7xl font-bold text-white leading-[0.95] mb-8">
               PRECISION <br />
-              <span className="text-indigo-400">IN EVERY</span> <br />
+              <span className="text-blue-400">IN EVERY</span> <br />
               TRANSACTION.
             </h1>
-            <p className="text-slate-400 text-lg max-w-md mb-12 leading-relaxed">
+            <p className="text-slate-400 text-lg max-w-md mb-12 leading-relaxed font-medium">
               The ultimate ERP solution for commodity trading, inventory management, and financial tracking. Built for scale, designed for simplicity.
             </p>
           </motion.div>
 
           <div className="grid grid-cols-2 gap-8 max-w-md">
             <div className="space-y-2">
-              <div className="text-indigo-400 font-bold text-2xl">100%</div>
+              <div className="text-blue-400 font-bold text-2xl">100%</div>
               <p className="text-slate-500 text-xs uppercase tracking-widest font-bold">Accuracy</p>
             </div>
             <div className="space-y-2">
@@ -92,7 +95,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
       </div>
 
       {/* Right Side - Login Options */}
-      <div className="lg:w-1/2 flex items-center justify-center p-8 bg-slate-50 overflow-y-auto">
+      <div className="lg:w-1/2 flex items-center justify-center p-8 bg-[var(--bg-app)] overflow-y-auto">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -100,10 +103,10 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
           className="w-full max-w-md space-y-8 py-12"
         >
           <div className="text-center lg:text-left">
-            <h2 className="text-3xl font-black text-slate-900 mb-2 tracking-tight uppercase">
+            <h2 className="text-3xl font-bold text-[var(--text-primary)] mb-2 tracking-tight">
               {view === 'login' ? 'Welcome Back' : view === 'signup' ? 'Create Account' : 'Reset Password'}
             </h2>
-            <p className="text-slate-500 text-sm">
+            <p className="text-[var(--text-secondary)] text-sm font-medium">
               {view === 'login' 
                 ? 'Sign in to access your company dashboard and manage your operations.' 
                 : view === 'signup' 
@@ -204,15 +207,15 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
             <form onSubmit={handleEmailSubmit} className="space-y-4">
               {view === 'signup' && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-4 mb-1 block">Full Name</label>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)] ml-4 mb-1 block">Full Name</label>
                   <div className="relative">
-                    <User className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <User className="absolute left-5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" size={18} />
                     <input 
                       type="text"
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                      className="w-full bg-white border border-[var(--border)] rounded-xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] transition-all font-medium"
                       placeholder="John Doe"
                     />
                   </div>
@@ -220,15 +223,15 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
               )}
 
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-4 mb-1 block">Email Address</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)] ml-4 mb-1 block">Email Address</label>
                 <div className="relative">
-                  <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <Mail className="absolute left-5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" size={18} />
                   <input 
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                    className="w-full bg-white border border-[var(--border)] rounded-xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] transition-all font-medium"
                     placeholder="name@company.com"
                   />
                 </div>
@@ -237,27 +240,34 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
               {view !== 'forgot' && (
                 <div className="space-y-1">
                   <div className="flex justify-between items-center ml-4 mr-1">
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1 block">Password</label>
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-[var(--text-secondary)] mb-1 block">Password</label>
                     {view === 'login' && (
                       <button 
                         type="button"
                         onClick={() => setView('forgot')}
-                        className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 hover:text-indigo-800"
+                        className="text-[10px] font-bold uppercase tracking-widest text-[var(--accent)] hover:text-[var(--accent-hover)]"
                       >
                         Forgot?
                       </button>
                     )}
                   </div>
                   <div className="relative">
-                    <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                    <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" size={18} />
                     <input 
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                      className="w-full bg-white border border-[var(--border)] rounded-xl pl-12 pr-12 py-4 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] transition-all font-medium"
                       placeholder="••••••••"
                     />
+                    <button
+                      type="button"
+                      onClick={togglePasswordVisibility}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors p-1"
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
                   </div>
                 </div>
               )}
@@ -265,7 +275,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
               <button 
                 type="submit"
                 disabled={!isFirestoreConnected || isSubmitting}
-                className="w-full bg-indigo-600 text-white p-5 rounded-2xl font-bold shadow-xl flex items-center justify-center gap-4 active:scale-[0.98] transition-all group disabled:opacity-50"
+                className="w-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white p-5 rounded-xl font-bold shadow-md flex items-center justify-center gap-4 active:scale-[0.98] transition-all group disabled:opacity-50"
               >
                 {isSubmitting ? (
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -279,12 +289,12 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
 
               <div className="text-center">
                 {view === 'login' ? (
-                  <p className="text-xs text-slate-500">
-                    Don't have an account? <button type="button" onClick={() => setView('signup')} className="text-indigo-600 font-bold hover:underline">Sign Up</button>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Don't have an account? <button type="button" onClick={() => setView('signup')} className="text-[var(--accent)] font-bold hover:underline">Sign Up</button>
                   </p>
                 ) : (
-                  <p className="text-xs text-slate-500">
-                    Already have an account? <button type="button" onClick={() => setView('login')} className="text-indigo-600 font-bold hover:underline">Sign In</button>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Already have an account? <button type="button" onClick={() => setView('login')} className="text-[var(--accent)] font-bold hover:underline">Sign In</button>
                   </p>
                 )}
               </div>
@@ -292,10 +302,10 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
 
             <div className="relative py-4">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-200"></div>
+                <div className="w-full border-t border-[var(--border)]"></div>
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-slate-50 px-4 text-slate-400 font-bold tracking-widest">Or continue with</span>
+                <span className="bg-[var(--bg-app)] px-4 text-[var(--text-secondary)] font-bold tracking-widest">Or continue with</span>
               </div>
             </div>
 
@@ -303,7 +313,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
               <button 
                 onClick={onSignIn}
                 disabled={!isFirestoreConnected}
-                className={`p-5 rounded-2xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border-2 border-slate-200 hover:border-indigo-500 hover:text-indigo-600 disabled:opacity-50`}
+                className={`p-5 rounded-xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50`}
               >
                 <LogIn size={18} />
                 <span>Google</span>
@@ -312,7 +322,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
               <button 
                 onClick={onSignInAsDemo}
                 disabled={!isFirestoreConnected}
-                className={`p-5 rounded-2xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border-2 border-slate-200 hover:border-indigo-500 hover:text-indigo-600 disabled:opacity-50`}
+                className={`p-5 rounded-xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50`}
               >
                 <LayoutDashboard size={18} />
                 <span>Demo</span>
@@ -322,23 +332,23 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
 
           {/* Feature Highlights */}
           <div className="grid grid-cols-1 gap-4 pt-8">
-            <div className="flex items-start gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
-              <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center shrink-0">
+            <div className="flex items-start gap-4 p-4 bg-white rounded-xl border border-[var(--border)] shadow-sm">
+              <div className="w-10 h-10 bg-blue-50 text-[var(--accent)] rounded-xl flex items-center justify-center shrink-0">
                 <Shield size={20} />
               </div>
               <div>
-                <h4 className="font-bold text-slate-900 text-sm uppercase tracking-tight">Secure & Compliant</h4>
-                <p className="text-xs text-slate-500 leading-relaxed">Enterprise-grade security with password expiration and role-based access control.</p>
+                <h4 className="font-bold text-[var(--text-primary)] text-sm uppercase tracking-tight">Secure & Compliant</h4>
+                <p className="text-xs text-[var(--text-secondary)] leading-relaxed">Enterprise-grade security with password expiration and role-based access control.</p>
               </div>
             </div>
           </div>
 
           <div className="text-center pt-8">
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+            <p className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest mb-1">
               © 2025 Adezmold Business Consulting
             </p>
-            <p className="text-[10px] text-slate-400">
-              Need help? <a href="mailto:adezmoldent@gmail.com" className="text-indigo-600 hover:underline">Contact Support</a>
+            <p className="text-[10px] text-[var(--text-secondary)]">
+              Need help? <a href="mailto:adezmoldent@gmail.com" className="text-[var(--accent)] hover:underline">Contact Support</a>
             </p>
           </div>
         </motion.div>

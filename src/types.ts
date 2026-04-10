@@ -12,6 +12,7 @@ export interface UserProfile {
   assignedWarehouseId?: string; // For staff assigned to specific warehouse
   createdAt: string;
   lastPasswordUpdate?: string; // ISO string for password expiration tracking
+  suspended?: boolean;
 }
 
 export interface Company {
@@ -190,6 +191,7 @@ export interface Transaction {
   totalValue?: number;
   deductions: DeductionParams;
   referenceId: string;
+  storeRecordId?: string;
   isDirectDelivery?: boolean;
   truckNo?: string;
   driverName?: string;

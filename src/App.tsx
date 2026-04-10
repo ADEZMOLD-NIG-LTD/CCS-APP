@@ -202,7 +202,7 @@ function AppContent() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 font-sans text-slate-900 overflow-hidden">
+    <div className="flex flex-col h-screen bg-[var(--bg-app)] font-sans text-[var(--text-primary)] overflow-hidden">
       <AnimatePresence>
         {successMessage && (
           <Toast 
@@ -221,25 +221,25 @@ function AppContent() {
       </AnimatePresence>
 
       {/* Global Header */}
-      <header className="bg-white border-b border-slate-200 px-4 py-3 flex justify-between items-center z-50 shadow-sm shrink-0 relative">
+      <header className="bg-white border-b border-[var(--border)] px-4 py-3 flex justify-between items-center z-50 shadow-sm shrink-0 relative">
         <div className="flex items-center gap-3">
           <button 
             onClick={() => setShowMenu(!showMenu)}
-            className={`p-2 rounded-xl transition-all ${showMenu ? 'bg-indigo-50 text-indigo-600' : 'hover:bg-slate-100 text-slate-600'}`}
+            className={`p-2 rounded-xl transition-all ${showMenu ? 'bg-blue-50 text-[var(--accent)]' : 'hover:bg-slate-100 text-[var(--text-secondary)]'}`}
           >
             <Menu size={24} />
           </button>
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveModule('dashboard')}>
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg rotate-3">
-              <LayoutDashboard size={24} className="-rotate-3" />
+            <div className="w-10 h-10 bg-[var(--accent)] rounded-xl flex items-center justify-center text-white shadow-md">
+              <LayoutDashboard size={24} />
             </div>
             <div className="flex flex-col">
-              <h1 className="text-sm font-black text-slate-900 tracking-tight leading-tight uppercase">
+              <h1 className="text-sm font-bold text-[var(--text-primary)] tracking-tight leading-tight">
                 {company?.name || 'CCS System'}
               </h1>
               <div className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${isDemoMode ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} />
-                <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase tracking-widest">
                   {isDemoMode ? 'Training Mode' : 'Live System'}
                 </p>
               </div>
@@ -249,13 +249,13 @@ function AppContent() {
         
         <div 
           onClick={() => { setActiveModule('settings'); setShowMenu(false); }}
-          className="flex items-center gap-3 pl-3 border-l border-slate-100 cursor-pointer group"
+          className="flex items-center gap-3 pl-3 border-l border-[var(--border)] cursor-pointer group"
         >
           <div className="text-right hidden sm:block">
-            <p className="text-[11px] font-black text-slate-900 leading-none group-hover:text-indigo-600 transition-colors">{profile?.displayName}</p>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">{profile?.role}</p>
+            <p className="text-[11px] font-bold text-[var(--text-primary)] leading-none group-hover:text-[var(--accent)] transition-colors">{profile?.displayName}</p>
+            <p className="text-[9px] font-medium text-[var(--text-secondary)] uppercase tracking-tighter mt-0.5">{profile?.role}</p>
           </div>
-          <div className="w-9 h-9 bg-slate-100 text-slate-600 rounded-xl flex items-center justify-center font-black text-xs border border-slate-200 group-hover:bg-indigo-50 group-hover:text-indigo-600 group-hover:border-indigo-100 transition-all">
+          <div className="w-9 h-9 bg-slate-100 text-[var(--text-secondary)] rounded-xl flex items-center justify-center font-bold text-xs border border-[var(--border)] group-hover:bg-blue-50 group-hover:text-[var(--accent)] group-hover:border-blue-100 transition-all">
             {profile?.displayName?.charAt(0)}
           </div>
         </div>
@@ -285,39 +285,39 @@ function AppContent() {
                         setActiveModule(item.id as Module);
                         setShowMenu(false);
                       }}
-                      className={`flex items-center gap-3 w-full p-3 rounded-2xl transition-all ${
+                      className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all ${
                         activeModule === item.id 
-                          ? 'bg-indigo-50 text-indigo-600' 
-                          : 'hover:bg-slate-50 text-slate-600'
+                          ? 'bg-blue-50 text-[var(--accent)]' 
+                          : 'hover:bg-slate-50 text-[var(--text-secondary)]'
                       }`}
                     >
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                        activeModule === item.id ? 'bg-indigo-100' : 'bg-slate-100'
+                        activeModule === item.id ? 'bg-blue-100' : 'bg-slate-50'
                       }`}>
                         <item.icon size={20} />
                       </div>
-                      <span className="text-sm font-bold uppercase tracking-tight">{item.label}</span>
+                      <span className="text-sm font-medium">{item.label}</span>
                     </button>
                   ))}
                 </div>
-                <div className="p-2 border-t border-slate-100 bg-slate-50 shrink-0">
+                <div className="p-2 border-t border-[var(--border)] bg-slate-50 shrink-0">
                   <button
                     onClick={() => {
                       setActiveModule('settings');
                       setShowMenu(false);
                     }}
-                    className={`flex items-center gap-3 w-full p-3 rounded-2xl transition-all ${
+                    className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all ${
                       activeModule === 'settings' 
-                        ? 'bg-indigo-50 text-indigo-600' 
-                        : 'hover:bg-white text-slate-600'
+                        ? 'bg-blue-50 text-[var(--accent)]' 
+                        : 'hover:bg-white text-[var(--text-secondary)]'
                     }`}
                   >
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                      activeModule === 'settings' ? 'bg-indigo-100' : 'bg-white border border-slate-100'
+                      activeModule === 'settings' ? 'bg-blue-100' : 'bg-white border border-[var(--border)]'
                     }`}>
                       <Settings size={20} />
                     </div>
-                    <span className="text-sm font-bold uppercase tracking-tight">User Settings</span>
+                    <span className="text-sm font-medium">User Settings</span>
                   </button>
                 </div>
               </motion.div>

@@ -34,7 +34,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type ReportType = 'supplier_balances' | 'buyer_balances' | 'operational_purchases' | 'operational_sales' | 'packaging_inventory' | 'transfers';
+type ReportType = 'supplier_balances' | 'buyer_balances' | 'operational_purchases' | 'operational_sales' | 'packaging_inventory' | 'transfers' | 'search';
 
 export default function ReportsModule() {
   const { profile, company } = useAuth();
@@ -51,6 +51,7 @@ export default function ReportsModule() {
   const [startDate, setStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Load Data from Firestore
   useEffect(() => {
@@ -271,7 +272,23 @@ export default function ReportsModule() {
     let tableData: any[] = [];
     let tableHeaders: string[] = [];
 
-    if (activeReport === 'supplier_balances') {
+    if (activeReport === 'search') {
+      title = `Transaction Search Results for: ${searchQuery}`;
+      tableHeaders = ['Date', 'Type', 'Tranx ID', 'Entity', 'Commodity', 'Net Weight', 'Value (NGN)'];
+      tableData = transactions
+        .filter(t => t.storeRecordId?.toLowerCase().includes(searchQuery.toLowerCase()))
+        .map(t => [
+          new Date(t.date).toLocaleDateString(),
+          t.type,
+          t.storeRecordId || '-',
+          t.type === 'PURCHASE' 
+            ? (suppliers.find(s => s.id === t.supplierId)?.name || 'Unknown')
+            : (buyers.find(b => b.id === t.buyerId)?.name || t.buyerName || 'Unknown'),
+          t.commodity,
+          `${t.netWeight}kg`,
+          (t.totalValue || 0).toLocaleString()
+        ]);
+    } else if (activeReport === 'supplier_balances') {
       title = `Supplier Balances Report (As at ${endDate})`;
       tableHeaders = ['Supplier Name', 'Location', 'Balance (NGN)', 'Type'];
       tableData = supplierBalances.map(s => [
@@ -345,13 +362,13 @@ export default function ReportsModule() {
     doc.setFontSize(10);
     doc.text(`Generated on: ${timestamp}`, 14, 48);
     
-    if (activeReport !== 'supplier_balances' && activeReport !== 'buyer_balances') {
+    if (activeReport !== 'supplier_balances' && activeReport !== 'buyer_balances' && activeReport !== 'search') {
       const warehouseName = selectedWarehouseId === 'ALL' ? 'All Warehouses' : warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Unknown';
       doc.text(`Period: ${startDate} to ${endDate} | Warehouse: ${warehouseName}`, 14, 54);
     }
 
     autoTable(doc, {
-      startY: (activeReport === 'supplier_balances' || activeReport === 'buyer_balances') ? 52 : 60,
+      startY: (activeReport === 'supplier_balances' || activeReport === 'buyer_balances' || activeReport === 'search') ? 52 : 60,
       head: [tableHeaders],
       body: tableData,
       foot: activeReport === 'supplier_balances' ? [
@@ -466,34 +483,134 @@ export default function ReportsModule() {
           >
             Transfers
           </button>
+          <button
+            onClick={() => setActiveReport('search')}
+            className={cn(
+              "px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5",
+              activeReport === 'search' ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-500"
+            )}
+          >
+            <Search size={12} /> Search Tranx ID
+          </button>
         </div>
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">From</label>
-              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none" />
+        {activeReport === 'search' ? (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+              <input 
+                type="text" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Enter Tranx ID (Store Record ID) to search..."
+                className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 text-lg font-medium"
+              />
             </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">To</label>
-              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none" />
-            </div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">
+              Search across all purchases and sales using the unique ID from Store Keeper
+            </p>
           </div>
-          {activeReport !== 'supplier_balances' && activeReport !== 'buyer_balances' && (
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-              <select value={selectedWarehouseId} onChange={e => setSelectedWarehouseId(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none">
-                <option value="ALL">All Warehouses</option>
-                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
+        ) : (
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">From</label>
+                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">To</label>
+                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none" />
+              </div>
             </div>
-          )}
-        </div>
+            {activeReport !== 'supplier_balances' && activeReport !== 'buyer_balances' && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                <select value={selectedWarehouseId} onChange={e => setSelectedWarehouseId(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none">
+                  <option value="ALL">All Warehouses</option>
+                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
 
         <AnimatePresence mode="wait">
-          {activeReport === 'supplier_balances' ? (
+          {activeReport === 'search' ? (
+            <div key="search-results" className="space-y-4">
+              {searchQuery.trim() === '' ? (
+                <div className="bg-white rounded-2xl p-12 border border-dashed border-slate-300 text-center">
+                  <Search className="mx-auto text-slate-200 mb-4" size={48} />
+                  <p className="text-slate-400 font-medium">Enter a Tranx ID above to find linked transactions</p>
+                </div>
+              ) : (
+                <>
+                  {transactions.filter(t => t.storeRecordId?.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
+                    <div className="bg-white rounded-2xl p-12 border border-dashed border-slate-300 text-center">
+                      <FileText className="mx-auto text-slate-200 mb-4" size={48} />
+                      <p className="text-slate-400 font-medium">No transactions found matching "{searchQuery}"</p>
+                    </div>
+                  ) : (
+                    transactions
+                      .filter(t => t.storeRecordId?.toLowerCase().includes(searchQuery.toLowerCase()))
+                      .map(t => (
+                        <div key={t.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:border-indigo-300 transition-colors">
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={cn(
+                                  "text-[10px] font-bold px-2 py-0.5 rounded uppercase",
+                                  t.type === 'PURCHASE' ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"
+                                )}>
+                                  {t.type}
+                                </span>
+                                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">
+                                  {t.commodity}
+                                </span>
+                                <span className="text-[10px] text-slate-400">{new Date(t.date).toLocaleString()}</span>
+                              </div>
+                              <h3 className="font-bold text-slate-900 text-lg">
+                                {t.type === 'PURCHASE' 
+                                  ? (suppliers.find(s => s.id === t.supplierId)?.name || 'Unknown Supplier')
+                                  : (buyers.find(b => b.id === t.buyerId)?.name || t.buyerName || 'Unknown Customer')
+                                }
+                              </h3>
+                              <p className="text-xs text-slate-500 font-medium">Ref: {t.referenceId}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xl font-black text-slate-900">₦{(t.totalValue || 0).toLocaleString()}</p>
+                              <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Tranx ID: {t.storeRecordId}</p>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-4 gap-2 pt-4 border-t border-slate-50">
+                            <div className="text-center">
+                              <p className="text-[9px] text-slate-400 font-bold uppercase">Gross</p>
+                              <p className="text-sm font-bold">{t.grossWeight}kg</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-[9px] text-slate-400 font-bold uppercase">Net</p>
+                              <p className="text-sm font-bold text-emerald-600">{t.netWeight}kg</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-[9px] text-slate-400 font-bold uppercase">Bags</p>
+                              <p className="text-sm font-bold">{t.noOfBags || t.bags || '-'}</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-[9px] text-slate-400 font-bold uppercase">Warehouse</p>
+                              <p className="text-sm font-bold truncate">
+                                {warehouses.find(w => w.id === t.warehouseId)?.name || t.warehouse || 'Main'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </>
+              )}
+            </div>
+          ) : activeReport === 'supplier_balances' ? (
             <div key="balances" className="space-y-6">
               {/* Summary Cards */}
               <div className="grid grid-cols-2 gap-4">
@@ -681,8 +798,8 @@ export default function ReportsModule() {
                 {filteredTransfers.length === 0 ? (
                   <p className="text-center py-12 text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200">No transfers found for this period</p>
                 ) : (
-                  filteredTransfers.map((t, idx) => (
-                    <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  filteredTransfers.map((t) => (
+                    <div key={t.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">

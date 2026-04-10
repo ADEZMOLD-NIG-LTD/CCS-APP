@@ -48,6 +48,7 @@ interface AuthContextType {
   registerCompany: (companyName: string) => Promise<void>;
   approveCompany: (companyId: string) => Promise<void>;
   disapproveCompany: (companyId: string) => Promise<void>;
+  toggleUserSuspension: (userId: string, status: boolean) => Promise<void>;
   signInAsDemo: () => Promise<void>;
   isAdmin: boolean;
   isManager: boolean;
@@ -221,6 +222,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.log('Profile snapshot received:', userDoc.exists() ? 'exists' : 'does not exist');
           if (userDoc.exists()) {
             const data = userDoc.data() as UserProfile;
+            
+            // Check for suspension
+            if (data.suspended && !isSuperAdmin) {
+              console.warn('User is suspended. Signing out.');
+              setErrorMessage('Your account has been suspended. Please contact the Super Admin.');
+              signOut(auth);
+              return;
+            }
+
             setProfile(data);
 
             // Check for password expiration (90 days)
@@ -356,7 +366,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
       } else if (error.code === 'auth/popup-blocked') {
         setErrorMessage('The sign-in popup was blocked by your browser. Please allow popups for this site and try again.');
-      } else if (error.code === 'auth/cancelled-popup-request') {
+      } else if (
+        error.code === 'auth/cancelled-popup-request' || 
+        error.code === 'auth/popup-closed-by-user' ||
+        error.message?.includes('popup-closed-by-user') ||
+        error.message?.includes('cancelled-popup-request')
+      ) {
         // User closed the popup, no need to alert
       } else if (error.code === 'auth/network-request-failed') {
         setErrorMessage('Network error during sign-in. Please check your internet connection.');
@@ -622,6 +637,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await setDoc(doc(db, 'companies', companyId), { isApproved: false }, { merge: true });
   };
 
+  const toggleUserSuspension = async (userId: string, status: boolean) => {
+    if (!isSuperAdmin) return;
+    try {
+      await setDoc(doc(db, 'users', userId), { suspended: status }, { merge: true });
+      setSuccessMessage(`User ${status ? 'suspended' : 'unsuspended'} successfully.`);
+    } catch (error: any) {
+      console.error('User suspension toggle failed:', error);
+      setErrorMessage(`Failed to update user status: ${error.message}`);
+    }
+  };
+
   const isSuperAdmin = user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' || user?.email?.toLowerCase() === 'abdullahiwasiu07@gmail.com';
   const isAdmin = profile?.role === 'ADMIN' || isSuperAdmin;
   const isManager = profile?.role === 'MANAGER' || isAdmin;
@@ -649,6 +675,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     registerCompany,
     approveCompany,
     disapproveCompany,
+    toggleUserSuspension,
     signInAsDemo,
     isAdmin,
     isManager,

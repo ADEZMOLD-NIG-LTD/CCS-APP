@@ -236,6 +236,7 @@ export default function InventoryModule() {
       type: 'PURCHASE',
       commodity,
       supplierId: formData.get('supplierId') as string,
+      storeRecordId: formData.get('storeRecordId') as string,
       grossWeight: Number(grossWeight) || 0,
       netWeight,
       bags: Number(formData.get('bags')) || 0,
@@ -495,7 +496,7 @@ export default function InventoryModule() {
   }, [commodity]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col h-full bg-[var(--bg-app)]">
       {/* Success Toast */}
       <AnimatePresence>
         {successMessage && (
@@ -514,26 +515,26 @@ export default function InventoryModule() {
         )}
       </AnimatePresence>
 
-      <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
+      <header className="bg-white border-b border-[var(--border)] px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-xl font-bold text-slate-900 shrink-0">Inventory</h1>
+          <h1 className="text-xl font-bold text-[var(--text-primary)] shrink-0">Inventory</h1>
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
             {activeTab === 'COMMODITIES' ? (
               <>
                 {canTransferStock && (
                   <button
                     onClick={() => setIsTransferring(true)}
-                    className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
+                    className="google-btn-secondary flex items-center gap-2 shrink-0"
                   >
-                    <ArrowRightLeft size={18} /> Transfer
+                    <ArrowRightLeft size={18} /> <span>Transfer</span>
                   </button>
                 )}
                 {canPostTransactions && (
                   <button
                     onClick={() => setIsAdding(true)}
-                    className="bg-emerald-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
+                    className="google-btn-primary flex items-center gap-2 shrink-0"
                   >
-                    <Plus size={18} /> New Entry
+                    <Plus size={18} /> <span>New Entry</span>
                   </button>
                 )}
               </>
@@ -545,9 +546,9 @@ export default function InventoryModule() {
                       setIsTransferringBag(true);
                       setIsAddingBag(false);
                     }}
-                    className="bg-amber-50 text-amber-700 px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
+                    className="google-btn-secondary flex items-center gap-2 shrink-0"
                   >
-                    <ArrowRightLeft size={18} /> Transfer
+                    <ArrowRightLeft size={18} /> <span>Transfer</span>
                   </button>
                 )}
                 {canPostTransactions && (
@@ -556,9 +557,9 @@ export default function InventoryModule() {
                       setIsAddingBag(true);
                       setIsTransferringBag(false);
                     }}
-                    className="bg-amber-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all shrink-0"
+                    className="google-btn-primary flex items-center gap-2 shrink-0"
                   >
-                    <Plus size={18} /> New Bag Entry
+                    <Plus size={18} /> <span>New Bag Entry</span>
                   </button>
                 )}
               </div>
@@ -569,12 +570,12 @@ export default function InventoryModule() {
 
       <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
         {/* Tab Switcher */}
-        <div className="flex bg-slate-200 p-1 rounded-xl">
+        <div className="flex bg-slate-100 p-1 rounded-xl">
           <button
             onClick={() => setActiveTab('COMMODITIES')}
             className={cn(
               "flex-1 py-2 rounded-lg text-xs font-bold transition-all",
-              activeTab === 'COMMODITIES' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+              activeTab === 'COMMODITIES' ? "bg-white text-[var(--accent)] shadow-sm" : "text-[var(--text-secondary)]"
             )}
           >
             Commodities
@@ -583,7 +584,7 @@ export default function InventoryModule() {
             onClick={() => setActiveTab('PACKAGING')}
             className={cn(
               "flex-1 py-2 rounded-lg text-xs font-bold transition-all",
-              activeTab === 'PACKAGING' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+              activeTab === 'PACKAGING' ? "bg-white text-[var(--accent)] shadow-sm" : "text-[var(--text-secondary)]"
             )}
           >
             Packaging (Bags)
@@ -596,7 +597,7 @@ export default function InventoryModule() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200"
+              className="google-card p-6"
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-bold">{editingTransaction ? 'Adjust Purchase Entry' : 'New Purchase Entry'}</h2>
@@ -625,6 +626,16 @@ export default function InventoryModule() {
                       <option value="">Select Supplier</option>
                       {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Store Record ID (Tranx ID)</label>
+                    <input 
+                      name="storeRecordId" 
+                      type="text" 
+                      defaultValue={editingTransaction?.storeRecordId || ''} 
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" 
+                      placeholder="Quote Tranx ID from Store Keeper" 
+                    />
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
@@ -1020,7 +1031,7 @@ export default function InventoryModule() {
                   onClick={() => setSelectedWarehouseId('ALL')}
                   className={cn(
                     "px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all",
-                    selectedWarehouseId === 'ALL' ? "bg-slate-900 text-white" : "bg-white text-slate-500 border border-slate-200"
+                    selectedWarehouseId === 'ALL' ? "bg-[var(--text-primary)] text-white" : "bg-white text-[var(--text-secondary)] border border-[var(--border)]"
                   )}
                 >
                   All Warehouses
@@ -1031,7 +1042,7 @@ export default function InventoryModule() {
                     onClick={() => setSelectedWarehouseId(w.id)}
                     className={cn(
                       "px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all",
-                      selectedWarehouseId === w.id ? "bg-indigo-600 text-white" : "bg-white text-slate-500 border border-slate-200"
+                      selectedWarehouseId === w.id ? "bg-[var(--accent)] text-white" : "bg-white text-[var(--text-secondary)] border border-[var(--border)]"
                     )}
                   >
                     {w.name}
@@ -1042,16 +1053,16 @@ export default function InventoryModule() {
               <div className="grid grid-cols-3 gap-3">
                 {activeTab === 'COMMODITIES' ? (
                   COMMODITIES.map(c => (
-                    <div key={c} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm text-center">
-                      <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">{c}</p>
-                      <p className="text-sm font-black text-slate-900">{(inventory[c] || 0).toLocaleString()} kg</p>
+                    <div key={c} className="google-card p-3 text-center">
+                      <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase mb-1">{c}</p>
+                      <p className="text-sm font-bold text-[var(--text-primary)]">{(inventory[c] || 0).toLocaleString()} kg</p>
                     </div>
                   ))
                 ) : (
                   PACKAGING.map(p => (
-                    <div key={p} className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm text-center">
-                      <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">{p.replace('_', ' ')}</p>
-                      <p className="text-sm font-black text-slate-900">{(packagingInventory[p] || 0).toLocaleString()} pcs</p>
+                    <div key={p} className="google-card p-3 text-center">
+                      <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase mb-1">{p.replace('_', ' ')}</p>
+                      <p className="text-sm font-bold text-[var(--text-primary)]">{(packagingInventory[p] || 0).toLocaleString()} pcs</p>
                     </div>
                   ))
                 )}
@@ -1074,27 +1085,27 @@ export default function InventoryModule() {
                       </div>
                     ) : (
                       transactions.map(tx => (
-                        <div key={tx.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                        <div key={tx.id} className="google-card p-4">
                           <div className="flex justify-between items-start mb-3">
                             <div>
                               <div className="flex items-center gap-2 mb-1">
-                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded uppercase">
+                                <span className="text-[10px] font-bold bg-blue-50 text-[var(--accent)] px-2 py-0.5 rounded uppercase">
                                   {tx.commodity}
                                 </span>
-                                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">
+                                <span className="text-[10px] font-bold bg-slate-100 text-[var(--text-secondary)] px-2 py-0.5 rounded uppercase">
                                   {warehouses.find(w => w.id === tx.warehouseId)?.name || 'Main'}
                                 </span>
-                                <span className="text-[10px] text-slate-400">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
+                                <span className="text-[10px] text-[var(--text-secondary)]">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
                               </div>
                               <div className="flex items-center gap-2">
-                                <h3 className="font-bold text-slate-900">
+                                <h3 className="font-bold text-[var(--text-primary)]">
                                   {suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown Supplier'}
                                 </h3>
                                 {isAdmin && (
                                   <div className="flex items-center gap-1">
                                     <button 
                                       onClick={() => handleEditClick(tx)}
-                                      className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                                      className="p-1 text-slate-400 hover:text-[var(--accent)] transition-colors"
                                       title="Adjust Purchase"
                                     >
                                       <Edit size={14} />
@@ -1111,23 +1122,28 @@ export default function InventoryModule() {
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className="text-sm font-black text-slate-900">{tx.netWeight.toFixed(2)} kg</p>
-                              <p className="text-[10px] text-slate-400">Net Weight</p>
+                              <p className="text-sm font-bold text-[var(--text-primary)]">{tx.netWeight.toFixed(2)} kg</p>
+                              <p className="text-[10px] text-[var(--text-secondary)]">Net Weight</p>
+                              {tx.storeRecordId && (
+                                <p className="text-[9px] font-bold text-indigo-600 mt-1">
+                                  Store ID: {tx.storeRecordId}
+                                </p>
+                              )}
                             </div>
                           </div>
                           
                           <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-50">
                             <div className="text-center">
-                              <p className="text-[9px] text-slate-400 uppercase">Gross</p>
+                              <p className="text-[9px] text-[var(--text-secondary)] uppercase">Gross</p>
                               <p className="text-[11px] font-bold">{tx.grossWeight}kg</p>
                             </div>
                             <div className="text-center">
-                              <p className="text-[9px] text-slate-400 uppercase">Deductions</p>
+                              <p className="text-[9px] text-[var(--text-secondary)] uppercase">Deductions</p>
                               <p className="text-[11px] font-bold text-rose-500">
                                 -{(tx.grossWeight - tx.netWeight).toFixed(1)}kg
                               </p>
                               {tx.deductions && (
-                                <div className="mt-1 flex flex-wrap gap-1 text-[7px] font-bold uppercase tracking-tighter justify-center text-slate-400">
+                                <div className="mt-1 flex flex-wrap gap-1 text-[7px] font-bold uppercase tracking-tighter justify-center text-[var(--text-secondary)]">
                                   {((tx.deductions.moistureActual - tx.deductions.moistureBenchmark) * (tx.grossWeight || 0) / 100) > 0 && (
                                     <span>M: {(((tx.deductions.moistureActual - tx.deductions.moistureBenchmark) * (tx.grossWeight || 0)) / 100).toFixed(1)}kg</span>
                                   )}
@@ -1138,7 +1154,7 @@ export default function InventoryModule() {
                               )}
                             </div>
                             <div className="text-center">
-                              <p className="text-[9px] text-slate-400 uppercase">Value</p>
+                              <p className="text-[9px] text-[var(--text-secondary)] uppercase">Value</p>
                               <p className="text-[11px] font-bold text-emerald-600">₦{(tx.totalValue || 0).toLocaleString()}</p>
                             </div>
                           </div>
@@ -1153,7 +1169,7 @@ export default function InventoryModule() {
                       </div>
                     ) : (
                       bagTransactions.map(tx => (
-                        <div key={tx.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                        <div key={tx.id} className="google-card p-4">
                           <div className="flex justify-between items-center">
                             <div>
                               <div className="flex items-center gap-2 mb-1">
@@ -1163,24 +1179,24 @@ export default function InventoryModule() {
                                 )}>
                                   {tx.type?.replace('_', ' ') || 'N/A'}
                                 </span>
-                                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">
+                                <span className="text-[10px] font-bold bg-slate-100 text-[var(--text-secondary)] px-2 py-0.5 rounded uppercase">
                                   {tx.packagingType?.replace('_', ' ') || 'N/A'}
                                 </span>
-                                <span className="text-[10px] text-slate-400">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
+                                <span className="text-[10px] text-[var(--text-secondary)]">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
                               </div>
-                              <h3 className="font-bold text-slate-900">{tx.reference}</h3>
-                              <p className="text-[10px] text-slate-400">
+                              <h3 className="font-bold text-[var(--text-primary)]">{tx.reference}</h3>
+                              <p className="text-[10px] text-[var(--text-secondary)]">
                                 Warehouse: {warehouses.find(w => w.id === tx.warehouseId)?.name || 'Main'}
                               </p>
                             </div>
                             <div className="text-right">
                               <p className={cn(
-                                "text-lg font-black",
+                                "text-lg font-bold",
                                 tx.type === 'STOCK_IN' ? "text-emerald-600" : "text-amber-600"
                               )}>
                                 {tx.type === 'STOCK_IN' ? '+' : '-'}{tx.quantity}
                               </p>
-                              <p className="text-[10px] text-slate-400">Units</p>
+                              <p className="text-[10px] text-[var(--text-secondary)]">Units</p>
                             </div>
                           </div>
                         </div>
