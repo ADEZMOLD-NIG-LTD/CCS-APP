@@ -60,6 +60,7 @@ interface AuthContextType {
   isDemoMode: boolean;
   mustChangePassword: boolean;
   isFirestoreConnected: boolean;
+  isOnline: boolean;
   connectionError: string | null;
   errorMessage: string | null;
   setErrorMessage: (msg: string | null) => void;
@@ -95,6 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [isFirestoreConnected, setIsFirestoreConnected] = useState(true);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -158,30 +160,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        if (error.message?.includes('the client is offline')) {
+          // If offline, we don't treat it as a critical connection error since we have persistence
+          setIsFirestoreConnected(true);
+          setConnectionError(null);
+          return;
+        }
+
+        if (error.code === 'permission-denied') {
+          // Permission denied is actually a success! It means we reached the server.
+          setIsFirestoreConnected(true);
+          setConnectionError(null);
+          return;
+        }
+
         console.error("Firestore connection test failed:", error.message);
         
-        if (error.message?.includes('the client is offline') || error.code === 'permission-denied') {
-          if (error.code === 'permission-denied') {
-            // Permission denied is actually a success! It means we reached the server.
-            setIsFirestoreConnected(true);
-            setConnectionError(null);
-            return;
-          }
-          setIsFirestoreConnected(false);
-          setConnectionError(
-            `Firestore is offline for project "${firebaseConfig.projectId}". ` +
-            `Error: ${error.code || 'unknown'}. ` +
-            `Please ensure the Firestore API is enabled and a database named "${firebaseConfig.firestoreDatabaseId}" exists in the Firebase Console.`
-          );
-        } else {
-          // Other errors (like permission denied on the test doc) are actually signs of a successful connection
-          setIsFirestoreConnected(true); 
-          setConnectionError(null);
-        }
+        setIsFirestoreConnected(false);
+        setConnectionError(
+          `Firestore connection issue for project "${firebaseConfig.projectId}". ` +
+          `Error: ${error.code || 'unknown'}. ` +
+          `Please ensure the Firestore API is enabled and the database configuration is correct.`
+        );
       }
     }
 
     testConnection();
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   useEffect(() => {
@@ -687,6 +702,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isDemoMode,
     mustChangePassword,
     isFirestoreConnected,
+    isOnline,
     connectionError,
     errorMessage,
     setErrorMessage,

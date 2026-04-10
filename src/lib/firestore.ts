@@ -97,8 +97,8 @@ export function formatFirestoreError(error: unknown): string {
   if (message.includes('insufficient permissions')) {
     return "Permission Denied: You don't have the required permissions for this action.";
   }
-  if (message.includes('offline')) {
-    return "Network Error: You appear to be offline. Please check your connection.";
+  if (message.includes('offline') || message.includes('Failed to get document because the client is offline')) {
+    return "Working Offline: Your changes are saved locally and will sync once network is restored.";
   }
   if (message.includes('quota exceeded')) {
     return "Database Error: Daily quota exceeded. Please try again tomorrow.";

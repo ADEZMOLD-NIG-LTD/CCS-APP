@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock } from 'lucide-react';
+import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock, Wifi, WifiOff } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import SupplierModule from './components/SupplierModule';
 import BuyerModule from './components/BuyerModule';
@@ -34,7 +34,7 @@ function AppContent() {
   const { 
     user, profile, company, loading, signIn, logout, registerCompany, 
     signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode,
-    mustChangePassword, can,
+    mustChangePassword, can, isOnline,
     errorMessage, setErrorMessage, successMessage, setSuccessMessage
   } = useAuth();
   const [activeModule, setActiveModule] = useState<Module>('dashboard');
@@ -242,6 +242,12 @@ function AppContent() {
                 <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase tracking-widest">
                   {isDemoMode ? 'Training Mode' : 'Live System'}
                 </p>
+                {!isOnline && (
+                  <div className="flex items-center gap-1 ml-2 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">
+                    <WifiOff size={10} className="text-rose-500" />
+                    <span className="text-[8px] font-black text-rose-600 uppercase">Offline</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
