@@ -112,15 +112,18 @@ export default function ReportsModule() {
       setPayments(data);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'payments')));
 
-    const qAuditLogs = query(
-      collection(db, 'audit_logs'),
-      where('companyId', '==', profile.companyId),
-      orderBy('timestamp', 'desc')
-    );
-    const unsubscribeAuditLogs = onSnapshot(qAuditLogs, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AuditLog));
-      setAuditLogs(data);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'audit_logs')));
+    let unsubscribeAuditLogs = () => {};
+    if (profile.role === 'ADMIN' || profile.role === 'MANAGER' || profile.role === 'AUDITOR') {
+      const qAuditLogs = query(
+        collection(db, 'audit_logs'),
+        where('companyId', '==', profile.companyId),
+        orderBy('timestamp', 'desc')
+      );
+      unsubscribeAuditLogs = onSnapshot(qAuditLogs, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AuditLog));
+        setAuditLogs(data);
+      }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'audit_logs')));
+    }
 
     const qJournal = query(
       collection(db, 'journal'), 

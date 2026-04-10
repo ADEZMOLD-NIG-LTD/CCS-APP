@@ -18,9 +18,9 @@ service cloud.firestore {
 
     function isSuperAdmin() {
       return isAuthenticated() && 
-             (request.auth.token.email.lower() == "wasiuadebisi89@gmail.com" || 
-              request.auth.token.email.lower() == "abdullahiwasiu07@gmail.com") &&
-             request.auth.token.email_verified == true;
+             request.auth.token.get('email_verified', false) == true &&
+             (request.auth.token.get('email', '').lower() == "wasiuadebisi89@gmail.com" || 
+              request.auth.token.get('email', '').lower() == "abdullahiwasiu07@gmail.com");
     }
 
     function isCompanyApproved(companyId) {
@@ -36,8 +36,9 @@ service cloud.firestore {
 
     function isCompanyOwner(companyId) {
       return isAuthenticated() && 
+             request.auth.token.get('email', '') != '' &&
              exists(/databases/$(database)/documents/companies/$(companyId)) && 
-             get(/databases/$(database)/documents/companies/$(companyId)).data.get('ownerEmail', '').lower() == request.auth.token.email.lower();
+             get(/databases/$(database)/documents/companies/$(companyId)).data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower();
     }
 
     function isAdmin() {
@@ -67,7 +68,7 @@ service cloud.firestore {
     function belongsToCompany(companyId) {
       return isAuthenticated() && 
              (isSuperAdmin() || 
-              (companyId == 'demo_company' && isAnonymousDemo()) ||
+              (isAnonymousDemo() && companyId == 'demo_company') ||
               (userExists() && 
                getUserData().get('companyId', '') == companyId && 
                (isCompanyApproved(companyId) || isCompanyOwner(companyId))));
@@ -250,13 +251,13 @@ service cloud.firestore {
         isSuperAdmin() || 
         (isAnonymousDemo() && companyId == 'demo_company') || 
         (userExists() && getUserData().get('companyId', '') == companyId) ||
-        (resource != null && resource.data.get('ownerEmail', '').lower() == request.auth.token.email.lower())
+        (resource != null && resource.data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower())
       );
       // Only Super Admin or Anonymous Demo can create companies. 
       // Regular users must be approved by Super Admin.
       allow create: if isAuthenticated() && (
         (isAnonymousDemo() && companyId == 'demo_company') || 
-        (isValidCompany(request.resource.data) && request.resource.data.ownerEmail.lower() == request.auth.token.email.lower())
+        (isValidCompany(request.resource.data) && request.auth.token.get('email', '').lower() == request.resource.data.ownerEmail.lower())
       );
       allow update: if isSuperAdmin() || (isAdmin() && belongsToCompany(companyId) && isValidCompany(request.resource.data) && request.resource.data.isApproved == resource.data.isApproved);
       allow delete: if isSuperAdmin();
@@ -270,7 +271,7 @@ service cloud.firestore {
         (isAnonymousDemo() && request.resource.data.role == 'ADMIN') ||
         (request.resource.data.role == 'STAFF') || // Default safe role
         (exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) && 
-         get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.ownerEmail.lower() == request.auth.token.email.lower() &&
+         get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower() &&
          request.resource.data.role == 'ADMIN') // Company owner can be admin
       );
       allow update: if isAuthenticated() && (
@@ -278,7 +279,7 @@ service cloud.firestore {
           request.resource.data.role == resource.data.role ||
           (request.resource.data.role == 'ADMIN' && 
            exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) && 
-           get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.ownerEmail.lower() == request.auth.token.email.lower())
+           get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower())
         )) || // User can update profile, and can become ADMIN if they own the company
         (isAdmin() && isValidUserProfile(request.resource.data)) // Admin can update roles
       );
@@ -308,7 +309,7 @@ service cloud.firestore {
 
     match /staff/{id} {
       allow read: if isAuthenticated() && (
-        (request.auth.token.email.lower() == resource.data.get('email', '').lower()) || 
+        (request.auth.token.get('email', '').lower() == resource.data.get('email', '').lower()) || 
         (isAccount() && belongsToCompany(resource.data.companyId))
       );
       allow create: if isManager() && belongsToCompany(request.resource.data.companyId) && isValidStaff(request.resource.data);
