@@ -141,15 +141,17 @@ export default function ReportsModule() {
   // Supplier Balances Report Logic
   const supplierBalances = useMemo(() => {
     return suppliers.map(s => {
-      const sTx = transactions.filter(t => t.supplierId === s.id && t.type === 'PURCHASE' && t.date.split('T')[0] <= endDate);
+      const sPurchases = transactions.filter(t => t.supplierId === s.id && t.type === 'PURCHASE' && t.date.split('T')[0] <= endDate);
+      const sSales = transactions.filter(t => t.supplierId === s.id && t.type === 'SALE' && t.date.split('T')[0] <= endDate);
       const sPay = payments.filter(p => p.supplierId === s.id && p.date.split('T')[0] <= endDate);
       const sExp = journal.filter(e => e.supplierId === s.id && e.type === 'OUTFLOW' && e.date.split('T')[0] <= endDate);
       
-      const totalPurchases = sTx.reduce((sum, t) => sum + (t.totalValue || 0), 0);
+      const totalPurchases = sPurchases.reduce((sum, t) => sum + (t.totalValue || 0), 0);
+      const totalSales = sSales.reduce((sum, t) => sum + (t.totalValue || 0), 0);
       const totalPayments = sPay.reduce((sum, p) => sum + p.amount, 0);
       const totalCharges = sExp.reduce((sum, e) => sum + e.amount, 0);
       
-      const balance = (s.previousBalance || 0) + totalPurchases - totalPayments - totalCharges;
+      const balance = (s.previousBalance || 0) + totalPurchases - totalSales - totalPayments - totalCharges;
       return { ...s, balance };
     });
   }, [suppliers, transactions, payments, journal, endDate]);

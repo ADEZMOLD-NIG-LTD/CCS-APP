@@ -44,6 +44,7 @@ export default function SalesModule() {
   const [isAddingSale, setIsAddingSale] = useState(false);
   const [isAddingBuyer, setIsAddingBuyer] = useState(false);
   const [isDirectDelivery, setIsDirectDelivery] = useState(false);
+  const [isSupplierBuyer, setIsSupplierBuyer] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -229,9 +230,9 @@ export default function SalesModule() {
       date: new Date().toISOString(),
       type: 'SALE',
       commodity,
-      buyerId: formData.get('buyerId') as string,
+      buyerId: isSupplierBuyer ? undefined : (formData.get('buyerId') as string),
       storeRecordId: formData.get('storeRecordId') as string,
-      supplierId: isDirectDelivery ? (formData.get('supplierId') as string) : undefined,
+      supplierId: isSupplierBuyer ? (formData.get('supplierId') as string) : (isDirectDelivery ? (formData.get('supplierId') as string) : undefined),
       isDirectDelivery,
       grossWeight: Number(grossWeight) || 0,
       netWeight,
@@ -387,6 +388,31 @@ export default function SalesModule() {
                   </p>
                 </div>
 
+                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Users size={18} className="text-indigo-400" />
+                      <span className="text-sm font-bold text-indigo-700">Supplier as Buyer</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsSupplierBuyer(!isSupplierBuyer)}
+                      className={cn(
+                        "w-12 h-6 rounded-full transition-all relative",
+                        isSupplierBuyer ? "bg-indigo-600" : "bg-slate-300"
+                      )}
+                    >
+                      <div className={cn(
+                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
+                        isSupplierBuyer ? "left-7" : "left-1"
+                      )} />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-indigo-500 font-medium leading-tight">
+                    Enable this if a registered supplier is the one buying from the company. This will debit the supplier's ledger.
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   {!isDirectDelivery && (
                     <div className="col-span-2">
@@ -412,11 +438,20 @@ export default function SalesModule() {
                     </div>
                   )}
                   <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Buyer</label>
-                    <select name="buyerId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
-                      <option value="">Select Buyer</option>
-                      {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                      {isSupplierBuyer ? 'Supplier (Buying From Company)' : 'Buyer'}
+                    </label>
+                    {isSupplierBuyer ? (
+                      <select name="supplierId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="">Select Supplier</option>
+                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    ) : (
+                      <select name="buyerId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Select Buyer</option>
+                        {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    )}
                   </div>
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Store Record ID (Tranx ID)</label>

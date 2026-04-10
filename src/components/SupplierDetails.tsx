@@ -132,11 +132,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const allEntries = [
       ...transactions.map(t => ({
         date: t.date,
-        description: t.type === 'SALE' && t.isDirectDelivery 
-          ? `Direct Delivery: ${t.commodity} (${t.netWeight || 0}kg)` 
+        description: t.type === 'SALE' 
+          ? (t.isDirectDelivery ? `Direct Delivery Sale: ${t.commodity}` : `Sale: ${t.commodity} (${t.netWeight || 0}kg)`)
           : `Purchase: ${t.commodity} (${t.netWeight || 0}kg)`,
-        credit: t.totalValue || 0,
-        debit: 0,
+        credit: t.type === 'PURCHASE' ? (t.totalValue || 0) : 0,
+        debit: t.type === 'SALE' ? (t.totalValue || 0) : 0,
         ref: t.referenceId,
         grossWeight: t.grossWeight || 0,
         netWeight: t.netWeight || 0,
@@ -199,10 +199,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     };
   }, [transactions, payments, journal, supplier.previousBalance, startDate, endDate, supplier.id]);
 
-  const totalPurchases = useMemo(() => transactions.reduce((sum, t) => sum + (t.totalValue || 0), 0), [transactions]);
+  const totalPurchases = useMemo(() => transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + (t.totalValue || 0), 0), [transactions]);
+  const totalSales = useMemo(() => transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + (t.totalValue || 0), 0), [transactions]);
   const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + (p.amount || 0), 0), [payments]);
   const totalCharges = useMemo(() => journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + (e.amount || 0), 0), [journal]);
-  const currentBalance = (supplier.previousBalance || 0) + totalPurchases - totalPayments - totalCharges;
+  const currentBalance = (supplier.previousBalance || 0) + totalPurchases - totalSales - totalPayments - totalCharges;
 
   const bagBalance = useMemo(() => {
     return bagTransactions.reduce((sum, b) => {
@@ -599,7 +600,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                             {(entry.credit || 0) > 0 ? '+' : '-'}₦{((entry.debit || 0) || (entry.credit || 0)).toLocaleString()}
                           </p>
                           <p className="text-[8px] text-slate-400 uppercase font-bold tracking-tighter mt-1">
-                            {(entry.credit || 0) > 0 ? 'Purchase' : 'Payment/Charge'}
+                            {entry.credit > 0 ? 'Purchase' : entry.debit > 0 ? (entry.description.includes('Sale') ? 'Sale' : 'Payment/Charge') : 'Transaction'}
                           </p>
                           <div className="mt-2 pt-1 border-t border-slate-100">
                             <p className="text-[7px] text-slate-400 uppercase font-bold">Balance</p>
