@@ -158,6 +158,7 @@ export interface JournalEntry {
   supplierId?: string; // Optional: if charged to a supplier (for outflows)
   buyerId?: string; // Optional: if received from a buyer (for inflows)
   paymentMethod: 'CASH' | 'BANK_TRANSFER';
+  bankName?: string;
 }
 
 export interface Buyer {

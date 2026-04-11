@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock, Wifi, WifiOff } from 'lucide-react';
+import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock, Wifi, WifiOff, BookOpen } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import SupplierModule from './components/SupplierModule';
 import BuyerModule from './components/BuyerModule';
@@ -22,13 +22,14 @@ import StoreKeeperModule from './components/StoreKeeperModule';
 import AnalyticsModule from './components/AnalyticsModule';
 import ReportsModule from './components/ReportsModule';
 import SuperAdminModule from './components/SuperAdminModule';
+import TrainingModule from './components/TrainingModule';
 import LoginPage from './components/LoginPage';
 import ChangePasswordPage from './components/ChangePasswordPage';
 import Toast from './components/Toast';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin' | 'store';
+type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin' | 'store' | 'training';
 
 function AppContent() {
   const { 
@@ -82,6 +83,7 @@ function AppContent() {
     { id: 'staff', icon: Users, label: 'Staff', hidden: !can('manage_staff') },
     { id: 'analytics', icon: BarChart3, label: 'Data', hidden: !can('view_analytics') },
     { id: 'reports', icon: FileText, label: 'Docs', hidden: !can('view_reports') },
+    { id: 'training', icon: BookOpen, label: 'Training' },
     { id: 'superadmin', icon: Settings, label: 'Admin', hidden: !isSuperAdmin },
   ].filter(item => !item.hidden);
 
@@ -355,6 +357,7 @@ function AppContent() {
             {activeModule === 'store' && <StoreKeeperModule />}
             {activeModule === 'analytics' && <AnalyticsModule />}
             {activeModule === 'reports' && <ReportsModule />}
+            {activeModule === 'training' && <TrainingModule />}
             {activeModule === 'superadmin' && <SuperAdminModule />}
             {activeModule === 'settings' && (
               <div className="flex flex-col items-center justify-center h-full p-8 text-center">

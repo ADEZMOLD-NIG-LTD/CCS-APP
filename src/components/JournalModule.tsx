@@ -19,7 +19,10 @@ import {
   TrendingUp,
   ArrowUpRight,
   ArrowDownRight,
-  DollarSign
+  DollarSign,
+  Building2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { JournalEntry, Supplier, Buyer, Warehouse } from '../types';
@@ -65,17 +68,17 @@ export default function JournalModule() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [entryType, setEntryType] = useState<'INFLOW' | 'OUTFLOW'>('OUTFLOW');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
-
-  // Success message auto-hide
-  useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [successMessage]);
+  
+  // Date Range State
+  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
+    start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
+    end: new Date().toISOString().split('T')[0]
+  });
 
   const [filterType, setFilterType] = useState<'ALL' | 'INFLOW' | 'OUTFLOW'>('ALL');
+  const [filterMethod, setFilterMethod] = useState<'ALL' | 'CASH' | 'BANK_TRANSFER'>('ALL');
 
   // Load Data from Firestore
   useEffect(() => {
@@ -157,6 +160,7 @@ export default function JournalModule() {
       amount: Number(formData.get('amount')),
       description: formData.get('description') as string,
       paymentMethod: formData.get('paymentMethod') as any,
+      bankName: formData.get('bankName') as string || undefined,
     };
 
     if (supplierId) {
@@ -201,28 +205,53 @@ export default function JournalModule() {
     }
   };
 
-  const filteredEntries = entries.filter(e => {
-    const matchesType = filterType === 'ALL' || e.type === filterType;
-    const matchesWarehouse = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
-    return matchesType && matchesWarehouse;
-  });
-
-  const totalInflow = useMemo(() => 
-    entries.filter(e => {
-      const matchesType = e.type === 'INFLOW';
+  const filteredEntries = useMemo(() => {
+    return entries.filter(e => {
+      const entryDate = e.date.split('T')[0];
+      const matchesDate = entryDate >= dateRange.start && entryDate <= dateRange.end;
+      const matchesType = filterType === 'ALL' || e.type === filterType;
+      const matchesMethod = filterMethod === 'ALL' || e.paymentMethod === filterMethod;
       const matchesWarehouse = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
-      return matchesType && matchesWarehouse;
-    }).reduce((sum, e) => sum + e.amount, 0), 
-  [entries, selectedWarehouseId]);
+      return matchesDate && matchesType && matchesMethod && matchesWarehouse;
+    });
+  }, [entries, dateRange, filterType, filterMethod, selectedWarehouseId]);
 
-  const totalOutflow = useMemo(() => 
-    entries.filter(e => {
-      const matchesType = e.type === 'OUTFLOW';
-      const matchesWarehouse = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
-      return matchesType && matchesWarehouse;
-    }).reduce((sum, e) => sum + e.amount, 0), 
-  [entries, selectedWarehouseId]);
+  // Opening Balance Calculation (All entries before start date)
+  const openingBalances = useMemo(() => {
+    const previousEntries = entries.filter(e => e.date.split('T')[0] < dateRange.start);
+    
+    const cashIn = previousEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
+    const cashOut = previousEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
+    
+    const bankIn = previousEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
+    const bankOut = previousEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
 
+    return {
+      cash: cashIn - cashOut,
+      bank: bankIn - bankOut
+    };
+  }, [entries, dateRange.start]);
+
+  // Period Totals
+  const periodTotals = useMemo(() => {
+    const cashIn = filteredEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
+    const cashOut = filteredEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
+    
+    const bankIn = filteredEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
+    const bankOut = filteredEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
+
+    return {
+      cashIn, cashOut, bankIn, bankOut
+    };
+  }, [filteredEntries]);
+
+  const closingBalances = {
+    cash: openingBalances.cash + (periodTotals.cashIn - periodTotals.cashOut),
+    bank: openingBalances.bank + (periodTotals.bankIn - periodTotals.bankOut)
+  };
+
+  const totalInflow = periodTotals.cashIn + periodTotals.bankIn;
+  const totalOutflow = periodTotals.cashOut + periodTotals.bankOut;
   const netCash = totalInflow - totalOutflow;
 
   return (
@@ -275,13 +304,51 @@ export default function JournalModule() {
               className={cn(
                 "flex-1 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all",
                 filterType === type 
-                  ? "bg-slate-900 text-white shadow-md scale-[1.02]" 
+                  ? "bg-slate-900 text-white shadow-md" 
                   : "bg-slate-100 text-slate-500 hover:bg-slate-200"
               )}
             >
               {type}
             </button>
           ))}
+        </div>
+
+        <div className="flex gap-2 mt-2">
+          {['ALL', 'CASH', 'BANK_TRANSFER'].map(method => (
+            <button
+              key={method}
+              onClick={() => setFilterMethod(method as any)}
+              className={cn(
+                "flex-1 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all border",
+                filterMethod === method 
+                  ? "bg-indigo-600 border-indigo-600 text-white shadow-sm" 
+                  : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+              )}
+            >
+              {method === 'BANK_TRANSFER' ? 'BANK' : method}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1 ml-1">From</label>
+            <input 
+              type="date" 
+              value={dateRange.start}
+              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1 ml-1">To</label>
+            <input 
+              type="date" 
+              value={dateRange.end}
+              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
         </div>
 
         {isAdmin && (
@@ -349,12 +416,35 @@ export default function JournalModule() {
 
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Category</label>
-                  <select name="category" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                  <select 
+                    name="category" 
+                    required 
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+                  >
+                    <option value="">Select Category</option>
                     {(entryType === 'INFLOW' ? INFLOW_CATEGORIES : OUTFLOW_CATEGORIES).map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
                 </div>
+
+                {entryType === 'INFLOW' && selectedCategory === 'SALES PROCEEDS' && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100"
+                  >
+                    <label className="block text-[10px] font-bold text-indigo-600 uppercase mb-2 flex items-center gap-2">
+                      <Building2 size={12} /> Bank Name
+                    </label>
+                    <input 
+                      name="bankName" 
+                      className="w-full px-4 py-2 bg-white border border-indigo-200 rounded-lg outline-none text-sm" 
+                      placeholder="Enter Bank Name (e.g. First Bank, GTB, Zenith)"
+                    />
+                  </motion.div>
+                )}
 
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
@@ -439,28 +529,61 @@ export default function JournalModule() {
             </motion.div>
           ) : (
             <div className="space-y-6">
-              {/* Summary Cards */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-emerald-600 rounded-2xl p-4 text-white shadow-lg relative overflow-hidden">
-                  <p className="text-[9px] font-bold uppercase tracking-widest opacity-60 mb-1">Total Inflow</p>
-                  <h2 className="text-xl font-black">₦{(totalInflow || 0).toLocaleString()}</h2>
-                  <TrendingUp className="absolute -right-2 -bottom-2 text-white/10 w-16 h-16" />
-                </div>
-                <div className="bg-rose-600 rounded-2xl p-4 text-white shadow-lg relative overflow-hidden">
-                  <p className="text-[9px] font-bold uppercase tracking-widest opacity-60 mb-1">Total Outflow</p>
-                  <h2 className="text-xl font-black">₦{(totalOutflow || 0).toLocaleString()}</h2>
-                  <TrendingDown className="absolute -right-2 -bottom-2 text-white/10 w-16 h-16" />
-                </div>
-                <div className="col-span-2 bg-slate-900 rounded-2xl p-4 text-white shadow-xl flex items-center justify-between">
-                  <div>
-                    <p className="text-[9px] font-bold uppercase tracking-widest opacity-60 mb-1">Net Cash Position</p>
-                    <h2 className="text-2xl font-black">₦{(netCash || 0).toLocaleString()}</h2>
+              {/* Balances Section */}
+              <div className="space-y-4">
+                <div className="bg-slate-900 rounded-3xl p-6 text-white shadow-2xl relative overflow-hidden">
+                  <div className="relative z-10">
+                    <div className="flex justify-between items-start mb-6">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Harmonized Cash Position</p>
+                        <h2 className="text-3xl font-black">₦{(closingBalances.cash + closingBalances.bank).toLocaleString()}</h2>
+                      </div>
+                      <div className="bg-white/10 p-3 rounded-2xl backdrop-blur-md">
+                        <Wallet className="text-indigo-400" size={24} />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-white/5 rounded-2xl p-4 backdrop-blur-sm border border-white/10">
+                        <div className="flex items-center gap-2 mb-1">
+                          <DollarSign size={12} className="text-emerald-400" />
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Cash-in-Hand</p>
+                        </div>
+                        <p className="text-lg font-black">₦{closingBalances.cash.toLocaleString()}</p>
+                        <div className="mt-2 pt-2 border-t border-white/5 flex justify-between items-center">
+                          <span className="text-[8px] text-slate-500 uppercase">Opening: ₦{openingBalances.cash.toLocaleString()}</span>
+                        </div>
+                      </div>
+                      <div className="bg-white/5 rounded-2xl p-4 backdrop-blur-sm border border-white/10">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Building2 size={12} className="text-blue-400" />
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Bank Balance</p>
+                        </div>
+                        <p className="text-lg font-black">₦{closingBalances.bank.toLocaleString()}</p>
+                        <div className="mt-2 pt-2 border-t border-white/5 flex justify-between items-center">
+                          <span className="text-[8px] text-slate-500 uppercase">Opening: ₦{openingBalances.bank.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className={cn(
-                    "w-12 h-12 rounded-full flex items-center justify-center",
-                    netCash >= 0 ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
-                  )}>
-                    <Wallet size={24} />
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -mr-32 -mt-32" />
+                </div>
+
+                {/* Period Performance */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Period Inflow</p>
+                    <div className="flex items-center gap-2">
+                      <TrendingUp size={14} className="text-emerald-500" />
+                      <span className="text-sm font-black text-slate-900">₦{totalInflow.toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Period Outflow</p>
+                    <div className="flex items-center gap-2">
+                      <TrendingDown size={14} className="text-rose-500" />
+                      <span className="text-sm font-black text-slate-900">₦{totalOutflow.toLocaleString()}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -468,7 +591,7 @@ export default function JournalModule() {
               {/* Journal List */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between px-1">
-                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Journal Entries</h2>
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Transaction History</h2>
                   <span className="text-[10px] font-bold text-slate-400">{filteredEntries.length} Records</span>
                 </div>
                 
@@ -496,6 +619,11 @@ export default function JournalModule() {
                               )}>
                                 {entry.category}
                               </p>
+                              {entry.bankName && (
+                                <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase bg-indigo-100 text-indigo-700">
+                                  {entry.bankName}
+                                </span>
+                              )}
                               <span className="text-[10px] text-slate-400 font-medium">{entry.paymentMethod}</span>
                             </div>
                             <h3 className="font-bold text-slate-900 mt-0.5">{entry.description}</h3>

@@ -190,10 +190,11 @@ service cloud.firestore {
 
     function isValidJournalEntry(data) {
       return hasRequiredFields(['id', 'companyId', 'warehouseId', 'date', 'type', 'category', 'amount']) &&
-             hasOnlyAllowedFields(['id', 'companyId', 'warehouseId', 'date', 'type', 'category', 'amount', 'description', 'supplierId', 'buyerId', 'paymentMethod']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'warehouseId', 'date', 'type', 'category', 'amount', 'description', 'supplierId', 'buyerId', 'paymentMethod', 'bankName']) &&
              data.type in ['INFLOW', 'OUTFLOW'] &&
              data.amount is number && data.amount >= 0 &&
-             isValidString('category', 1, 100);
+             isValidString('category', 1, 100) &&
+             (!('bankName' in data) || data.bankName is string);
     }
 
     function isValidBuyer(data) {

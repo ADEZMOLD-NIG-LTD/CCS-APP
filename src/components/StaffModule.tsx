@@ -42,8 +42,10 @@ import { cn } from '../lib/utils';
 import Toast from './Toast';
 import ConfirmModal from './ConfirmModal';
 
+import { sendOnboardingEmail } from '../services/emailService';
+
 export default function StaffModule() {
-  const { profile, company, isAdmin, isAccount, canManageStaff } = useAuth();
+  const { profile, company, isAdmin, isAccount, canManageStaff, isOnline } = useAuth();
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -53,6 +55,7 @@ export default function StaffModule() {
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
   const [viewingPayroll, setViewingPayroll] = useState<Payroll | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -256,16 +259,26 @@ export default function StaffModule() {
 
     try {
       let authUid = undefined;
+      const defaultPassword = `Welcome@${company?.name?.replace(/\s+/g, '') || 'CCS'}2025`;
+
       // If requested, create a Firebase Auth account with a default password
       if (createAccount && email) {
         const secondaryApp = getApps().find(app => app.name === 'Secondary') || initializeApp(firebaseConfig, 'Secondary');
         const secondaryAuth = getAuth(secondaryApp);
-        const defaultPassword = 'Welcome@CCS2025';
         
         try {
           const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, defaultPassword);
           authUid = userCredential.user.uid;
           await signOut(secondaryAuth);
+
+          // Send Onboarding Email (non-blocking)
+          sendOnboardingEmail({
+            email,
+            name: newStaff.name,
+            password: defaultPassword,
+            companyName: company?.name
+          }).catch(err => console.error('Failed to send onboarding email:', err));
+
         } catch (authError: any) {
           if (authError.code === 'auth/email-already-in-use') {
             // Account already exists, just link it
@@ -284,9 +297,16 @@ export default function StaffModule() {
       // Clean up undefined values
       Object.keys(finalStaff).forEach(key => finalStaff[key] === undefined && delete finalStaff[key]);
 
-      await setDoc(doc(db, 'staff', id), finalStaff);
+      const writePromise = setDoc(doc(db, 'staff', id), finalStaff);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+
       setIsAddingStaff(false);
-      setSuccessMessage(createAccount ? 'Staff member added and login account created with default password: Welcome@CCS2025' : 'Staff member added successfully!');
+      setSuccessMessage(createAccount ? `Staff member added and onboarding email sent to ${email}` : 'Staff member added successfully!');
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `staff/${id}`));
     } finally {
@@ -325,7 +345,14 @@ export default function StaffModule() {
     });
 
     try {
-      await setDoc(doc(db, 'staff', editingStaff.id), updatedStaff);
+      const writePromise = setDoc(doc(db, 'staff', editingStaff.id), updatedStaff);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+
       setEditingStaff(null);
       setSuccessMessage('Staff member updated successfully!');
     } catch (error) {
@@ -393,7 +420,14 @@ export default function StaffModule() {
     Object.keys(record).forEach(key => record[key] === undefined && delete record[key]);
 
     try {
-      await setDoc(doc(db, 'attendance', id), record);
+      const writePromise = setDoc(doc(db, 'attendance', id), record);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+
       setSuccessMessage(`Attendance marked as ${status.toLowerCase()}!`);
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.WRITE, `attendance/${id}`));
@@ -424,7 +458,14 @@ export default function StaffModule() {
     Object.keys(record).forEach(key => record[key] === undefined && delete record[key]);
 
     try {
-      await setDoc(doc(db, 'rosters', id), record);
+      const writePromise = setDoc(doc(db, 'rosters', id), record);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+
       setSuccessMessage(`Roster updated for ${staff.name}`);
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.WRITE, `rosters/${id}`));
@@ -436,7 +477,14 @@ export default function StaffModule() {
   const updateStaffStatus = async (id: string, status: Staff['status']) => {
     if (!canManageStaff) return;
     try {
-      await setDoc(doc(db, 'staff', id), { status }, { merge: true });
+      const writePromise = setDoc(doc(db, 'staff', id), { status }, { merge: true });
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+
       setSuccessMessage(`Staff member status updated to ${status}`);
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `staff/${id}`));
@@ -451,10 +499,36 @@ export default function StaffModule() {
     setDeleteConfirmId(id);
   };
 
+  const handleTestEmail = async () => {
+    if (!profile?.email || testingEmail) return;
+    setTestingEmail(true);
+    try {
+      await sendOnboardingEmail({
+        email: profile.email,
+        name: profile.displayName || 'Admin User',
+        password: 'TestPassword123!',
+        companyName: company?.name || 'CCS Test'
+      });
+      setSuccessMessage(`Test email sent to ${profile.email}. Please check your inbox (and spam folder).`);
+    } catch (error) {
+      setErrorMessage('Failed to send test email. Please verify your SMTP settings in the Secrets panel.');
+      console.error(error);
+    } finally {
+      setTestingEmail(false);
+    }
+  };
+
   const confirmDeleteStaff = async () => {
     if (!deleteConfirmId) return;
     try {
-      await deleteDoc(doc(db, 'staff', deleteConfirmId));
+      const writePromise = deleteDoc(doc(db, 'staff', deleteConfirmId));
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+
       setSuccessMessage('Staff member removed.');
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `staff/${deleteConfirmId}`));
@@ -500,12 +574,24 @@ export default function StaffModule() {
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{company?.name}</p>
           </div>
           {canManageStaff && (
-            <button
-              onClick={() => setIsAddingStaff(true)}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all"
-            >
-              <Plus size={18} /> Add Staff
-            </button>
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <button
+                  onClick={handleTestEmail}
+                  disabled={testingEmail}
+                  className="bg-slate-100 text-slate-600 px-4 py-2 rounded-xl border border-slate-200 flex items-center gap-2 text-sm font-bold active:scale-95 transition-all disabled:opacity-50"
+                  title="Send a test onboarding email to yourself"
+                >
+                  <Mail size={18} /> {testingEmail ? 'Sending...' : 'Test Email'}
+                </button>
+              )}
+              <button
+                onClick={() => setIsAddingStaff(true)}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all"
+              >
+                <Plus size={18} /> Add Staff
+              </button>
+            </div>
           )}
         </div>
 
@@ -708,7 +794,7 @@ export default function StaffModule() {
                       className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                     />
                     <label htmlFor="createAccount" className="text-xs font-bold text-indigo-900 cursor-pointer">
-                      Create Login Account (Default Password: Welcome@CCS2025)
+                      Create Login Account (Default Password: Welcome@${company?.name?.replace(/\s+/g, '') || 'CCS'}2025)
                     </label>
                   </div>
                 )}

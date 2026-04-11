@@ -210,7 +210,9 @@
         "amount": { "type": "number" },
         "description": { "type": "string" },
         "supplierId": { "type": "string" },
-        "paymentMethod": { "type": "string", "enum": ["CASH", "BANK_TRANSFER"] }
+        "buyerId": { "type": "string" },
+        "paymentMethod": { "type": "string", "enum": ["CASH", "BANK_TRANSFER"] },
+        "bankName": { "type": "string" }
       },
       "required": ["id", "companyId", "warehouseId", "date", "type", "category", "amount"]
     },
