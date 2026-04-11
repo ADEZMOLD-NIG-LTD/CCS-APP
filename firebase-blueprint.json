@@ -117,6 +117,7 @@
       "properties": {
         "id": { "type": "string" },
         "companyId": { "type": "string" },
+        "warehouseId": { "type": "string" },
         "date": { "type": "string", "format": "date-time" },
         "supplierId": { "type": "string" },
         "amount": { "type": "number" },
@@ -124,7 +125,7 @@
         "reference": { "type": "string" },
         "description": { "type": "string" }
       },
-      "required": ["id", "companyId", "date", "supplierId", "amount"]
+      "required": ["id", "companyId", "warehouseId", "date", "supplierId", "amount"]
     },
     "Staff": {
       "title": "Staff",

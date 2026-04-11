@@ -160,20 +160,41 @@ export default function ReportsModule() {
   // Supplier Balances Report Logic
   const supplierBalances = useMemo(() => {
     return suppliers.map(s => {
-      const sPurchases = transactions.filter(t => t.supplierId === s.id && t.type === 'PURCHASE' && t.date.split('T')[0] <= endDate);
-      const sSales = transactions.filter(t => t.supplierId === s.id && t.type === 'SALE' && t.date.split('T')[0] <= endDate);
-      const sPay = payments.filter(p => p.supplierId === s.id && p.date.split('T')[0] <= endDate);
-      const sExp = journal.filter(e => e.supplierId === s.id && e.type === 'OUTFLOW' && e.date.split('T')[0] <= endDate);
+      const sPurchases = transactions.filter(t => 
+        t.supplierId === s.id && 
+        t.type === 'PURCHASE' && 
+        t.date.split('T')[0] <= endDate &&
+        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
+      );
+      const sSales = transactions.filter(t => 
+        t.supplierId === s.id && 
+        t.type === 'SALE' && 
+        t.date.split('T')[0] <= endDate &&
+        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
+      );
+      const sPay = payments.filter(p => 
+        p.supplierId === s.id && 
+        p.date.split('T')[0] <= endDate &&
+        (selectedWarehouseId === 'ALL' || p.warehouseId === selectedWarehouseId)
+      );
+      const sExp = journal.filter(e => 
+        e.supplierId === s.id && 
+        e.type === 'OUTFLOW' && 
+        e.date.split('T')[0] <= endDate &&
+        (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
+      );
       
       const totalPurchases = sPurchases.reduce((sum, t) => sum + (t.totalValue || 0), 0);
       const totalSales = sSales.reduce((sum, t) => sum + (t.totalValue || 0), 0);
       const totalPayments = sPay.reduce((sum, p) => sum + p.amount, 0);
       const totalCharges = sExp.reduce((sum, e) => sum + e.amount, 0);
       
-      const balance = (s.previousBalance || 0) + totalPurchases - totalSales - totalPayments - totalCharges;
+      // Include previous balance only when viewing ALL warehouses
+      const baseBalance = selectedWarehouseId === 'ALL' ? (s.previousBalance || 0) : 0;
+      const balance = baseBalance + totalPurchases - totalSales - totalPayments - totalCharges;
       return { ...s, balance };
-    });
-  }, [suppliers, transactions, payments, journal, endDate]);
+    }).filter(s => s.balance !== 0);
+  }, [suppliers, transactions, payments, journal, endDate, selectedWarehouseId]);
 
   const creditSuppliers = supplierBalances.filter(s => s.balance > 0); // We owe them (Accounts Payable)
   const debitSuppliers = supplierBalances.filter(s => s.balance < 0); // They owe us (Accounts Receivable)
@@ -184,16 +205,28 @@ export default function ReportsModule() {
   // Buyer Balances Report Logic
   const buyerBalances = useMemo(() => {
     return buyers.map(b => {
-      const bSales = transactions.filter(t => t.buyerId === b.id && t.type === 'SALE' && t.date.split('T')[0] <= endDate);
-      const bPayments = journal.filter(e => e.buyerId === b.id && e.type === 'INFLOW' && e.date.split('T')[0] <= endDate);
+      const bSales = transactions.filter(t => 
+        t.buyerId === b.id && 
+        t.type === 'SALE' && 
+        t.date.split('T')[0] <= endDate &&
+        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
+      );
+      const bPayments = journal.filter(e => 
+        e.buyerId === b.id && 
+        e.type === 'INFLOW' && 
+        e.date.split('T')[0] <= endDate &&
+        (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
+      );
       
       const totalSales = bSales.reduce((sum, t) => sum + (t.totalValue || 0), 0);
       const totalPayments = bPayments.reduce((sum, p) => sum + p.amount, 0);
       
-      const balance = (b.previousBalance || 0) + totalSales - totalPayments;
+      // Include previous balance only when viewing ALL warehouses
+      const baseBalance = selectedWarehouseId === 'ALL' ? (b.previousBalance || 0) : 0;
+      const balance = baseBalance + totalSales - totalPayments;
       return { ...b, balance };
-    });
-  }, [buyers, transactions, journal, endDate]);
+    }).filter(b => b.balance !== 0);
+  }, [buyers, transactions, journal, endDate, selectedWarehouseId]);
 
   const debitBuyers = buyerBalances.filter(b => b.balance > 0); // They owe us (Accounts Receivable)
   const creditBuyers = buyerBalances.filter(b => b.balance < 0); // We owe them (Accounts Payable)
@@ -311,23 +344,106 @@ export default function ReportsModule() {
         ]);
     } else if (activeReport === 'supplier_balances') {
       title = `Supplier Balances Report (As at ${endDate})`;
-      tableHeaders = ['Supplier Name', 'Location', 'Balance (NGN)', 'Type'];
-      tableData = supplierBalances.map(s => [
-        s.name,
-        s.location,
-        Math.abs(s.balance).toLocaleString(),
-        s.balance > 0 ? 'CREDIT (We Owe)' : s.balance < 0 ? 'DEBIT (They Owe)' : 'SETTLED'
-      ]);
+      const warehouseName = selectedWarehouseId === 'ALL' ? 'All Warehouses' : warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Unknown';
+      title += ` | Warehouse: ${warehouseName}`;
+
+      // Credit Table (We Owe)
+      if (creditSuppliers.length > 0) {
+        doc.setFontSize(12);
+        doc.setTextColor(79, 70, 229); // Indigo-600
+        doc.text('CREDIT BALANCES (ACCOUNTS PAYABLE - WE OWE)', 14, (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : 52);
+        
+        autoTable(doc, {
+          startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
+          head: [['Supplier Name', 'Location', 'Balance (NGN)']],
+          body: creditSuppliers.map(s => [s.name, s.location, s.balance.toLocaleString()]),
+          foot: [['TOTAL CREDIT', '', totalCreditBalance.toLocaleString()]],
+          theme: 'grid',
+          headStyles: { fillColor: [79, 70, 229] },
+          footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
+          styles: { fontSize: 8 },
+          columnStyles: { 2: { halign: 'right' } }
+        });
+      }
+
+      // Debit Table (They Owe)
+      if (debitSuppliers.length > 0) {
+        doc.setFontSize(12);
+        doc.setTextColor(225, 29, 72); // Rose-600
+        doc.text('DEBIT BALANCES (ACCOUNTS RECEIVABLE - THEY OWE US)', 14, (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : 52);
+        
+        autoTable(doc, {
+          startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
+          head: [['Supplier Name', 'Location', 'Balance (NGN)']],
+          body: debitSuppliers.map(s => [s.name, s.location, Math.abs(s.balance).toLocaleString()]),
+          foot: [['TOTAL DEBIT', '', totalDebitBalance.toLocaleString()]],
+          theme: 'grid',
+          headStyles: { fillColor: [225, 29, 72] },
+          footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
+          styles: { fontSize: 8 },
+          columnStyles: { 2: { halign: 'right' } }
+        });
+      }
+
+      if (creditSuppliers.length === 0 && debitSuppliers.length === 0) {
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text('No active balances found for the selected criteria.', 14, 60);
+      }
+      
+      doc.save(`supplier_balances_${new Date().getTime()}.pdf`);
     } else if (activeReport === 'buyer_balances') {
       title = `Customer Balances Report (As at ${endDate})`;
-      tableHeaders = ['Customer Name', 'Location', 'Balance (NGN)', 'Type'];
-      tableData = buyerBalances.map(b => [
-        b.name,
-        b.location,
-        Math.abs(b.balance).toLocaleString(),
-        b.balance > 0 ? 'DEBIT (They Owe)' : b.balance < 0 ? 'CREDIT (We Owe)' : 'SETTLED'
-      ]);
-    } else if (activeReport === 'packaging_inventory') {
+      const warehouseName = selectedWarehouseId === 'ALL' ? 'All Warehouses' : warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Unknown';
+      title += ` | Warehouse: ${warehouseName}`;
+
+      // Debit Table (They Owe)
+      if (debitBuyers.length > 0) {
+        doc.setFontSize(12);
+        doc.setTextColor(37, 99, 235); // Blue-600
+        doc.text('DEBIT BALANCES (ACCOUNTS RECEIVABLE - THEY OWE US)', 14, (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : 52);
+        
+        autoTable(doc, {
+          startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
+          head: [['Customer Name', 'Location', 'Balance (NGN)']],
+          body: debitBuyers.map(b => [b.name, b.location, b.balance.toLocaleString()]),
+          foot: [['TOTAL DEBIT', '', totalBuyerDebit.toLocaleString()]],
+          theme: 'grid',
+          headStyles: { fillColor: [37, 99, 235] },
+          footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
+          styles: { fontSize: 8 },
+          columnStyles: { 2: { halign: 'right' } }
+        });
+      }
+
+      // Credit Table (We Owe)
+      if (creditBuyers.length > 0) {
+        doc.setFontSize(12);
+        doc.setTextColor(5, 150, 105); // Emerald-600
+        doc.text('CREDIT BALANCES (ACCOUNTS PAYABLE - WE OWE THEM)', 14, (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : 52);
+        
+        autoTable(doc, {
+          startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
+          head: [['Customer Name', 'Location', 'Balance (NGN)']],
+          body: creditBuyers.map(b => [b.name, b.location, Math.abs(b.balance).toLocaleString()]),
+          foot: [['TOTAL CREDIT', '', totalBuyerCredit.toLocaleString()]],
+          theme: 'grid',
+          headStyles: { fillColor: [5, 150, 105] },
+          footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
+          styles: { fontSize: 8 },
+          columnStyles: { 2: { halign: 'right' } }
+        });
+      }
+
+      if (debitBuyers.length === 0 && creditBuyers.length === 0) {
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text('No active balances found for the selected criteria.', 14, 60);
+      }
+
+      doc.save(`customer_balances_${new Date().getTime()}.pdf`);
+    } else {
+      if (activeReport === 'packaging_inventory') {
       title = `Packaging Inventory Report (As at ${endDate})`;
       tableHeaders = ['Packaging Type', 'Warehouse', 'Current Stock (Units)'];
       
@@ -378,53 +494,48 @@ export default function ReportsModule() {
         ];
       });
     }
+  }
 
-    doc.text(title, 14, 42);
-    doc.setFontSize(10);
-    doc.text(`Generated on: ${timestamp}`, 14, 48);
-    
-    if (activeReport !== 'supplier_balances' && activeReport !== 'buyer_balances' && activeReport !== 'search') {
-      const warehouseName = selectedWarehouseId === 'ALL' ? 'All Warehouses' : warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Unknown';
-      doc.text(`Period: ${startDate} to ${endDate} | Warehouse: ${warehouseName}`, 14, 54);
-    }
-
-    autoTable(doc, {
-      startY: (activeReport === 'supplier_balances' || activeReport === 'buyer_balances' || activeReport === 'search') ? 52 : 60,
-      head: [tableHeaders],
-      body: tableData,
-      foot: activeReport === 'supplier_balances' ? [
-        ['TOTAL CREDIT (WE OWE)', '', totalCreditBalance.toLocaleString(), ''],
-        ['TOTAL DEBIT (THEY OWE)', '', totalDebitBalance.toLocaleString(), '']
-      ] : activeReport === 'buyer_balances' ? [
-        ['TOTAL DEBIT (THEY OWE)', '', totalBuyerDebit.toLocaleString(), ''],
-        ['TOTAL CREDIT (WE OWE)', '', totalBuyerCredit.toLocaleString(), '']
-      ] : (activeReport === 'operational_purchases' || activeReport === 'operational_sales') ? [
-        ['TOTAL', '', '', '', 
-          filteredOperationalTx.reduce((sum, t) => sum + (t.noOfBags || t.bags || 0), 0).toLocaleString(),
-          `${filteredOperationalTx.reduce((sum, t) => sum + t.grossWeight, 0).toLocaleString()}kg`,
-          `${filteredOperationalTx.reduce((sum, t) => sum + (t.grossWeight - t.netWeight), 0).toFixed(2)}kg`,
-          `${filteredOperationalTx.reduce((sum, t) => sum + t.netWeight, 0).toLocaleString()}kg`,
-          '',
-          filteredOperationalTx.reduce((sum, t) => sum + (t.totalValue || 0), 0).toLocaleString()
-        ]
-      ] : undefined,
-      theme: 'grid',
-      headStyles: { fillColor: [79, 70, 229] },
-      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-      styles: { fontSize: 8 },
-      columnStyles: (activeReport === 'supplier_balances' || activeReport === 'buyer_balances') ? {
-        2: { halign: 'right' }
-      } : {
-        4: { halign: 'center' },
-        5: { halign: 'right' },
-        6: { halign: 'right' },
-        7: { halign: 'right' },
-        8: { halign: 'right' },
-        9: { halign: 'right' }
+    if (activeReport !== 'supplier_balances' && activeReport !== 'buyer_balances') {
+      doc.text(title, 14, 42);
+      doc.setFontSize(10);
+      doc.text(`Generated on: ${timestamp}`, 14, 48);
+      
+      if (activeReport !== 'search') {
+        const warehouseName = selectedWarehouseId === 'ALL' ? 'All Warehouses' : warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Unknown';
+        doc.text(`Period: ${startDate} to ${endDate} | Warehouse: ${warehouseName}`, 14, 54);
       }
-    });
 
-    doc.save(`${activeReport}_${new Date().getTime()}.pdf`);
+      autoTable(doc, {
+        startY: (activeReport === 'search') ? 52 : 60,
+        head: [tableHeaders],
+        body: tableData,
+        foot: (activeReport === 'operational_purchases' || activeReport === 'operational_sales') ? [
+          ['TOTAL', '', '', '', 
+            filteredOperationalTx.reduce((sum, t) => sum + (t.noOfBags || t.bags || 0), 0).toLocaleString(),
+            `${filteredOperationalTx.reduce((sum, t) => sum + t.grossWeight, 0).toLocaleString()}kg`,
+            `${filteredOperationalTx.reduce((sum, t) => sum + (t.grossWeight - t.netWeight), 0).toFixed(2)}kg`,
+            `${filteredOperationalTx.reduce((sum, t) => sum + t.netWeight, 0).toLocaleString()}kg`,
+            '',
+            filteredOperationalTx.reduce((sum, t) => sum + (t.totalValue || 0), 0).toLocaleString()
+          ]
+        ] : undefined,
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229] },
+        footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
+        styles: { fontSize: 8 },
+        columnStyles: {
+          4: { halign: 'center' },
+          5: { halign: 'right' },
+          6: { halign: 'right' },
+          7: { halign: 'right' },
+          8: { halign: 'right' },
+          9: { halign: 'right' }
+        }
+      });
+
+      doc.save(`${activeReport}_${new Date().getTime()}.pdf`);
+    }
   };
 
   return (
@@ -556,15 +667,13 @@ export default function ReportsModule() {
                 <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none" />
               </div>
             </div>
-            {activeReport !== 'supplier_balances' && activeReport !== 'buyer_balances' && (
-              <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-                <select value={selectedWarehouseId} onChange={e => setSelectedWarehouseId(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none">
-                  <option value="ALL">All Warehouses</option>
-                  {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </select>
-              </div>
-            )}
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+              <select value={selectedWarehouseId} onChange={e => setSelectedWarehouseId(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none">
+                <option value="ALL">All Warehouses</option>
+                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
           </div>
         )}
 

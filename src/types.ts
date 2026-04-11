@@ -65,6 +65,7 @@ export interface DeductionParams {
 export interface Payment {
   id: string;
   companyId: string;
+  warehouseId: string;
   date: string;
   supplierId: string;
   amount: number;

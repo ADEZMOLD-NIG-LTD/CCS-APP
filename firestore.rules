@@ -148,9 +148,10 @@ service cloud.firestore {
     }
 
     function isValidPayment(data) {
-      return hasRequiredFields(['id', 'companyId', 'date', 'supplierId', 'amount']) &&
-             hasOnlyAllowedFields(['id', 'companyId', 'date', 'supplierId', 'amount', 'method', 'reference', 'description']) &&
+      return hasRequiredFields(['id', 'companyId', 'warehouseId', 'date', 'supplierId', 'amount']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'warehouseId', 'date', 'supplierId', 'amount', 'method', 'reference', 'description']) &&
              isValidDateString(data.date) &&
+             data.warehouseId is string &&
              data.amount is number && data.amount >= 0 &&
              (!('method' in data) || data.method in ['CASH', 'BANK_TRANSFER', 'CHECK']) &&
              (!('reference' in data) || data.reference is string);

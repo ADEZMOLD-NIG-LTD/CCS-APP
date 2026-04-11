@@ -226,6 +226,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const newPayment: any = {
       id,
       companyId: profile.companyId,
+      warehouseId: formData.get('warehouseId') as string,
       date: new Date().toISOString(),
       supplierId: supplier.id,
       amount: Number(formData.get('amount')),
@@ -749,6 +750,12 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
             >
               <h2 className="text-xl font-bold mb-6">Record Payment</h2>
               <form onSubmit={handleAddPayment} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                  <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
                   <input name="amount" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0.00" />
