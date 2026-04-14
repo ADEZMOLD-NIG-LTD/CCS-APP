@@ -266,15 +266,17 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin());
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin() || (userId == 'demo_admin_profile' && isAnonymousDemo()));
       // CRITICAL: Prevent self-assignment of ADMIN role unless it's the Super Admin or a Demo user.
-      allow create: if isAuthenticated() && request.auth.uid == userId && isValidUserProfile(request.resource.data) && (
-        (isSuperAdmin() && request.resource.data.role == 'ADMIN') ||
-        (isAnonymousDemo() && request.resource.data.role == 'ADMIN') ||
-        (request.resource.data.role == 'STAFF') || // Default safe role
-        (exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) && 
-         get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower() &&
-         request.resource.data.role == 'ADMIN') // Company owner can be admin
+      allow create: if isAuthenticated() && (
+        (request.auth.uid == userId && isValidUserProfile(request.resource.data) && (
+          (isSuperAdmin() && request.resource.data.role == 'ADMIN') ||
+          (request.resource.data.role == 'STAFF') || // Default safe role
+          (exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) && 
+           get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower() &&
+           request.resource.data.role == 'ADMIN') // Company owner can be admin
+        )) ||
+        (userId == 'demo_admin_profile' && isAnonymousDemo() && request.resource.data.role == 'ADMIN')
       );
       allow update: if isAuthenticated() && (
         (request.auth.uid == userId && isValidUserProfile(request.resource.data) && (
@@ -283,7 +285,8 @@ service cloud.firestore {
            exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) && 
            get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower())
         )) || // User can update profile, and can become ADMIN if they own the company
-        (isAdmin() && isValidUserProfile(request.resource.data)) // Admin can update roles
+        (isAdmin() && isValidUserProfile(request.resource.data)) || // Admin can update roles
+        (userId == 'demo_admin_profile' && isAnonymousDemo())
       );
       allow delete: if isSuperAdmin();
     }

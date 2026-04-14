@@ -231,7 +231,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         console.log('Setting up profile listener for user:', user.uid);
-        const userRef = doc(db, 'users', user.uid);
+        const profileId = user.isAnonymous ? 'demo_admin_profile' : user.uid;
+        const userRef = doc(db, 'users', profileId);
         
         unsubscribeProfile = onSnapshot(userRef, async (userDoc) => {
           console.log('Profile snapshot received:', userDoc.exists() ? 'exists' : 'does not exist');
@@ -515,7 +516,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       const demoCompanyId = 'demo_company';
       const demoProfile: any = {
-        uid: user.uid,
+        uid: 'demo_admin_profile',
         email: 'demo@ccs.com',
         displayName: 'Training User',
         role: 'ADMIN',
@@ -536,7 +537,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await setDoc(doc(db, 'companies', demoCompanyId), demoCompany, { merge: true });
       
       Object.keys(demoProfile).forEach(key => demoProfile[key] === undefined && delete demoProfile[key]);
-      await setDoc(doc(db, 'users', user.uid), demoProfile, { merge: true });
+      await setDoc(doc(db, 'users', 'demo_admin_profile'), demoProfile, { merge: true });
 
       // Seed some demo data if it's a fresh demo session
       const demoWarehouseId = 'demo_warehouse_1';

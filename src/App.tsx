@@ -26,6 +26,7 @@ import TrainingModule from './components/TrainingModule';
 import LoginPage from './components/LoginPage';
 import ChangePasswordPage from './components/ChangePasswordPage';
 import Toast from './components/Toast';
+import LegalModal from './components/LegalModal';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
@@ -42,6 +43,7 @@ function AppContent() {
   const [newCompanyName, setNewCompanyName] = useState('');
   const [showDemoIntro, setShowDemoIntro] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
+  const [legalModal, setLegalModal] = useState<{ open: boolean; type: 'privacy' | 'terms' }>({ open: false, type: 'privacy' });
 
   console.log('AppContent: State', { loading, user: user?.uid, isDemoMode, showDemoIntro, mustChangePassword });
 
@@ -384,6 +386,20 @@ function AppContent() {
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
                       © 2025 Adezmold Business Consulting
                     </p>
+                    <div className="flex justify-center gap-4 mb-2">
+                      <button 
+                        onClick={() => setLegalModal({ open: true, type: 'privacy' })}
+                        className="text-[10px] font-bold text-indigo-600 hover:underline uppercase tracking-widest"
+                      >
+                        Privacy Policy
+                      </button>
+                      <button 
+                        onClick={() => setLegalModal({ open: true, type: 'terms' })}
+                        className="text-[10px] font-bold text-indigo-600 hover:underline uppercase tracking-widest"
+                      >
+                        Terms of Use
+                      </button>
+                    </div>
                     <p className="text-[10px] text-slate-400">
                       Support: <a href="mailto:adezmoldent@gmail.com" className="text-indigo-600 hover:underline">adezmoldent@gmail.com</a>
                     </p>
@@ -394,6 +410,12 @@ function AppContent() {
           </motion.div>
         </AnimatePresence>
       </main>
+
+      <LegalModal 
+        isOpen={legalModal.open} 
+        onClose={() => setLegalModal({ ...legalModal, open: false })} 
+        type={legalModal.type} 
+      />
     </div>
   );
 }

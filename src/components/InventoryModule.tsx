@@ -44,6 +44,7 @@ export default function InventoryModule() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
+  const [isWalkIn, setIsWalkIn] = useState(false);
 
   // Default selected warehouse for staff
   useEffect(() => {
@@ -230,13 +231,42 @@ export default function InventoryModule() {
     const formData = new FormData(e.currentTarget);
     const id = crypto.randomUUID();
     
+    const isWalkInSupplier = isWalkIn;
+    const walkInId = `WALK_IN_${profile.companyId}`;
+    
+    if (isWalkInSupplier) {
+      // Check if walk-in supplier exists in current state to avoid unnecessary writes
+      const exists = suppliers.find(s => s.id === walkInId);
+      if (!exists) {
+        const walkInSupplier: Supplier = {
+          id: walkInId,
+          companyId: profile.companyId,
+          name: 'Walk-in Supplier (General)',
+          phone: 'N/A',
+          location: 'N/A',
+          bankName: '',
+          accountNumber: '',
+          accountName: '',
+          previousBalance: 0,
+          createdAt: new Date().toISOString()
+        };
+        try {
+          await setDoc(doc(db, 'suppliers', walkInId), walkInSupplier);
+        } catch (err) {
+          console.error('Failed to create walk-in supplier:', err);
+        }
+      }
+    }
+
+    const supplierId = isWalkInSupplier ? walkInId : (formData.get('supplierId') as string);
+
     const newTx: any = {
       id: editingTransaction?.id || id,
       companyId: profile.companyId,
       date: editingTransaction?.date || new Date().toISOString(),
       type: 'PURCHASE',
       commodity,
-      supplierId: formData.get('supplierId') as string,
+      supplierId,
       storeRecordId: formData.get('storeRecordId') as string,
       grossWeight: Number(grossWeight) || 0,
       netWeight,
@@ -543,6 +573,7 @@ export default function InventoryModule() {
     setMoldWeight('');
     setOtherDeduction('');
     setEditingTransaction(null);
+    setIsWalkIn(false);
   };
 
   const handleEditClick = (tx: Transaction) => {
@@ -554,6 +585,7 @@ export default function InventoryModule() {
     setTareWeight(tx.deductions.tareWeight);
     setMoldWeight(tx.deductions.moldWeight);
     setOtherDeduction(tx.deductions.otherDeduction);
+    setIsWalkIn(tx.supplierId?.startsWith('WALK_IN_') || false);
     setIsAdding(true);
   };
 
@@ -706,11 +738,28 @@ export default function InventoryModule() {
                     </select>
                   </div>
                   <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier</label>
-                    <select name="supplierId" required defaultValue={editingTransaction?.supplierId || ''} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500">
-                      <option value="">Select Supplier</option>
-                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Supplier</label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          checked={isWalkIn} 
+                          onChange={(e) => setIsWalkIn(e.target.checked)}
+                          className="w-3 h-3 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Walk-in Supplier</span>
+                      </label>
+                    </div>
+                    {!isWalkIn ? (
+                      <select name="supplierId" required defaultValue={editingTransaction?.supplierId || ''} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500">
+                        <option value="">Select Supplier</option>
+                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                    ) : (
+                      <div className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-slate-500 font-bold text-sm">
+                        WALK-IN SUPPLIER (GENERAL)
+                      </div>
+                    )}
                   </div>
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Store Record ID (Tranx ID)</label>

@@ -4,10 +4,11 @@
  */
 
 import React, { useState } from 'react';
-import { LogIn, LayoutDashboard, Package, Shield, BarChart3, Users, Building2, ArrowRight, AlertCircle, CheckCircle2, WifiOff, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { LogIn, LayoutDashboard, Package, Shield, BarChart3, Users, Building2, ArrowRight, AlertCircle, CheckCircle2, WifiOff, Mail, Lock, User, Eye, EyeOff, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { firebaseConfig } from '../firebase';
+import LegalModal from './LegalModal';
 
 interface LoginPageProps {
   onSignIn: () => void;
@@ -26,6 +27,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
   const [name, setName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [legalModal, setLegalModal] = useState<{ open: boolean; type: 'privacy' | 'terms' }>({ open: false, type: 'privacy' });
 
   const handleEmailSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -347,10 +349,30 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
             <p className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-widest mb-1">
               © 2025 Adezmold Business Consulting
             </p>
+            <div className="flex justify-center gap-4 mb-2">
+              <button 
+                onClick={() => setLegalModal({ open: true, type: 'privacy' })}
+                className="text-[10px] font-bold text-[var(--accent)] hover:underline uppercase tracking-widest"
+              >
+                Privacy Policy
+              </button>
+              <button 
+                onClick={() => setLegalModal({ open: true, type: 'terms' })}
+                className="text-[10px] font-bold text-[var(--accent)] hover:underline uppercase tracking-widest"
+              >
+                Terms of Use
+              </button>
+            </div>
             <p className="text-[10px] text-[var(--text-secondary)]">
               Need help? <a href="mailto:adezmoldent@gmail.com" className="text-[var(--accent)] hover:underline">Contact Support</a>
             </p>
           </div>
+
+          <LegalModal 
+            isOpen={legalModal.open} 
+            onClose={() => setLegalModal({ ...legalModal, open: false })} 
+            type={legalModal.type} 
+          />
         </motion.div>
       </div>
     </div>
