@@ -4,21 +4,20 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Package, ArrowRightLeft, ArrowLeftRight, X, History, Calculator, Warehouse as WarehouseIcon, Scale, Droplets, Trash2, AlertCircle, Edit, Filter, Download, Search, Copy, Check } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Plus, Package, ArrowRightLeft, X } from 'lucide-react';
+import { AnimatePresence } from 'motion/react';
 import { CommodityType, StoreRecord, Warehouse } from '../types';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-import { handleFirestoreError, reportFirestoreError, OperationType } from '../lib/firestore';
+import { reportFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+// Sub-components
+import StoreRecordForm from './store/StoreRecordForm';
+import StoreRecordList from './store/StoreRecordList';
+import StoreKeeperSummary from './store/StoreKeeperSummary';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 
@@ -32,17 +31,10 @@ export default function StoreKeeperModule() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState({
     start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
   });
-
-  const handleCopyId = (id: string) => {
-    navigator.clipboard.writeText(id);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
 
   // Default selected warehouse for staff
   useEffect(() => {
@@ -339,6 +331,23 @@ export default function StoreKeeperModule() {
 
   return (
     <div className="space-y-6">
+      <AnimatePresence>
+        {successMessage && (
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
+        {errorMessage && (
+          <Toast 
+            message={errorMessage} 
+            type="error" 
+            onClose={() => setErrorMessage(null)} 
+          />
+        )}
+      </AnimatePresence>
+
       {/* Header & Stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -420,449 +429,36 @@ export default function StoreKeeperModule() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-green-50 rounded-lg">
-              <ArrowLeftRight className="w-5 h-5 text-green-600" />
-            </div>
-            <span className="text-sm font-medium text-gray-500">Total IN (Weight)</span>
-          </div>
-          <div className="space-y-2">
-            {Object.entries(totals.inByCommodity).map(([commodity, data]) => (
-              <div key={commodity} className="flex justify-between items-center bg-green-50/50 p-2 rounded-lg">
-                <span className="text-sm font-bold text-green-800">{commodity}</span>
-                <span className="text-sm font-black text-green-900">
-                  {data.weight.toLocaleString()} kg <span className="text-[10px] font-normal opacity-70">({data.bags} bags)</span>
-                </span>
-              </div>
-            ))}
-            {Object.keys(totals.inByCommodity).length === 0 && (
-              <div className="text-2xl font-bold text-gray-300 italic">No records</div>
-            )}
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-red-50 rounded-lg">
-              <ArrowRightLeft className="w-5 h-5 text-red-600" />
-            </div>
-            <span className="text-sm font-medium text-gray-500">Total OUT (Weight)</span>
-          </div>
-          <div className="space-y-2">
-            {Object.entries(totals.outByCommodity).map(([commodity, data]) => (
-              <div key={commodity} className="flex justify-between items-center bg-red-50/50 p-2 rounded-lg">
-                <span className="text-sm font-bold text-red-800">{commodity}</span>
-                <span className="text-sm font-black text-red-900">
-                  {data.weight.toLocaleString()} kg <span className="text-[10px] font-normal opacity-70">({data.bags} bags)</span>
-                </span>
-              </div>
-            ))}
-            {Object.keys(totals.outByCommodity).length === 0 && (
-              <div className="text-2xl font-bold text-gray-300 italic">No records</div>
-            )}
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-indigo-50 rounded-lg">
-              <Scale className="w-5 h-5 text-indigo-600" />
-            </div>
-            <span className="text-sm font-medium text-gray-500">Current Stock</span>
-          </div>
-          <div className="space-y-2">
-            {Object.entries(inventoryByCommodity).map(([commodity, data]) => (
-              <div key={commodity} className="flex justify-between items-center bg-indigo-50/50 p-2 rounded-lg">
-                <span className="text-sm font-bold text-indigo-800">{commodity}</span>
-                <span className="text-sm font-black text-indigo-900">
-                  {data.quantity.toLocaleString()} kg <span className="text-[10px] font-normal opacity-70">({data.bags} bags)</span>
-                </span>
-              </div>
-            ))}
-            {Object.keys(inventoryByCommodity).length === 0 && (
-              <div className="text-2xl font-bold text-gray-300 italic">Empty</div>
-            )}
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-amber-50 rounded-lg">
-              <History className="w-5 h-5 text-amber-600" />
-            </div>
-            <span className="text-sm font-medium text-gray-500">Total Records</span>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{filteredRecords.length}</div>
-          <div className="text-sm text-gray-500">In selected period</div>
-        </div>
-      </div>
+      <StoreKeeperSummary
+        totals={totals}
+        inventoryByCommodity={inventoryByCommodity}
+        recordCount={filteredRecords.length}
+      />
 
       {/* Records Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900">Date</th>
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900">Type</th>
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900">Commodity</th>
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900">Customer/Location</th>
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900 text-right">Nominal (kg)</th>
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900 text-right">Actual (kg)</th>
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900">Bags</th>
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900">Truck/Officer</th>
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900">Tranx ID</th>
-                <th className="px-6 py-4 text-sm font-semibold text-gray-900">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filteredRecords.map((record) => (
-                <tr key={record.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 text-sm text-gray-600">
-                    {new Date(record.date).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn(
-                      "px-2 py-1 rounded-full text-xs font-medium",
-                      record.type === 'IN' ? "bg-green-100 text-green-700" : 
-                      record.type === 'OUT' ? "bg-red-100 text-red-700" :
-                      "bg-blue-100 text-blue-700"
-                    )}>
-                      {record.type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{record.commodity}</td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-900">
-                      {record.type === 'TRANSFER' ? (
-                        <div className="flex items-center gap-1">
-                          <span className="text-red-600">{warehouses.find(w => w.id === record.sourceWarehouseId)?.name || 'Unknown'}</span>
-                          <ArrowRightLeft className="w-3 h-3" />
-                          <span className="text-green-600">{warehouses.find(w => w.id === record.destinationWarehouseId)?.name || 'Unknown'}</span>
-                        </div>
-                      ) : record.customerName}
-                    </div>
-                    <div className="text-xs text-gray-500">{record.location}</div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-right text-gray-600">
-                    {record.nominalWeight.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-right font-semibold text-gray-900">
-                    {record.actualWeight.toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-600">{record.noOfBags}</td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-gray-900">{record.truckNo}</div>
-                    <div className="text-xs text-gray-500">{record.fieldOfficer}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <code className="text-[10px] bg-gray-100 px-1.5 py-0.5 rounded font-mono text-gray-600">
-                        {record.id}
-                      </code>
-                      <button
-                        onClick={() => handleCopyId(record.id)}
-                        className="p-1 text-gray-400 hover:text-indigo-600 transition-colors"
-                        title="Copy Transaction ID"
-                      >
-                        {copiedId === record.id ? <Check size={12} className="text-green-600" /> : <Copy size={12} />}
-                      </button>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          setEditingRecord(record);
-                          setIsAdding(true);
-                        }}
-                        className="p-1 text-gray-400 hover:text-indigo-600 transition-colors"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(record.id)}
-                        className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredRecords.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500 italic">
-                    No records found for the selected filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <StoreRecordList
+        records={filteredRecords}
+        warehouses={warehouses}
+        onEdit={(record) => {
+          setEditingRecord(record);
+          setIsAdding(true);
+        }}
+        onDelete={handleDelete}
+      />
 
       {/* Modal Form */}
       <AnimatePresence>
         {isAdding && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto"
-            >
-              <div className="p-6 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
-                <h3 className="text-xl font-bold text-gray-900">
-                  {editingRecord ? 'Edit Store Record' : 'Add Store Record'}
-                </h3>
-                <button
-                  onClick={resetForm}
-                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                >
-                  <X className="w-6 h-6 text-gray-500" />
-                </button>
-              </div>
-
-              <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                    <select
-                      value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value as 'IN' | 'OUT' | 'TRANSFER' })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      required
-                    >
-                      <option value="IN">IN (Inventory Increase)</option>
-                      <option value="OUT">OUT (Inventory Decrease)</option>
-                      <option value="TRANSFER">TRANSFER (Between Warehouses)</option>
-                    </select>
-                  </div>
-
-                  {formData.type === 'TRANSFER' ? (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Source Warehouse</label>
-                        <select
-                          value={formData.sourceWarehouseId}
-                          onChange={(e) => setFormData({ ...formData, sourceWarehouseId: e.target.value })}
-                          className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                          required
-                        >
-                          <option value="">Select Source</option>
-                          {warehouses.map(w => (
-                            <option key={w.id} value={w.id}>{w.name}</option>
-                          ))}
-                        </select>
-                        {formData.sourceWarehouseId && (
-                          <p className="mt-1 text-xs font-medium text-indigo-600">
-                            Available: {getWarehouseStock(formData.sourceWarehouseId, formData.commodity!, editingRecord?.id).toLocaleString()} kg
-                          </p>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Destination Warehouse</label>
-                        <select
-                          value={formData.destinationWarehouseId}
-                          onChange={(e) => setFormData({ ...formData, destinationWarehouseId: e.target.value })}
-                          className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                          required
-                        >
-                          <option value="">Select Destination</option>
-                          {warehouses.map(w => (
-                            <option key={w.id} value={w.id}>{w.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </>
-                  ) : (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Warehouse</label>
-                      <select
-                        value={formData.warehouseId}
-                        onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
-                        className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                        required
-                      >
-                        <option value="">Select Warehouse</option>
-                        {warehouses.map(w => (
-                          <option key={w.id} value={w.id}>{w.name}</option>
-                        ))}
-                      </select>
-                      {formData.type === 'OUT' && formData.warehouseId && (
-                        <p className="mt-1 text-xs font-medium text-indigo-600">
-                          Available: {getWarehouseStock(formData.warehouseId, formData.commodity!, editingRecord?.id).toLocaleString()} kg
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Commodity</label>
-                    <select
-                      value={formData.commodity}
-                      onChange={(e) => setFormData({ ...formData, commodity: e.target.value as CommodityType })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      required
-                    >
-                      {COMMODITIES.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                    <input
-                      type="date"
-                      value={formData.date}
-                      onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Customer/Supplier Name</label>
-                    <input
-                      type="text"
-                      value={formData.customerName}
-                      onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="Enter name"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                    <input
-                      type="text"
-                      value={formData.location}
-                      onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="Origin/Destination"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nominal Weight (kg)</label>
-                    <input
-                      type="number"
-                      value={formData.nominalWeight}
-                      onChange={(e) => setFormData({ ...formData, nominalWeight: Number(e.target.value) })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Actual Weight (kg)</label>
-                    <input
-                      type="number"
-                      value={formData.actualWeight}
-                      onChange={(e) => setFormData({ ...formData, actualWeight: Number(e.target.value) })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">No of Bags</label>
-                    <input
-                      type="number"
-                      value={formData.noOfBags}
-                      onChange={(e) => setFormData({ ...formData, noOfBags: Number(e.target.value) })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Moisture (%)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={formData.moisture}
-                      onChange={(e) => setFormData({ ...formData, moisture: Number(e.target.value) })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tare (kg)</label>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={formData.tare}
-                      onChange={(e) => setFormData({ ...formData, tare: Number(e.target.value) })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Field Officer</label>
-                    <input
-                      type="text"
-                      value={formData.fieldOfficer}
-                      onChange={(e) => setFormData({ ...formData, fieldOfficer: e.target.value })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="Officer name"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Truck Number</label>
-                    <input
-                      type="text"
-                      value={formData.truckNo}
-                      onChange={(e) => setFormData({ ...formData, truckNo: e.target.value })}
-                      className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="ABC-123-XY"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 pt-6 border-t border-gray-100">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAdding(false);
-                      setEditingRecord(null);
-                    }}
-                    className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {submitting && <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
-                    {editingRecord ? 'Update Record' : 'Save Record'}
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Notifications */}
-      <AnimatePresence>
-        {successMessage && (
-          <Toast
-            message={successMessage}
-            type="success"
-            onClose={() => setSuccessMessage(null)}
-          />
-        )}
-        {errorMessage && (
-          <Toast
-            message={errorMessage}
-            type="error"
-            onClose={() => setErrorMessage(null)}
+          <StoreRecordForm
+            formData={formData}
+            setFormData={setFormData}
+            editingRecord={editingRecord}
+            warehouses={warehouses}
+            submitting={submitting}
+            onCancel={resetForm}
+            onSubmit={handleSubmit}
+            getWarehouseStock={getWarehouseStock}
+            commodities={COMMODITIES}
           />
         )}
       </AnimatePresence>

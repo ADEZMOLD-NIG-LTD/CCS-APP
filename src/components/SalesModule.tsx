@@ -32,6 +32,9 @@ import { handleFirestoreError, reportFirestoreError, formatFirestoreError, Opera
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import { cn } from '../lib/utils';
+import SaleForm from './sales/SaleForm';
+import BuyerForm from './sales/BuyerForm';
+import SalesList from './sales/SalesList';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 const BENCHMARKS = { COCOA: 8, CASHEW: 10, PK: 8 };
@@ -50,6 +53,7 @@ export default function SalesModule() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
+  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
 
   // Default selected warehouse for staff
   useEffect(() => {
@@ -57,17 +61,6 @@ export default function SalesModule() {
       setSelectedWarehouseId(profile.assignedWarehouseId);
     }
   }, [profile, isAdmin, profile?.assignedWarehouseId]);
-
-  // Success message auto-hide
-  useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [successMessage]);
-
-  const [searchQuery, setSearchQuery] = useState('');
-  const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
 
   // Form State for Sale
   const [commodity, setCommodity] = useState<CommodityType>('COCOA');
@@ -375,262 +368,38 @@ export default function SalesModule() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold">Record New Sale</h2>
-                <button onClick={() => setIsAddingSale(false)} className="text-slate-400">Cancel</button>
-              </div>
-
-              <form onSubmit={handleAddSale} className="space-y-6">
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Truck size={18} className="text-slate-400" />
-                      <span className="text-sm font-bold text-slate-700">Direct Delivery</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsDirectDelivery(!isDirectDelivery)}
-                      className={cn(
-                        "w-12 h-6 rounded-full transition-all relative",
-                        isDirectDelivery ? "bg-blue-600" : "bg-slate-300"
-                      )}
-                    >
-                      <div className={cn(
-                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                        isDirectDelivery ? "left-7" : "left-1"
-                      )} />
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-medium leading-tight">
-                    Enable this if the supplier is delivering directly to the buyer. This will bypass warehouse inventory checks and credit the supplier's ledger.
-                  </p>
-                </div>
-
-                <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Users size={18} className="text-indigo-400" />
-                      <span className="text-sm font-bold text-indigo-700">Supplier as Buyer</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsSupplierBuyer(!isSupplierBuyer)}
-                      className={cn(
-                        "w-12 h-6 rounded-full transition-all relative",
-                        isSupplierBuyer ? "bg-indigo-600" : "bg-slate-300"
-                      )}
-                    >
-                      <div className={cn(
-                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                        isSupplierBuyer ? "left-7" : "left-1"
-                      )} />
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-indigo-500 font-medium leading-tight">
-                    Enable this if a registered supplier is the one buying from the company. This will debit the supplier's ledger.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  {!isDirectDelivery && (
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-                      <select 
-                        value={selectedWarehouseId} 
-                        onChange={(e) => setSelectedWarehouseId(e.target.value)}
-                        required 
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="ALL">ALL WAREHOUSES</option>
-                        {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                      </select>
-                    </div>
-                  )}
-                  {isDirectDelivery && (
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier (Direct Delivery From)</label>
-                      <select name="supplierId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="">Select Supplier</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
-                    </div>
-                  )}
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                      {isSupplierBuyer ? 'Supplier (Buying From Company)' : 'Buyer'}
-                    </label>
-                    {isSupplierBuyer ? (
-                      <select name="supplierId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
-                        <option value="">Select Supplier</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
-                    ) : (
-                      <select name="buyerId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
-                        <option value="">Select Buyer</option>
-                        {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                      </select>
-                    )}
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Store Record ID (Tranx ID)</label>
-                    <input 
-                      name="storeRecordId" 
-                      type="text" 
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
-                      placeholder="Quote Tranx ID from Store Keeper" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
-                    <select 
-                      value={commodity} 
-                      onChange={(e) => setCommodity(e.target.value as CommodityType)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
-                    >
-                      {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">No of Bags</label>
-                    <input name="bags" type="number" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross Weight (kg)</label>
-                    <input 
-                      type="number" 
-                      step="0.01" 
-                      required 
-                      value={grossWeight} 
-                      onChange={(e) => setGrossWeight(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" 
-                      placeholder="0.00" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Selling Price per kg (₦)</label>
-                    <input name="price" type="number" step="0.01" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" placeholder="0.00" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Truck No</label>
-                    <input name="truckNo" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="ABC-123" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Staff Name</label>
-                    <input name="staffName" type="text" defaultValue={profile?.displayName} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Staff Name" />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Driver's Name</label>
-                    <input name="driverName" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="John Doe" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Driver's Phone</label>
-                    <input name="driverPhone" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="080..." />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Notes</label>
-                  <textarea name="notes" rows={2} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none" placeholder="Additional details..."></textarea>
-                </div>
-
-                {/* Deduction Logic (Same as Purchase) */}
-                <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 space-y-4">
-                  <h3 className="text-xs font-bold text-blue-800 flex items-center gap-2">
-                    <Calculator size={14} /> Deduction Parameters
-                  </h3>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] font-bold text-blue-600 uppercase mb-1">Actual Moisture (%)</label>
-                      <input 
-                        type="number" 
-                        step="0.1" 
-                        value={moistureActual} 
-                        onChange={(e) => setMoistureActual(e.target.value)}
-                        className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg outline-none text-sm" 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-blue-600 uppercase mb-1">Benchmark (%)</label>
-                      <input 
-                        type="number" 
-                        step="0.1" 
-                        value={moistureBenchmark} 
-                        onChange={(e) => setMoistureBenchmark(e.target.value)}
-                        className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg outline-none text-sm" 
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] font-bold text-blue-600 uppercase mb-1">TARE (kg)</label>
-                      <input 
-                        type="number" 
-                        step="0.1" 
-                        value={tareWeight} 
-                        onChange={(e) => setTareWeight(e.target.value)}
-                        className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg outline-none text-sm" 
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className={cn(
-                  "rounded-2xl p-4 text-white flex flex-col gap-4 shadow-lg transition-all",
-                  !isDirectDelivery && netWeight > inventory[commodity] ? "bg-rose-600" : "bg-blue-600"
-                )}>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-[10px] uppercase font-bold opacity-80">Final Net Weight</p>
-                      <p className="text-2xl font-black">{netWeight.toFixed(2)} <span className="text-sm font-normal">kg</span></p>
-                    </div>
-                    {!isDirectDelivery && (
-                      <div className="text-right">
-                        <p className="text-[10px] uppercase font-bold opacity-80">Available {commodity} Stock</p>
-                        <p className="text-xl font-black">
-                          {(inventory[commodity] || 0).toLocaleString()} <span className="text-xs font-normal">kg</span>
-                        </p>
-                        {netWeight > inventory[commodity] && (
-                          <p className="text-[9px] font-bold text-rose-200 mt-1 uppercase tracking-tighter animate-pulse">
-                            Insufficient Stock
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {isDirectDelivery && (
-                      <div className="text-right">
-                        <div className="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg">
-                          <Truck size={14} />
-                          <span className="text-[10px] font-bold uppercase">Direct Delivery</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="pt-3 border-t border-white/20 flex justify-between items-center">
-                    <p className="text-[10px] uppercase font-bold opacity-80">Total Value</p>
-                    <p className="text-lg font-bold">₦{(netWeight * (Number((document.querySelector('input[name="price"]') as HTMLInputElement)?.value) || 0) || 0).toLocaleString()}</p>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {submitting ? 'Confirming...' : 'Confirm Sale'}
-                </button>
-              </form>
+              <SaleForm
+                profile={profile}
+                commodity={commodity}
+                setCommodity={setCommodity}
+                grossWeight={grossWeight}
+                setGrossWeight={setGrossWeight}
+                moistureActual={moistureActual}
+                setMoistureActual={setMoistureActual}
+                moistureBenchmark={moistureBenchmark}
+                setMoistureBenchmark={setMoistureBenchmark}
+                tareWeight={tareWeight}
+                setTareWeight={setTareWeight}
+                moldWeight={moldWeight}
+                setMoldWeight={setMoldWeight}
+                otherDeduction={otherDeduction}
+                setOtherDeduction={setOtherDeduction}
+                isDirectDelivery={isDirectDelivery}
+                setIsDirectDelivery={setIsDirectDelivery}
+                isSupplierBuyer={isSupplierBuyer}
+                setIsSupplierBuyer={setIsSupplierBuyer}
+                selectedWarehouseId={selectedWarehouseId}
+                setSelectedWarehouseId={setSelectedWarehouseId}
+                warehouses={warehouses}
+                suppliers={suppliers}
+                buyers={buyers}
+                inventory={inventory}
+                netWeight={netWeight}
+                submitting={submitting}
+                onSubmit={handleAddSale}
+                onCancel={() => setIsAddingSale(false)}
+              />
             </motion.div>
           ) : isAddingBuyer ? (
             <motion.div
@@ -638,141 +407,23 @@ export default function SalesModule() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold">Add New Buyer</h2>
-                <button onClick={() => setIsAddingBuyer(false)} className="text-slate-400">Cancel</button>
-              </div>
-              <form onSubmit={handleAddBuyer} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Buyer Name</label>
-                  <input required name="name" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="e.g. Export Co." />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Phone</label>
-                  <input required name="phone" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Phone number" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Location</label>
-                  <input required name="location" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="City/State" />
-                </div>
-                <button 
-                  type="submit" 
-                  disabled={submitting}
-                  className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {submitting ? 'Saving...' : 'Save Buyer'}
-                </button>
-              </form>
+              <BuyerForm
+                submitting={submitting}
+                onSubmit={handleAddBuyer}
+                onCancel={() => setIsAddingBuyer(false)}
+              />
             </motion.div>
           ) : (
             <div className="space-y-6">
-              {/* Sales History */}
-              <section className="space-y-3">
-                <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                  <History size={16} /> Recent Sales
-                </h2>
-                <div className="space-y-3">
-                  {filteredSales.length === 0 ? (
-                    <div className="bg-white rounded-2xl p-8 border border-dashed border-slate-300 text-center">
-                      <TrendingUp className="mx-auto text-slate-200 mb-2" size={32} />
-                      <p className="text-xs text-slate-400">No sales recorded yet</p>
-                    </div>
-                  ) : (
-                    filteredSales.map(tx => (
-                      <div key={tx.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                        <div className="flex justify-between items-start mb-3">
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded uppercase">
-                                {tx.commodity}
-                              </span>
-                              {tx.isDirectDelivery ? (
-                                <span className="text-[10px] font-bold bg-amber-100 text-amber-700 px-2 py-0.5 rounded uppercase flex items-center gap-1">
-                                  <Truck size={10} /> Direct Delivery
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded uppercase">
-                                  {warehouses.find(w => w.id === tx.warehouseId)?.name || 'Main'}
-                                </span>
-                              )}
-                              <span className="text-[10px] text-slate-400">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
-                            </div>
-                              <div className="flex items-center gap-2">
-                                <h3 className="font-bold text-slate-900">
-                                  {buyers.find(b => b.id === tx.buyerId)?.name || 'Unknown Buyer'}
-                                </h3>
-                                {isAdmin && (
-                                  <button 
-                                    onClick={() => handleDeleteSale(tx.id)}
-                                    className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
-                                    title="Remove Sale"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                )}
-                              </div>
-                              {tx.isDirectDelivery && tx.supplierId && (
-                                <p className="text-[10px] text-slate-500 font-medium">
-                                  From: <span className="font-bold">{suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown Supplier'}</span>
-                                </p>
-                              )}
-                            </div>
-                          <div className="text-right">
-                            <p className="text-sm font-black text-slate-900">{tx.netWeight.toFixed(2)} kg</p>
-                            <p className="text-[10px] text-slate-400">Net Weight</p>
-                            {tx.storeRecordId && (
-                              <p className="text-[9px] font-bold text-blue-600 mt-1">
-                                Store ID: {tx.storeRecordId}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-50">
-                          <div className="text-left">
-                            <p className="text-[9px] text-slate-400 uppercase">Total Value</p>
-                            <p className="text-[11px] font-bold text-blue-600">₦{(tx.totalValue || 0).toLocaleString()}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-[9px] text-slate-400 uppercase">Ref</p>
-                            <p className="text-[11px] font-bold text-slate-600">{tx.referenceId}</p>
-                          </div>
-                        </div>
-
-                        {(tx.truckNo || tx.driverName || tx.notes) && (
-                          <div className="mt-3 pt-3 border-t border-slate-50 grid grid-cols-2 gap-x-4 gap-y-2">
-                            {tx.truckNo && (
-                              <div>
-                                <p className="text-[8px] text-slate-400 uppercase">Truck No</p>
-                                <p className="text-[10px] font-medium text-slate-700">{tx.truckNo}</p>
-                              </div>
-                            )}
-                            {tx.driverName && (
-                              <div>
-                                <p className="text-[8px] text-slate-400 uppercase">Driver</p>
-                                <p className="text-[10px] font-medium text-slate-700">{tx.driverName} {tx.driverPhone ? `(${tx.driverPhone})` : ''}</p>
-                              </div>
-                            )}
-                            {tx.staffName && (
-                              <div>
-                                <p className="text-[8px] text-slate-400 uppercase">Staff</p>
-                                <p className="text-[10px] font-medium text-slate-700">{tx.staffName}</p>
-                              </div>
-                            )}
-                            {tx.notes && (
-                              <div className="col-span-2">
-                                <p className="text-[8px] text-slate-400 uppercase">Notes</p>
-                                <p className="text-[10px] font-medium text-slate-700 italic">"{tx.notes}"</p>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </section>
+              <SalesList
+                filteredSales={filteredSales}
+                buyers={buyers}
+                suppliers={suppliers}
+                warehouses={warehouses}
+                isAdmin={isAdmin}
+                onDeleteSale={handleDeleteSale}
+              />
             </div>
           )}
         </AnimatePresence>

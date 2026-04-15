@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, getDocs } from 'firebase/firestore';
+import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle, Trash2, UserMinus } from 'lucide-react';
+import { collection, onSnapshot, query, orderBy, getDocs, doc, deleteDoc, writeBatch, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Company, UserProfile } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { motion, AnimatePresence } from 'motion/react';
+import ConfirmModal from './ConfirmModal';
 
 export default function SuperAdminModule() {
-  const { approveCompany, disapproveCompany, toggleUserSuspension, isFirestoreConnected } = useAuth();
+  const { approveCompany, disapproveCompany, toggleUserSuspension, deleteUser, isFirestoreConnected } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'companies' | 'users' | 'health'>('companies');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
+  const [purgeConfirm, setPurgeConfirm] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, 'companies'), orderBy('createdAt', 'desc'));
@@ -43,6 +47,40 @@ export default function SuperAdminModule() {
     u.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const handlePurgeDemoUsers = async () => {
+    setIsPurging(true);
+    try {
+      const q = query(
+        collection(db, 'users'), 
+        where('companyId', '==', 'demo_company')
+      );
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      let count = 0;
+
+      snapshot.docs.forEach((userDoc) => {
+        // Don't delete the main demo profile
+        if (userDoc.id !== 'demo_admin_profile') {
+          batch.delete(userDoc.ref);
+          count++;
+        }
+      });
+
+      if (count > 0) {
+        await batch.commit();
+        alert(`Successfully purged ${count} duplicated demo users.`);
+      } else {
+        alert('No duplicated demo users found.');
+      }
+    } catch (error) {
+      console.error('Purge failed:', error);
+      alert('Failed to purge demo users.');
+    } finally {
+      setIsPurging(false);
+      setPurgeConfirm(false);
+    }
+  };
+
   // System Health Mock Data (Calculated from state)
   const healthStats = {
     totalCompanies: companies.length,
@@ -57,6 +95,31 @@ export default function SuperAdminModule() {
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)]">
+      <ConfirmModal
+        isOpen={!!deleteConfirmId}
+        title="Delete User Profile"
+        message="Are you sure you want to delete this user profile? This action only removes the profile from the database, not the authentication record."
+        onConfirm={() => {
+          if (deleteConfirmId) {
+            deleteUser(deleteConfirmId);
+            setDeleteConfirmId(null);
+          }
+        }}
+        onCancel={() => setDeleteConfirmId(null)}
+        confirmText="Delete"
+        type="danger"
+      />
+
+      <ConfirmModal
+        isOpen={purgeConfirm}
+        title="Purge Demo Users"
+        message="This will delete ALL duplicated demo user profiles except the main 'demo_admin_profile'. This is useful for cleaning up training data. Are you sure?"
+        onConfirm={handlePurgeDemoUsers}
+        onCancel={() => setPurgeConfirm(false)}
+        confirmText={isPurging ? "Purging..." : "Purge All"}
+        type="danger"
+      />
+
       <header className="bg-white border-b border-[var(--border)] px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -98,15 +161,28 @@ export default function SuperAdminModule() {
 
       <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
         {activeTab !== 'health' && (
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" size={18} />
-            <input 
-              type="text"
-              placeholder={activeTab === 'companies' ? "Search companies..." : "Search users..."}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white border border-[var(--border)] rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] transition-all shadow-sm font-medium"
-            />
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" size={18} />
+              <input 
+                type="text"
+                placeholder={activeTab === 'companies' ? "Search companies..." : "Search users..."}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white border border-[var(--border)] rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-[var(--accent)] transition-all shadow-sm font-medium"
+              />
+            </div>
+            
+            {activeTab === 'users' && (
+              <button
+                onClick={() => setPurgeConfirm(true)}
+                disabled={isPurging}
+                className="w-full bg-rose-50 text-rose-600 py-3 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors"
+              >
+                <UserMinus size={16} />
+                {isPurging ? 'Purging Duplicates...' : 'Purge Duplicated Demo Users'}
+              </button>
+            )}
           </div>
         )}
 
@@ -208,10 +284,10 @@ export default function SuperAdminModule() {
                     )}
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-slate-50">
+                  <div className="mt-4 pt-4 border-t border-slate-50 flex gap-2">
                     <button 
                       onClick={() => toggleUserSuspension(user.uid, !user.suspended)}
-                      className={`w-full py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2 ${
+                      className={`flex-1 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2 ${
                         user.suspended 
                           ? 'bg-emerald-50 text-emerald-600' 
                           : 'bg-rose-50 text-rose-600'
@@ -219,13 +295,21 @@ export default function SuperAdminModule() {
                     >
                       {user.suspended ? (
                         <>
-                          <ShieldCheck size={18} /> Unsuspend User
+                          <ShieldCheck size={18} /> Unsuspend
                         </>
                       ) : (
                         <>
-                          <ShieldAlert size={18} /> Suspend User
+                          <ShieldAlert size={18} /> Suspend
                         </>
                       )}
+                    </button>
+                    
+                    <button 
+                      onClick={() => setDeleteConfirmId(user.uid)}
+                      className="px-4 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-rose-50 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
+                      title="Delete User"
+                    >
+                      <Trash2 size={18} />
                     </button>
                   </div>
                 </div>

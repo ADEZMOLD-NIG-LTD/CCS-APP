@@ -49,6 +49,7 @@ interface AuthContextType {
   approveCompany: (companyId: string) => Promise<void>;
   disapproveCompany: (companyId: string) => Promise<void>;
   toggleUserSuspension: (userId: string, status: boolean) => Promise<void>;
+  deleteUser: (userId: string) => Promise<void>;
   signInAsDemo: () => Promise<void>;
   isAdmin: boolean;
   isManager: boolean;
@@ -664,6 +665,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const deleteUser = async (userId: string) => {
+    if (!isSuperAdmin) return;
+    try {
+      const { deleteDoc } = await import('firebase/firestore');
+      await deleteDoc(doc(db, 'users', userId));
+      setSuccessMessage('User profile deleted successfully.');
+    } catch (error: any) {
+      console.error('User deletion failed:', error);
+      setErrorMessage(`Failed to delete user: ${error.message}`);
+    }
+  };
+
   const isSuperAdmin = user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' || user?.email?.toLowerCase() === 'abdullahiwasiu07@gmail.com';
   const isAdmin = profile?.role === 'ADMIN' || isSuperAdmin;
   const isManager = profile?.role === 'MANAGER' || isAdmin;
@@ -692,6 +705,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     approveCompany,
     disapproveCompany,
     toggleUserSuspension,
+    deleteUser,
     signInAsDemo,
     isAdmin,
     isManager,

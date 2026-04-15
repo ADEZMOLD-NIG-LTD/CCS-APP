@@ -4,21 +4,24 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Package, ArrowRightLeft, ArrowLeftRight, X, History, Calculator, Warehouse as WarehouseIcon, Scale, Droplets, Trash2, AlertCircle, Edit } from 'lucide-react';
+import { Plus, ArrowRightLeft, History, Warehouse as WarehouseIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CommodityType, PackagingType, Transaction, BagTransaction, Supplier, InventoryItem, DeductionParams, Warehouse } from '../types';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { CommodityType, PackagingType, Transaction, BagTransaction, Supplier, Warehouse } from '../types';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import { reportFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
+import { cn } from '../lib/utils';
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+// Sub-components
+import PurchaseForm from './inventory/PurchaseForm';
+import BagTransactionForm from './inventory/BagTransactionForm';
+import BagTransferForm from './inventory/BagTransferForm';
+import StockTransferForm from './inventory/StockTransferForm';
+import InventoryStats from './inventory/InventoryStats';
+import TransactionList from './inventory/TransactionList';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 const PACKAGING: PackagingType[] = ['JUTE_BAG', 'NYLON_BAG'];
@@ -36,10 +39,6 @@ export default function InventoryModule() {
   const [isTransferringBag, setIsTransferringBag] = useState(false);
   const [isAddingBag, setIsAddingBag] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
-  const [transferSourceId, setTransferSourceId] = useState<string>('');
-  const [transferCommodity, setTransferCommodity] = useState<CommodityType>('COCOA');
-  const [transferBagSourceId, setTransferBagSourceId] = useState<string>('');
-  const [transferBagType, setTransferBagType] = useState<PackagingType>('JUTE_BAG');
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -61,16 +60,7 @@ export default function InventoryModule() {
     }
   }, [successMessage]);
   
-  // Form State
-  const [commodity, setCommodity] = useState<CommodityType>('COCOA');
-  const [packagingType, setPackagingType] = useState<PackagingType>('JUTE_BAG');
-  const [bagOpType, setBagOpType] = useState<'STOCK_IN' | 'ISSUE'>('STOCK_IN');
-  const [grossWeight, setGrossWeight] = useState<number | string>('');
-  const [moistureActual, setMoistureActual] = useState<number | string>(8);
-  const [moistureBenchmark, setMoistureBenchmark] = useState<number | string>(10);
-  const [tareWeight, setTareWeight] = useState<number | string>('');
-  const [moldWeight, setMoldWeight] = useState<number | string>('');
-  const [otherDeduction, setOtherDeduction] = useState<number | string>('');
+  // Form State - Moved to sub-components or handled via direct data
 
   // Load Data from Firestore
   useEffect(() => {
@@ -127,16 +117,7 @@ export default function InventoryModule() {
     };
   }, [profile?.companyId]);
 
-  // Calculation Logic
-  const moistureLoss = useMemo(() => {
-    const actual = Number(moistureActual) || 0;
-    const benchmark = Number(moistureBenchmark) || 0;
-    const gross = Number(grossWeight) || 0;
-    return ((actual - benchmark) * gross) / 100;
-  }, [moistureActual, moistureBenchmark, grossWeight]);
-
-  const totalDeductions = moistureLoss + Number(tareWeight) + Number(moldWeight) + Number(otherDeduction);
-  const netWeight = Math.max(0, Number(grossWeight) - totalDeductions);
+  // Calculation Logic - Moved to sub-components
 
   // Inventory Summary (Calculated from all transactions)
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
@@ -219,23 +200,14 @@ export default function InventoryModule() {
     }, 0);
   };
 
-  const handleAddEntry = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    console.log('handleAddEntry triggered', { isStaff, submitting, companyId: profile?.companyId });
-    if (submitting || !profile?.companyId) {
-      console.warn('handleAddEntry early exit', { submitting, companyId: profile?.companyId });
-      return;
-    }
+  const handleAddEntryDirect = async (data: any) => {
+    if (submitting || !profile?.companyId) return;
 
     setSubmitting(true);
-    const formData = new FormData(e.currentTarget);
     const id = crypto.randomUUID();
-    
-    const isWalkInSupplier = isWalkIn;
     const walkInId = `WALK_IN_${profile.companyId}`;
     
-    if (isWalkInSupplier) {
-      // Check if walk-in supplier exists in current state to avoid unnecessary writes
+    if (data.isWalkIn) {
       const exists = suppliers.find(s => s.id === walkInId);
       if (!exists) {
         const walkInSupplier: Supplier = {
@@ -258,46 +230,33 @@ export default function InventoryModule() {
       }
     }
 
-    const supplierId = isWalkInSupplier ? walkInId : (formData.get('supplierId') as string);
+    const supplierId = data.isWalkIn ? walkInId : data.supplierId;
 
     const newTx: any = {
       id: editingTransaction?.id || id,
       companyId: profile.companyId,
       date: editingTransaction?.date || new Date().toISOString(),
       type: 'PURCHASE',
-      commodity,
+      commodity: data.commodity,
       supplierId,
-      storeRecordId: formData.get('storeRecordId') as string,
-      grossWeight: Number(grossWeight) || 0,
-      netWeight,
-      bags: Number(formData.get('bags')) || 0,
-      noOfBags: Number(formData.get('bags')) || 0,
-      pricePerKg: Number(formData.get('price')) || 0,
-      totalValue: netWeight * (Number(formData.get('price')) || 0),
+      storeRecordId: data.storeRecordId,
+      grossWeight: data.grossWeight,
+      netWeight: data.netWeight,
+      bags: data.bags,
+      noOfBags: data.bags,
+      pricePerKg: data.price,
+      totalValue: data.netWeight * data.price,
       referenceId: editingTransaction?.referenceId || `TX-${Date.now().toString().slice(-6)}`,
-      warehouseId: (formData.get('warehouseId') as string) || profile?.assignedWarehouseId || '',
-      deductions: {
-        moistureActual: Number(moistureActual) || 0,
-        moistureBenchmark: Number(moistureBenchmark) || 0,
-        tareWeight: Number(tareWeight) || 0,
-        moldWeight: Number(moldWeight) || 0,
-        otherDeduction: Number(otherDeduction) || 0
-      }
+      warehouseId: data.warehouseId || profile?.assignedWarehouseId || '',
+      deductions: data.deductions
     };
 
-    // Clean up undefined values
     Object.keys(newTx).forEach(key => newTx[key] === undefined && delete newTx[key]);
 
     try {
       const writePromise = setDoc(doc(db, 'transactions', newTx.id), newTx);
+      if (isOnline) await writePromise;
       
-      if (!isOnline) {
-        console.log('Working offline, proceeding optimistically');
-      } else {
-        await writePromise;
-      }
-      
-      // Record Audit Log (non-blocking for UI)
       recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
@@ -321,44 +280,35 @@ export default function InventoryModule() {
     }
   };
 
-  const handleAddBagEntry = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleAddBagEntryDirect = async (data: any) => {
     if (!isStaff || submitting || !profile?.companyId) return;
 
     setSubmitting(true);
-    const formData = new FormData(e.currentTarget);
     const id = crypto.randomUUID();
     
     const newTx: any = {
       id,
       companyId: profile.companyId,
       date: new Date().toISOString(),
-      type: bagOpType,
-      packagingType,
-      quantity: Number(formData.get('quantity')) || 0,
-      reference: (formData.get('reference') as string) || `BAG-${Date.now().toString().slice(-6)}`,
-      warehouseId: (formData.get('warehouseId') as string) || profile?.assignedWarehouseId || '',
+      type: data.type,
+      packagingType: data.packagingType,
+      quantity: data.quantity,
+      reference: data.reference || `BAG-${Date.now().toString().slice(-6)}`,
+      warehouseId: data.warehouseId || profile?.assignedWarehouseId || '',
+      supplierId: data.supplierId
     };
 
-    const supplierId = formData.get('supplierId') as string;
-    if (supplierId) {
-      newTx.supplierId = supplierId;
-    }
-
-    // Clean up undefined values
     Object.keys(newTx).forEach(key => newTx[key] === undefined && delete newTx[key]);
 
-    if (bagOpType === 'ISSUE') {
+    if (data.type === 'ISSUE') {
       if (!newTx.supplierId) {
         setErrorMessage('Supplier is required for bag issuance.');
         setSubmitting(false);
         return;
       }
-      
-      // Check stock availability
-      const currentStock = getWarehouseBagStock(newTx.warehouseId, packagingType);
-      if (newTx.quantity > currentStock) {
-        setErrorMessage(`Insufficient ${packagingType.replace('_', ' ')} stock. Available: ${currentStock.toLocaleString()} units`);
+      const currentStock = getWarehouseBagStock(newTx.warehouseId, data.packagingType);
+      if (data.quantity > currentStock) {
+        setErrorMessage(`Insufficient ${data.packagingType.replace('_', ' ')} stock. Available: ${currentStock.toLocaleString()} units`);
         setSubmitting(false);
         return;
       }
@@ -366,14 +316,8 @@ export default function InventoryModule() {
 
     try {
       const writePromise = setDoc(doc(db, 'bag_transactions', id), newTx);
+      if (isOnline) await writePromise;
       
-      if (!isOnline) {
-        console.log('Working offline, proceeding optimistically');
-      } else {
-        await writePromise;
-      }
-      
-      // Record Audit Log (non-blocking for UI)
       recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
@@ -381,12 +325,12 @@ export default function InventoryModule() {
         action: AuditAction.CREATE,
         module: 'Inventory (Bags)',
         recordId: id,
-        details: `Recorded ${bagOpType.replace('_', ' ')}: ${newTx.quantity} ${newTx.packagingType.replace('_', ' ')}`,
+        details: `Recorded ${data.type.replace('_', ' ')}: ${newTx.quantity} ${newTx.packagingType.replace('_', ' ')}`,
         newData: newTx
       }).catch(err => console.error('Audit log failed:', err));
 
       setIsAddingBag(false);
-      setSuccessMessage(`${packagingType.replace('_', ' ')} ${bagOpType === 'STOCK_IN' ? 'Stock-in' : 'Issuance'} recorded!`);
+      setSuccessMessage(`${data.packagingType.replace('_', ' ')} ${data.type === 'STOCK_IN' ? 'Stock-in' : 'Issuance'} recorded!`);
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`));
     } finally {
@@ -394,36 +338,16 @@ export default function InventoryModule() {
     }
   };
 
-  const handleBagTransfer = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleBagTransferDirect = async (data: any) => {
     if (!isStaff || submitting || !profile?.companyId) return;
 
-    const formData = new FormData(e.currentTarget);
-    const sourceId = formData.get('sourceWarehouseId') as string;
-    const destId = formData.get('destinationWarehouseId') as string;
-    const pkgType = formData.get('packagingType') as PackagingType;
-    const quantity = Number(formData.get('quantity'));
-
-    if (sourceId === destId) {
+    if (data.sourceWarehouseId === data.destinationWarehouseId) {
       setErrorMessage('Source and destination warehouses must be different.');
       return;
     }
 
-    // Check source stock
-    const sourceStock = bagTransactions.reduce((sum, tx) => {
-      if (tx.packagingType !== pkgType) return sum;
-      if (tx.type === 'TRANSFER') {
-        if (tx.sourceWarehouseId === sourceId) return sum - tx.quantity;
-        if (tx.destinationWarehouseId === sourceId) return sum + tx.quantity;
-      } else {
-        if (tx.warehouseId !== sourceId) return sum;
-        if (tx.type === 'STOCK_IN' || tx.type === 'RETURN') return sum + tx.quantity;
-        if (tx.type === 'ISSUE') return sum - tx.quantity;
-      }
-      return sum;
-    }, 0);
-
-    if (quantity > sourceStock) {
+    const sourceStock = getWarehouseBagStock(data.sourceWarehouseId, data.packagingType);
+    if (data.quantity > sourceStock) {
       setErrorMessage(`Insufficient stock in source warehouse. Available: ${(sourceStock || 0).toLocaleString()} units`);
       return;
     }
@@ -435,26 +359,19 @@ export default function InventoryModule() {
       companyId: profile.companyId,
       date: new Date().toISOString(),
       type: 'TRANSFER',
-      packagingType: pkgType,
-      sourceWarehouseId: sourceId,
-      destinationWarehouseId: destId,
-      quantity,
-      reference: (formData.get('reference') as string) || `BTR-${Date.now().toString().slice(-6)}`,
+      packagingType: data.packagingType,
+      sourceWarehouseId: data.sourceWarehouseId,
+      destinationWarehouseId: data.destinationWarehouseId,
+      quantity: data.quantity,
+      reference: data.reference || `BTR-${Date.now().toString().slice(-6)}`,
     };
 
-    // Clean up undefined values
     Object.keys(transferTx).forEach(key => transferTx[key] === undefined && delete transferTx[key]);
 
     try {
       const writePromise = setDoc(doc(db, 'bag_transactions', id), transferTx);
+      if (isOnline) await writePromise;
       
-      if (!isOnline) {
-        console.log('Working offline, proceeding optimistically');
-      } else {
-        await writePromise;
-      }
-      
-      // Record Audit Log (non-blocking for UI)
       recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
@@ -462,12 +379,12 @@ export default function InventoryModule() {
         action: AuditAction.CREATE,
         module: 'Inventory (Bag Transfer)',
         recordId: id,
-        details: `Transferred ${quantity} ${pkgType.replace('_', ' ')} from ${warehouses.find(w => w.id === sourceId)?.name} to ${warehouses.find(w => w.id === destId)?.name}`,
+        details: `Transferred ${data.quantity} ${data.packagingType.replace('_', ' ')} from ${warehouses.find(w => w.id === data.sourceWarehouseId)?.name} to ${warehouses.find(w => w.id === data.destinationWarehouseId)?.name}`,
         newData: transferTx
       }).catch(err => console.error('Audit log failed:', err));
 
       setIsTransferringBag(false);
-      setSuccessMessage(`${pkgType.replace('_', ' ')} transfer recorded!`);
+      setSuccessMessage(`${data.packagingType.replace('_', ' ')} transfer recorded!`);
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`));
     } finally {
@@ -475,35 +392,16 @@ export default function InventoryModule() {
     }
   };
 
-  const handleTransfer = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleTransferDirect = async (data: any) => {
     if (!isStaff || submitting || !profile?.companyId) return;
 
-    const formData = new FormData(e.currentTarget);
-    const sourceId = formData.get('sourceWarehouseId') as string;
-    const destId = formData.get('destinationWarehouseId') as string;
-    const commodityType = formData.get('commodity') as CommodityType;
-    const weight = Number(formData.get('weight'));
-    const bags = Number(formData.get('bags'));
-
-    if (sourceId === destId) {
+    if (data.sourceWarehouseId === data.destinationWarehouseId) {
       setErrorMessage('Source and destination warehouses must be different.');
       return;
     }
 
-    // Check source stock
-    const sourceStock = allTransactions.reduce((sum, tx) => {
-      if (tx.commodity !== commodityType) return sum;
-      if (tx.type === 'PURCHASE' && tx.warehouseId === sourceId) return sum + tx.netWeight;
-      if (tx.type === 'SALE' && tx.warehouseId === sourceId) return sum - tx.netWeight;
-      if (tx.type === 'TRANSFER') {
-        if (tx.sourceWarehouseId === sourceId) return sum - tx.netWeight;
-        if (tx.destinationWarehouseId === sourceId) return sum + tx.netWeight;
-      }
-      return sum;
-    }, 0);
-
-    if (weight > sourceStock) {
+    const sourceStock = getWarehouseStock(data.sourceWarehouseId, data.commodity);
+    if (data.weight > sourceStock) {
       setErrorMessage(`Insufficient stock in source warehouse. Available: ${sourceStock.toFixed(2)}kg`);
       return;
     }
@@ -515,13 +413,13 @@ export default function InventoryModule() {
       companyId: profile.companyId,
       date: new Date().toISOString(),
       type: 'TRANSFER',
-      commodity: commodityType,
-      sourceWarehouseId: sourceId,
-      destinationWarehouseId: destId,
-      grossWeight: weight,
-      netWeight: weight,
-      bags,
-      noOfBags: bags,
+      commodity: data.commodity,
+      sourceWarehouseId: data.sourceWarehouseId,
+      destinationWarehouseId: data.destinationWarehouseId,
+      grossWeight: data.weight,
+      netWeight: data.weight,
+      bags: data.bags,
+      noOfBags: data.bags,
       referenceId: `TR-${Date.now().toString().slice(-6)}`,
       deductions: {
         moistureActual: 0,
@@ -532,19 +430,12 @@ export default function InventoryModule() {
       }
     };
 
-    // Clean up undefined values
     Object.keys(transferTx).forEach(key => transferTx[key] === undefined && delete transferTx[key]);
 
     try {
       const writePromise = setDoc(doc(db, 'transactions', id), transferTx);
+      if (isOnline) await writePromise;
       
-      if (!isOnline) {
-        console.log('Working offline, proceeding optimistically');
-      } else {
-        await writePromise;
-      }
-      
-      // Record Audit Log (non-blocking for UI)
       recordAuditLog({
         companyId: profile.companyId,
         userId: profile.uid,
@@ -552,7 +443,7 @@ export default function InventoryModule() {
         action: AuditAction.CREATE,
         module: 'Inventory (Transfer)',
         recordId: id,
-        details: `Transferred ${weight}kg of ${commodityType} from ${warehouses.find(w => w.id === sourceId)?.name} to ${warehouses.find(w => w.id === destId)?.name}`,
+        details: `Transferred ${data.weight}kg of ${data.commodity} from ${warehouses.find(w => w.id === data.sourceWarehouseId)?.name} to ${warehouses.find(w => w.id === data.destinationWarehouseId)?.name}`,
         newData: transferTx
       }).catch(err => console.error('Audit log failed:', err));
 
@@ -566,25 +457,12 @@ export default function InventoryModule() {
   };
 
   const resetForm = () => {
-    setGrossWeight('');
-    setMoistureActual(8);
-    setMoistureBenchmark(BENCHMARKS[commodity]);
-    setTareWeight('');
-    setMoldWeight('');
-    setOtherDeduction('');
     setEditingTransaction(null);
     setIsWalkIn(false);
   };
 
   const handleEditClick = (tx: Transaction) => {
     setEditingTransaction(tx);
-    setCommodity(tx.commodity);
-    setGrossWeight(tx.grossWeight);
-    setMoistureActual(tx.deductions.moistureActual);
-    setMoistureBenchmark(tx.deductions.moistureBenchmark);
-    setTareWeight(tx.deductions.tareWeight);
-    setMoldWeight(tx.deductions.moldWeight);
-    setOtherDeduction(tx.deductions.otherDeduction);
     setIsWalkIn(tx.supplierId?.startsWith('WALK_IN_') || false);
     setIsAdding(true);
   };
@@ -608,9 +486,6 @@ export default function InventoryModule() {
     }
   };
 
-  useEffect(() => {
-    setMoistureBenchmark(BENCHMARKS[commodity]);
-  }, [commodity]);
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)]">
@@ -707,456 +582,49 @@ export default function InventoryModule() {
             Packaging (Bags)
           </button>
         </div>
+
         <AnimatePresence mode="wait">
           {isAdding || editingTransaction ? (
-            <motion.div
-              key="form"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="google-card p-6"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold">{editingTransaction ? 'Adjust Purchase Entry' : 'New Purchase Entry'}</h2>
-                <button onClick={() => { setIsAdding(false); setEditingTransaction(null); }} className="text-slate-400">Cancel</button>
-              </div>
-
-              <form onSubmit={handleAddEntry} className="space-y-6">
-                {/* Basic Info */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-                    <select 
-                      name="warehouseId" 
-                      required 
-                      defaultValue={editingTransaction?.warehouseId || profile?.assignedWarehouseId || ''}
-                      disabled={!!profile?.assignedWarehouseId && profile?.role === 'STAFF'}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
-                    >
-                      <option value="" disabled>Select Warehouse</option>
-                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Supplier</label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          checked={isWalkIn} 
-                          onChange={(e) => setIsWalkIn(e.target.checked)}
-                          className="w-3 h-3 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                        />
-                        <span className="text-[10px] font-bold text-slate-500 uppercase">Walk-in Supplier</span>
-                      </label>
-                    </div>
-                    {!isWalkIn ? (
-                      <select name="supplierId" required defaultValue={editingTransaction?.supplierId || ''} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500">
-                        <option value="">Select Supplier</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
-                    ) : (
-                      <div className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-slate-500 font-bold text-sm">
-                        WALK-IN SUPPLIER (GENERAL)
-                      </div>
-                    )}
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Store Record ID (Tranx ID)</label>
-                    <input 
-                      name="storeRecordId" 
-                      type="text" 
-                      defaultValue={editingTransaction?.storeRecordId || ''} 
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500" 
-                      placeholder="Quote Tranx ID from Store Keeper" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
-                    <select 
-                      value={commodity} 
-                      onChange={(e) => setCommodity(e.target.value as CommodityType)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
-                    >
-                      {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">No of Bags</label>
-                    <input name="bags" type="number" defaultValue={editingTransaction?.bags || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
-                  </div>
-                </div>
-
-                {/* Weight & Price */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross Weight (kg)</label>
-                    <input 
-                      type="number" 
-                      step="0.01" 
-                      required 
-                      value={grossWeight} 
-                      onChange={(e) => setGrossWeight(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" 
-                      placeholder="0.00" 
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price per kg (₦)</label>
-                    <input name="price" type="number" step="0.01" required defaultValue={editingTransaction?.pricePerKg || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" placeholder="0.00" />
-                  </div>
-                </div>
-
-                {/* Deduction Logic Section */}
-                <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100 space-y-4">
-                  <h3 className="text-xs font-bold text-amber-800 flex items-center gap-2">
-                    <Calculator size={14} /> Deduction Parameters
-                  </h3>
-                  
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-[10px] font-bold text-amber-600 uppercase mb-1">Actual Moisture (%)</label>
-                        <div className="relative">
-                          <Droplets className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400" size={14} />
-                          <input 
-                            type="number" 
-                            step="0.1" 
-                            value={moistureActual} 
-                            onChange={(e) => setMoistureActual(e.target.value)}
-                            className="w-full pl-8 pr-4 py-2 bg-white border border-amber-200 rounded-lg outline-none text-sm" 
-                            placeholder="0.0"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-amber-600 uppercase mb-1">Benchmark (%)</label>
-                        <input 
-                          type="number" 
-                          step="0.1" 
-                          value={moistureBenchmark} 
-                          onChange={(e) => setMoistureBenchmark(e.target.value)}
-                          className="w-full px-4 py-2 bg-white border border-amber-200 rounded-lg outline-none text-sm" 
-                          placeholder="0.0"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-[10px] font-bold text-amber-600 uppercase mb-1">TARE (kg)</label>
-                      <div className="relative">
-                        <Scale className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400" size={14} />
-                        <input 
-                          type="number" 
-                          step="0.1" 
-                          value={tareWeight} 
-                          onChange={(e) => setTareWeight(e.target.value)}
-                          className="w-full pl-8 pr-4 py-2 bg-white border border-amber-200 rounded-lg outline-none text-sm" 
-                          placeholder="0.0"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-amber-600 uppercase mb-1">Mold/Quality (kg)</label>
-                      <input 
-                        type="number" 
-                        step="0.1" 
-                        value={moldWeight} 
-                        onChange={(e) => setMoldWeight(e.target.value)}
-                        className="w-full px-4 py-2 bg-white border border-amber-200 rounded-lg outline-none text-sm" 
-                        placeholder="0.0"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-amber-600 uppercase mb-1">Other (kg)</label>
-                      <input 
-                        type="number" 
-                        step="0.1" 
-                        value={otherDeduction} 
-                        onChange={(e) => setOtherDeduction(e.target.value)}
-                        className="w-full px-4 py-2 bg-white border border-amber-200 rounded-lg outline-none text-sm" 
-                        placeholder="0.0"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Dynamic Calculation Summary */}
-                  <div className="pt-3 border-t border-amber-200 grid grid-cols-2 gap-2 text-[11px]">
-                    <div className="flex justify-between text-amber-700">
-                      <span>Moisture Loss:</span>
-                      <span className="font-bold">-{moistureLoss.toFixed(2)} kg</span>
-                    </div>
-                    <div className="flex justify-between text-amber-700">
-                      <span>Manual Deductions:</span>
-                      <span className="font-bold">-{(Number(tareWeight) + Number(moldWeight) + Number(otherDeduction)).toFixed(2)} kg</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Final Result */}
-                <div className="bg-emerald-600 rounded-2xl p-4 text-white flex justify-between items-center shadow-lg">
-                  <div>
-                    <p className="text-[10px] uppercase font-bold opacity-80">Final Net Weight</p>
-                    <p className="text-2xl font-black">{netWeight.toFixed(2)} <span className="text-sm font-normal">kg</span></p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] uppercase font-bold opacity-80">Total Deductions</p>
-                    <p className="text-lg font-bold">-{totalDeductions.toFixed(2)} kg</p>
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {submitting ? 'Confirming...' : 'Confirm Purchase'}
-                </button>
-              </form>
-            </motion.div>
+            <PurchaseForm
+              key="purchase-form"
+              suppliers={suppliers}
+              warehouses={warehouses}
+              profile={profile}
+              editingTransaction={editingTransaction}
+              submitting={submitting}
+              onCancel={() => { setIsAdding(false); setEditingTransaction(null); }}
+              onSubmit={async (data) => {
+                await handleAddEntryDirect(data);
+              }}
+            />
           ) : isTransferringBag ? (
-            <motion.div
+            <BagTransferForm
               key="bag-transfer-form"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-3xl p-6 shadow-xl border border-slate-200"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
-                  <ArrowLeftRight className="text-amber-600" /> Bag Transfer
-                </h2>
-                <button onClick={() => setIsTransferringBag(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                  <X size={20} className="text-slate-400" />
-                </button>
-              </div>
-
-              <form onSubmit={handleBagTransfer} className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bag Type</label>
-                    <select 
-                      name="packagingType" 
-                      required 
-                      value={transferBagType}
-                      onChange={(e) => setTransferBagType(e.target.value as PackagingType)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
-                    >
-                      {PACKAGING.map(p => <option key={p} value={p}>{p.replace('_', ' ')}</option>)}
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">From Warehouse</label>
-                    <select 
-                      name="sourceWarehouseId" 
-                      required 
-                      value={transferBagSourceId}
-                      onChange={(e) => setTransferBagSourceId(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
-                    >
-                      <option value="">Select Source</option>
-                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                  </div>
-                  {transferBagSourceId && (
-                    <div className="col-span-2 bg-amber-50 p-3 rounded-xl border border-amber-100">
-                      <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">Available Stock in Source</p>
-                      <p className="text-lg font-black text-amber-700">
-                        {(getWarehouseBagStock(transferBagSourceId, transferBagType) || 0).toLocaleString()} units
-                      </p>
-                    </div>
-                  )}
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">To Warehouse</label>
-                    <select name="destinationWarehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
-                      <option value="">Select Destination</option>
-                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Quantity (Units)</label>
-                    <input name="quantity" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference (Optional)</label>
-                    <input name="reference" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="e.g. Transfer ID" />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-amber-600 text-white py-4 rounded-xl font-bold shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {submitting ? 'Processing...' : 'Confirm Transfer'}
-                </button>
-              </form>
-            </motion.div>
+              warehouses={warehouses}
+              getWarehouseBagStock={getWarehouseBagStock}
+              submitting={submitting}
+              onCancel={() => setIsTransferringBag(false)}
+              onSubmit={handleBagTransferDirect}
+            />
           ) : isAddingBag ? (
-            <motion.div
+            <BagTransactionForm
               key="bag-form"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold">New Bag Transaction</h2>
-                <button onClick={() => setIsAddingBag(false)} className="text-slate-400">Cancel</button>
-              </div>
-
-              <form onSubmit={handleAddBagEntry} className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Transaction Type</label>
-                    <div className="flex bg-slate-100 p-1 rounded-xl">
-                      <button
-                        type="button"
-                        onClick={() => setBagOpType('STOCK_IN')}
-                        className={cn(
-                          "flex-1 py-2 rounded-lg text-xs font-bold transition-all",
-                          bagOpType === 'STOCK_IN' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
-                        )}
-                      >
-                        Stock-In
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setBagOpType('ISSUE')}
-                        className={cn(
-                          "flex-1 py-2 rounded-lg text-xs font-bold transition-all",
-                          bagOpType === 'ISSUE' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
-                        )}
-                      >
-                        Issuance
-                      </button>
-                    </div>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-                    <select 
-                      name="warehouseId" 
-                      required 
-                      defaultValue={profile?.assignedWarehouseId || ''}
-                      disabled={!!profile?.assignedWarehouseId && profile?.role === 'STAFF'}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none disabled:opacity-50"
-                    >
-                      <option value="">Select Warehouse</option>
-                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bag Type</label>
-                    <select 
-                      value={packagingType} 
-                      onChange={(e) => setPackagingType(e.target.value as PackagingType)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
-                    >
-                      {PACKAGING.map(p => <option key={p} value={p}>{p.replace('_', ' ')}</option>)}
-                    </select>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Quantity (Units)</label>
-                    <input name="quantity" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
-                  </div>
-
-                  {bagOpType === 'ISSUE' && (
-                    <div className="col-span-2">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier (Required for Issuance)</label>
-                      <select name="supplierId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
-                        <option value="">Select Supplier</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.location})</option>)}
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference (Optional)</label>
-                    <input name="reference" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="e.g. Batch # or Waybill" />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-amber-600 text-white py-4 rounded-xl font-bold shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {submitting ? 'Recording...' : `Confirm ${bagOpType === 'STOCK_IN' ? 'Stock-In' : 'Issuance'}`}
-                </button>
-              </form>
-            </motion.div>
+              suppliers={suppliers}
+              warehouses={warehouses}
+              profile={profile}
+              submitting={submitting}
+              onCancel={() => setIsAddingBag(false)}
+              onSubmit={handleAddBagEntryDirect}
+            />
           ) : isTransferring ? (
-            <motion.div
+            <StockTransferForm
               key="transfer-form"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold">Stock Transfer</h2>
-                <button onClick={() => setIsTransferring(false)} className="text-slate-400">Cancel</button>
-              </div>
-
-              <form onSubmit={handleTransfer} className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
-                    <select 
-                      name="commodity" 
-                      required 
-                      value={transferCommodity}
-                      onChange={(e) => setTransferCommodity(e.target.value as CommodityType)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Source Warehouse</label>
-                    <select 
-                      name="sourceWarehouseId" 
-                      required 
-                      value={transferSourceId}
-                      onChange={(e) => setTransferSourceId(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                    >
-                      <option value="">Source</option>
-                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Destination Warehouse</label>
-                    <select name="destinationWarehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
-                      <option value="">Destination</option>
-                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                  </div>
-                  {transferSourceId && (
-                    <div className="col-span-2 bg-indigo-50 p-3 rounded-xl border border-indigo-100">
-                      <p className="text-[10px] font-bold text-indigo-600 uppercase mb-1">Available Stock in Source</p>
-                      <p className="text-lg font-black text-indigo-700">
-                        {(getWarehouseStock(transferSourceId, transferCommodity) || 0).toLocaleString()} kg
-                      </p>
-                    </div>
-                  )}
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Weight (kg)</label>
-                    <input name="weight" type="number" step="0.01" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0.00" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags Count</label>
-                    <input name="bags" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" />
-                  </div>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {submitting ? 'Transferring...' : 'Complete Transfer'}
-                </button>
-              </form>
-            </motion.div>
+              warehouses={warehouses}
+              getWarehouseStock={getWarehouseStock}
+              submitting={submitting}
+              onCancel={() => setIsTransferring(false)}
+              onSubmit={handleTransferDirect}
+            />
           ) : (
             <div className="space-y-6">
               {/* Warehouse Filter */}
@@ -1183,162 +651,23 @@ export default function InventoryModule() {
                   </button>
                 ))}
               </div>
-              {/* Stock Overview Cards */}
-              <div className="grid grid-cols-3 gap-3">
-                {activeTab === 'COMMODITIES' ? (
-                  COMMODITIES.map(c => (
-                    <div key={c} className="google-card p-3 text-center">
-                      <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase mb-1">{c}</p>
-                      <p className="text-sm font-bold text-[var(--text-primary)]">{(inventory[c] || 0).toLocaleString()} kg</p>
-                    </div>
-                  ))
-                ) : (
-                  PACKAGING.map(p => (
-                    <div key={p} className="google-card p-3 text-center">
-                      <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase mb-1">{p.replace('_', ' ')}</p>
-                      <p className="text-sm font-bold text-[var(--text-primary)]">{(packagingInventory[p] || 0).toLocaleString()} pcs</p>
-                    </div>
-                  ))
-                )}
-              </div>
 
-              {/* Recent Transactions */}
-              <section className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-                    <History size={16} /> {activeTab === 'COMMODITIES' ? 'Recent Purchases' : 'Recent Bag Activity'}
-                  </h2>
-                </div>
+              <InventoryStats
+                activeTab={activeTab}
+                inventory={inventory}
+                packagingInventory={packagingInventory}
+              />
 
-                <div className="space-y-3">
-                  {activeTab === 'COMMODITIES' ? (
-                    transactions.length === 0 ? (
-                      <div className="bg-white rounded-2xl p-8 border border-dashed border-slate-300 text-center">
-                        <Package className="mx-auto text-slate-200 mb-2" size={32} />
-                        <p className="text-xs text-slate-400">No transactions recorded yet</p>
-                      </div>
-                    ) : (
-                      transactions.map(tx => (
-                        <div key={tx.id} className="google-card p-4">
-                          <div className="flex justify-between items-start mb-3">
-                            <div>
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-[10px] font-bold bg-blue-50 text-[var(--accent)] px-2 py-0.5 rounded uppercase">
-                                  {tx.commodity}
-                                </span>
-                                <span className="text-[10px] font-bold bg-slate-100 text-[var(--text-secondary)] px-2 py-0.5 rounded uppercase">
-                                  {warehouses.find(w => w.id === tx.warehouseId)?.name || 'Main'}
-                                </span>
-                                <span className="text-[10px] text-[var(--text-secondary)]">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <h3 className="font-bold text-[var(--text-primary)]">
-                                  {suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown Supplier'}
-                                </h3>
-                                {isAdmin && (
-                                  <div className="flex items-center gap-1">
-                                    <button 
-                                      onClick={() => handleEditClick(tx)}
-                                      className="p-1 text-slate-400 hover:text-[var(--accent)] transition-colors"
-                                      title="Adjust Purchase"
-                                    >
-                                      <Edit size={14} />
-                                    </button>
-                                    <button 
-                                      onClick={() => handleDeleteEntry(tx.id)}
-                                      className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
-                                      title="Remove Purchase"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-sm font-bold text-[var(--text-primary)]">{tx.netWeight.toFixed(2)} kg</p>
-                              <p className="text-[10px] text-[var(--text-secondary)]">Net Weight</p>
-                              {tx.storeRecordId && (
-                                <p className="text-[9px] font-bold text-indigo-600 mt-1">
-                                  Store ID: {tx.storeRecordId}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          
-                          <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-50">
-                            <div className="text-center">
-                              <p className="text-[9px] text-[var(--text-secondary)] uppercase">Gross</p>
-                              <p className="text-[11px] font-bold">{tx.grossWeight}kg</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-[9px] text-[var(--text-secondary)] uppercase">Deductions</p>
-                              <p className="text-[11px] font-bold text-rose-500">
-                                -{(tx.grossWeight - tx.netWeight).toFixed(1)}kg
-                              </p>
-                              {tx.deductions && (
-                                <div className="mt-1 flex flex-wrap gap-1 text-[7px] font-bold uppercase tracking-tighter justify-center text-[var(--text-secondary)]">
-                                  {((tx.deductions.moistureActual - tx.deductions.moistureBenchmark) * (tx.grossWeight || 0) / 100) > 0 && (
-                                    <span>M: {(((tx.deductions.moistureActual - tx.deductions.moistureBenchmark) * (tx.grossWeight || 0)) / 100).toFixed(1)}kg</span>
-                                  )}
-                                  {tx.deductions.tareWeight > 0 && <span>T: {tx.deductions.tareWeight}kg</span>}
-                                  {tx.deductions.moldWeight > 0 && <span>Q: {tx.deductions.moldWeight}kg</span>}
-                                  {tx.deductions.otherDeduction > 0 && <span>O: {tx.deductions.otherDeduction}kg</span>}
-                                </div>
-                              )}
-                            </div>
-                            <div className="text-center">
-                              <p className="text-[9px] text-[var(--text-secondary)] uppercase">Value</p>
-                              <p className="text-[11px] font-bold text-emerald-600">₦{(tx.totalValue || 0).toLocaleString()}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )
-                  ) : (
-                    bagTransactions.length === 0 ? (
-                      <div className="bg-white rounded-2xl p-8 border border-dashed border-slate-300 text-center">
-                        <Package className="mx-auto text-slate-200 mb-2" size={32} />
-                        <p className="text-xs text-slate-400">No bag transactions recorded yet</p>
-                      </div>
-                    ) : (
-                      bagTransactions.map(tx => (
-                        <div key={tx.id} className="google-card p-4">
-                          <div className="flex justify-between items-center">
-                            <div>
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={cn(
-                                  "text-[10px] font-bold px-2 py-0.5 rounded uppercase",
-                                  tx.type === 'STOCK_IN' ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                                )}>
-                                  {tx.type?.replace('_', ' ') || 'N/A'}
-                                </span>
-                                <span className="text-[10px] font-bold bg-slate-100 text-[var(--text-secondary)] px-2 py-0.5 rounded uppercase">
-                                  {tx.packagingType?.replace('_', ' ') || 'N/A'}
-                                </span>
-                                <span className="text-[10px] text-[var(--text-secondary)]">{tx.date ? new Date(tx.date).toLocaleDateString() : 'N/A'}</span>
-                              </div>
-                              <h3 className="font-bold text-[var(--text-primary)]">{tx.reference}</h3>
-                              <p className="text-[10px] text-[var(--text-secondary)]">
-                                Warehouse: {warehouses.find(w => w.id === tx.warehouseId)?.name || 'Main'}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className={cn(
-                                "text-lg font-bold",
-                                tx.type === 'STOCK_IN' ? "text-emerald-600" : "text-amber-600"
-                              )}>
-                                {tx.type === 'STOCK_IN' ? '+' : '-'}{tx.quantity}
-                              </p>
-                              <p className="text-[10px] text-[var(--text-secondary)]">Units</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )
-                  )}
-                </div>
-              </section>
+              <TransactionList
+                activeTab={activeTab}
+                transactions={transactions}
+                bagTransactions={bagTransactions}
+                suppliers={suppliers}
+                warehouses={warehouses}
+                isAdmin={isAdmin}
+                onEdit={handleEditClick}
+                onDelete={handleDeleteEntry}
+              />
             </div>
           )}
         </AnimatePresence>
