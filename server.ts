@@ -71,10 +71,61 @@ async function startServer() {
       let errorMsg = "Failed to send email";
       
       if (error.message?.includes('535') || error.message?.includes('Invalid login')) {
-        errorMsg = "SMTP login failed. If using Gmail, please ensure you use an 'App Password' instead of your regular password.";
+        errorMsg = "SMTP login failed. The SENDER account credentials are incorrect. If using Gmail, the SENDER must use an 'App Password'.";
       }
       
       res.status(500).json({ error: errorMsg, details: error.message });
+    }
+  });
+
+  // Test Email API Endpoint
+  app.post("/api/test-email", async (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: "Missing email" });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === "true",
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+
+    const mailOptions = {
+      from: `"CCS System Test" <${process.env.SMTP_USER}>`,
+      to: email,
+      subject: "CCS System - SMTP Configuration Test",
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px;">
+          <h2 style="color: #4f46e5;">SMTP Test Successful</h2>
+          <p>This is a test email from the CCS Commodity Control System.</p>
+          <p>If you received this, your SMTP settings are correctly configured and working.</p>
+          <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+          <p style="font-size: 12px; color: #64748b;">Host: ${process.env.SMTP_HOST || "smtp.gmail.com"}</p>
+          <p style="font-size: 12px; color: #64748b;">User: ${process.env.SMTP_USER}</p>
+        </div>
+      `,
+    };
+
+    try {
+      if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+        throw new Error("SMTP credentials (SMTP_USER/SMTP_PASS) are not set in environment variables.");
+      }
+      
+      console.log(`Running SMTP test for ${email}`);
+      await transporter.sendMail(mailOptions);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("SMTP Test Failed:", error);
+      res.status(500).json({ 
+        error: error.message || "Failed to send test email",
+        details: error.stack
+      });
     }
   });
 

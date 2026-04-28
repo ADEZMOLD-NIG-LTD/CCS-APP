@@ -12,10 +12,13 @@ export default function SuperAdminModule() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'companies' | 'users' | 'health'>('companies');
+  const [activeTab, setActiveTab] = useState<'companies' | 'users' | 'health' | 'infrastructure'>('companies');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isPurging, setIsPurging] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [isTestingEmail, setIsTestingEmail] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, 'companies'), orderBy('createdAt', 'desc'));
@@ -82,15 +85,27 @@ export default function SuperAdminModule() {
   };
 
   // System Health Mock Data (Calculated from state)
-  const healthStats = {
-    totalCompanies: companies.length,
-    activeCompanies: companies.filter(c => c.isApproved).length,
-    totalUsers: users.length || '...',
-    dbStatus: isFirestoreConnected ? 'Healthy' : 'Degraded',
-    region: 'europe-west2',
-    tier: 'Spark (Free)',
-    readsToday: '~1.2k', // Mock estimate
-    writesToday: '~450', // Mock estimate
+  const handleTestEmail = async () => {
+    if (!testEmail) return;
+    setIsTestingEmail(true);
+    setTestResult(null);
+    try {
+      const response = await fetch('/api/test-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: testEmail }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        setTestResult({ success: true, message: 'Test email sent successfully! Please check your inbox.' });
+      } else {
+        setTestResult({ success: false, message: `Error: ${data.error}. ${data.details || ''}` });
+      }
+    } catch (error: any) {
+      setTestResult({ success: false, message: `Network error: ${error.message}` });
+    } finally {
+      setIsTestingEmail(false);
+    }
   };
 
   return (
@@ -155,6 +170,14 @@ export default function SuperAdminModule() {
             }`}
           >
             <Activity size={14} /> Health
+          </button>
+          <button
+            onClick={() => setActiveTab('infrastructure')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'infrastructure' ? 'bg-white text-[var(--accent)] shadow-sm' : 'text-[var(--text-secondary)]'
+            }`}
+          >
+            <Server size={14} /> System
           </button>
         </div>
       </header>
@@ -314,6 +337,112 @@ export default function SuperAdminModule() {
                   </div>
                 </div>
               ))}
+            </motion.div>
+          )}
+
+          {activeTab === 'infrastructure' && (
+            <motion.div 
+              key="infrastructure"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-6"
+            >
+              {/* SMTP Configuration */}
+              <div className="google-card p-6">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                    <Database size={24} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-[var(--text-primary)]">System Email Sender (SMTP)</h3>
+                    <p className="text-xs text-[var(--text-secondary)]">Technical configuration for sending onboarding emails</p>
+                  </div>
+                </div>
+
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-xl">
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    <span className="font-bold">Important:</span> This is for the <strong>System Sender Account</strong> only. 
+                    Your staff members/users should continue to use the standard password (e.g., <code>welcome@2025</code>) to log in.
+                  </p>
+                </div>
+
+                {/* Google Auth Domain help */}
+                <div className="mb-4 p-4 rounded-xl bg-indigo-50 border border-indigo-100">
+                  <h4 className="text-sm font-bold text-indigo-800 mb-2 flex items-center gap-2">
+                    <Mail size={16} /> Google Sign-In Setup
+                  </h4>
+                  <p className="text-[10px] text-indigo-700 leading-relaxed mb-3">
+                    If you are having trouble logging in with Google (403 Error), you must add this domain to your Firebase Console:
+                  </p>
+                  <div className="bg-white/50 p-2 rounded border border-indigo-200 font-mono text-[10px] text-indigo-900 break-all mb-3 select-all">
+                    {window.location.hostname}
+                  </div>
+                  <ol className="text-[10px] text-indigo-700 space-y-1 list-decimal pl-4">
+                    <li>Go to <strong>Firebase Console</strong></li>
+                    <li>Select <strong>Authentication</strong> &gt; <strong>Settings</strong></li>
+                    <li>Click <strong>Authorized domains</strong></li>
+                    <li>Click <strong>Add domain</strong> and paste the URL above</li>
+                  </ol>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                    <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase mb-2">Test SMTP Settings</label>
+                    <div className="flex gap-2">
+                      <input 
+                        type="email"
+                        placeholder="Enter test email address..."
+                        value={testEmail}
+                        onChange={(e) => setTestEmail(e.target.value)}
+                        className="flex-1 bg-white border border-[var(--border)] rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                      />
+                      <button
+                        onClick={handleTestEmail}
+                        disabled={isTestingEmail || !testEmail}
+                        className="bg-[var(--accent)] text-white px-4 py-2 rounded-xl font-bold text-sm disabled:opacity-50 flex items-center gap-2"
+                      >
+                        {isTestingEmail ? 'Testing...' : 'Send Test'}
+                      </button>
+                    </div>
+                    {testResult && (
+                      <div className={`mt-3 p-3 rounded-lg text-xs font-medium flex items-start gap-2 ${testResult.success ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                        {testResult.success ? <CheckCircle2 size={14} className="shrink-0 mt-0.5" /> : <AlertTriangle size={14} className="shrink-0 mt-0.5" />}
+                        <span className="break-all">{testResult.message}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-blue-50 border border-blue-100">
+                    <h4 className="text-sm font-bold text-blue-800 mb-2">Help: Common Issues</h4>
+                    <ul className="text-xs text-blue-700 space-y-2 list-disc pl-4">
+                      <li><strong>Gmail App Passwords:</strong> You <u>must</u> use an App Password, not your regular Gmail password.</li>
+                      <li><strong>Port 587/465:</strong> 587 is standard for TLS. 465 is for SSL.</li>
+                      <li><strong>Missing Env Vars:</strong> Ensure <code>SMTP_USER</code> and <code>SMTP_PASS</code> are set in AI Studio Secrets.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* Maintenance Tools */}
+              <div className="google-card p-6">
+                <h3 className="font-bold text-[var(--text-primary)] mb-4 flex items-center gap-2">
+                  <Server size={18} /> System Maintenance
+                </h3>
+                <div className="space-y-4">
+                  <button
+                    onClick={() => setPurgeConfirm(true)}
+                    disabled={isPurging}
+                    className="w-full bg-rose-50 text-rose-600 py-3 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors"
+                  >
+                    <UserMinus size={16} />
+                    {isPurging ? 'Purging Duplicates...' : 'Purge Duplicated Demo Users'}
+                  </button>
+                  <p className="text-[10px] text-[var(--text-secondary)] text-center">
+                    Use these tools to clean up the database or reset system state.
+                  </p>
+                </div>
+              </div>
             </motion.div>
           )}
 

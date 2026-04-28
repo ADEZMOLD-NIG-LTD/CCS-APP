@@ -266,7 +266,7 @@ export default function StaffModule() {
 
     try {
       let authUid = undefined;
-      const defaultPassword = 'Welcome@2025';
+      const defaultPassword = 'welcome@2025';
 
       // If requested, create a Firebase Auth account with a default password
       if (createAccount && email) {
@@ -289,7 +289,7 @@ export default function StaffModule() {
             setSuccessMessage(`Staff member added and onboarding email sent to ${email}`);
           } catch (emailErr: any) {
             console.error('Failed to send onboarding email:', emailErr);
-            setSuccessMessage(`Staff member added, but onboarding email failed to send: ${emailErr.message || 'Check SMTP settings'}`);
+            setSuccessMessage(`System: Staff added, but EMAIL FAILED (${emailErr.message || 'Check SMTP'}). Share manually -> Email: ${email}, Password: ${defaultPassword}`);
           }
         } catch (authError: any) {
           if (authError.code === 'auth/email-already-in-use') {
