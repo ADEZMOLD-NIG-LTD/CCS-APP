@@ -154,7 +154,7 @@ export default function StaffForm({
               className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
             />
             <label htmlFor="createAccount" className="text-xs font-bold text-indigo-900 cursor-pointer">
-              Create Login Account (Default Password: Welcome@${company?.name?.replace(/\s+/g, '') || 'CCS'}2025)
+              Create Login Account (Default Password: welcome@2025)
             </label>
           </div>
         )}
