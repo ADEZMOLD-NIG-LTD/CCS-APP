@@ -278,14 +278,19 @@ export default function StaffModule() {
           authUid = userCredential.user.uid;
           await signOut(secondaryAuth);
 
-          // Send Onboarding Email (non-blocking)
-          sendOnboardingEmail({
-            email,
-            name: newStaff.name,
-            password: defaultPassword,
-            companyName: company?.name
-          }).catch(err => console.error('Failed to send onboarding email:', err));
-
+          // Send Onboarding Email (non-blocking but we'll notify if it fails)
+          try {
+            await sendOnboardingEmail({
+              email,
+              name: newStaff.name,
+              password: defaultPassword,
+              companyName: company?.name
+            });
+            setSuccessMessage(`Staff member added and onboarding email sent to ${email}`);
+          } catch (emailErr: any) {
+            console.error('Failed to send onboarding email:', emailErr);
+            setSuccessMessage(`Staff member added, but onboarding email failed to send: ${emailErr.message || 'Check SMTP settings'}`);
+          }
         } catch (authError: any) {
           if (authError.code === 'auth/email-already-in-use') {
             // Account already exists, just link it
@@ -313,7 +318,9 @@ export default function StaffModule() {
       }
 
       setIsAddingStaff(false);
-      setSuccessMessage(createAccount ? `Staff member added and onboarding email sent to ${email}` : 'Staff member added successfully!');
+      if (!createAccount) {
+        setSuccessMessage('Staff member added successfully!');
+      }
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `staff/${id}`));
     } finally {

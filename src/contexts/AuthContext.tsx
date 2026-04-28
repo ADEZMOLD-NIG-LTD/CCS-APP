@@ -470,11 +470,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetPassword = async (email: string) => {
     try {
       setErrorMessage(null);
+      setSuccessMessage(null);
+
+      if (isDemoMode) {
+        setErrorMessage('Password reset is not available in Training Demo Mode. Use standard login for real accounts.');
+        return;
+      }
+
+      if (!email || !email.includes('@')) {
+        setErrorMessage('Please enter a valid email address.');
+        return;
+      }
+
       await sendPasswordResetEmail(auth, email);
-      setSuccessMessage('Password reset link sent to your email. It will expire in 1 hour.');
+      setSuccessMessage('Password reset link sent to your email. Please check your inbox and spam folder. The link will expire in 1 hour.');
     } catch (error: any) {
       console.error('Password reset failed:', error);
-      setErrorMessage(`Failed to send reset email: ${error.message}`);
+      
+      let msg = `Failed to send reset email: ${error.message}`;
+      
+      if (error.code === 'auth/user-not-found') {
+        msg = 'No account found with this email address.';
+      } else if (error.code === 'auth/invalid-email') {
+        msg = 'The email address is invalid.';
+      } else if (error.code === 'auth/operation-not-allowed') {
+        msg = 'Password reset is currently disabled. Please contact the administrator to enable Email/Password provider in Firebase Console.';
+      } else if (error.code === 'auth/too-many-requests') {
+        msg = 'Too many requests. Please try again later.';
+      } else if (error.code === 'auth/network-request-failed') {
+        msg = 'Network error. Please check your internet connection and try again.';
+      }
+      
+      setErrorMessage(msg);
     }
   };
 
