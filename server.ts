@@ -62,11 +62,19 @@ async function startServer() {
         console.warn("SMTP credentials not configured. Skipping email send.");
         return res.json({ success: true, message: "Email skipped (SMTP not configured)" });
       }
+      
+      console.log(`Attempting to send email via ${process.env.SMTP_HOST || "smtp.gmail.com"} to ${email}`);
       await transporter.sendMail(mailOptions);
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to send email:", error);
-      res.status(500).json({ error: "Failed to send email" });
+      let errorMsg = "Failed to send email";
+      
+      if (error.message?.includes('535') || error.message?.includes('Invalid login')) {
+        errorMsg = "SMTP login failed. If using Gmail, please ensure you use an 'App Password' instead of your regular password.";
+      }
+      
+      res.status(500).json({ error: errorMsg, details: error.message });
     }
   });
 

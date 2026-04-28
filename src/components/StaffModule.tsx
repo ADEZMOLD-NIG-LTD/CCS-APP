@@ -266,7 +266,7 @@ export default function StaffModule() {
 
     try {
       let authUid = undefined;
-      const defaultPassword = `Welcome@${company?.name?.replace(/\s+/g, '') || 'CCS'}2025`;
+      const defaultPassword = 'Welcome@2025';
 
       // If requested, create a Firebase Auth account with a default password
       if (createAccount && email) {

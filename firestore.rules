@@ -8,17 +8,23 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isAnonymousDemo() {
+      return isAuthenticated() && 
+             request.auth.token.get('firebase', {}).get('sign_in_provider', '') == 'anonymous';
+    }
+
     function userExists() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+      let uid = isAnonymousDemo() ? 'demo_admin_profile' : request.auth.uid;
+      return exists(/databases/$(database)/documents/users/$(uid));
     }
 
     function getUserData() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      let uid = isAnonymousDemo() ? 'demo_admin_profile' : request.auth.uid;
+      return get(/databases/$(database)/documents/users/$(uid)).data;
     }
 
     function isSuperAdmin() {
       return isAuthenticated() && 
-             request.auth.token.get('email_verified', false) == true &&
              (request.auth.token.get('email', '').lower() == "wasiuadebisi89@gmail.com" || 
               request.auth.token.get('email', '').lower() == "abdullahiwasiu07@gmail.com");
     }
@@ -27,11 +33,6 @@ service cloud.firestore {
       return companyId != null && 
              exists(/databases/$(database)/documents/companies/$(companyId)) && 
              get(/databases/$(database)/documents/companies/$(companyId)).data.get('isApproved', false) == true;
-    }
-
-    function isAnonymousDemo() {
-      return isAuthenticated() && 
-             request.auth.token.get('firebase', {}).get('sign_in_provider', '') == 'anonymous';
     }
 
     function isCompanyOwner(companyId) {
@@ -109,9 +110,10 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUserProfile(data) {
+      let expectedUid = isAnonymousDemo() ? 'demo_admin_profile' : request.auth.uid;
       return hasRequiredFields(['uid', 'email', 'role', 'companyId']) &&
              hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'companyId', 'assignedWarehouseId', 'createdAt', 'lastPasswordUpdate']) &&
-             data.uid == request.auth.uid &&
+             data.uid == expectedUid &&
              isValidEmail(data.email) &&
              data.role in ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'AUDITOR', 'STORE_KEEPER'] &&
              data.companyId is string &&
@@ -139,7 +141,7 @@ service cloud.firestore {
 
     function isValidTransaction(data) {
       return hasRequiredFields(['id', 'companyId', 'date', 'type', 'commodity', 'netWeight', 'deductions']) &&
-             hasOnlyAllowedFields(['id', 'companyId', 'date', 'type', 'commodity', 'supplierId', 'buyerId', 'buyerName', 'sourceWarehouseId', 'destinationWarehouseId', 'warehouseId', 'warehouse', 'grossWeight', 'netWeight', 'bags', 'noOfBags', 'pricePerKg', 'totalValue', 'deductions', 'referenceId', 'storeRecordId', 'isDirectDelivery', 'truckNo', 'driverName', 'driverPhone', 'staffName', 'notes']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'date', 'type', 'commodity', 'supplierId', 'buyerId', 'buyerName', 'sourceWarehouseId', 'destinationWarehouseId', 'warehouseId', 'warehouse', 'grossWeight', 'netWeight', 'bags', 'noOfBags', 'pricePerKg', 'totalValue', 'deductions', 'referenceId', 'storeRecordId', 'isDirectDelivery', 'truckNo', 'driverName', 'driverPhone', 'staffName', 'notes', 'isDeleted', 'createdAt']) &&
              isValidDateString(data.date) &&
              data.type in ['PURCHASE', 'SALE', 'TRANSFER'] &&
              data.commodity in ['COCOA', 'CASHEW', 'PK'] &&
@@ -149,7 +151,7 @@ service cloud.firestore {
 
     function isValidPayment(data) {
       return hasRequiredFields(['id', 'companyId', 'warehouseId', 'date', 'supplierId', 'amount']) &&
-             hasOnlyAllowedFields(['id', 'companyId', 'warehouseId', 'date', 'supplierId', 'amount', 'method', 'reference', 'description']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'warehouseId', 'date', 'supplierId', 'amount', 'method', 'reference', 'description', 'createdAt', 'isDeleted']) &&
              isValidDateString(data.date) &&
              data.warehouseId is string &&
              data.amount is number && data.amount >= 0 &&
@@ -200,7 +202,7 @@ service cloud.firestore {
 
     function isValidBuyer(data) {
       return hasRequiredFields(['id', 'companyId', 'name']) &&
-             hasOnlyAllowedFields(['id', 'companyId', 'name', 'phone', 'location']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'name', 'phone', 'location', 'previousBalance', 'createdAt', 'isDeleted']) &&
              isValidString('name', 1, 100);
     }
 
@@ -229,10 +231,11 @@ service cloud.firestore {
     }
 
     function isValidAuditLog(data) {
+      let expectedUid = isAnonymousDemo() ? 'demo_admin_profile' : request.auth.uid;
       return hasRequiredFields(['id', 'companyId', 'timestamp', 'userId', 'action', 'module', 'recordId']) &&
              hasOnlyAllowedFields(['id', 'companyId', 'timestamp', 'userId', 'userEmail', 'action', 'module', 'recordId', 'details', 'previousData', 'newData']) &&
              data.action in ['CREATE', 'UPDATE', 'DELETE'] &&
-             data.userId == request.auth.uid &&
+             (data.userId == expectedUid || data.userId == request.auth.uid) &&
              isValidDateString(data.timestamp);
     }
 
