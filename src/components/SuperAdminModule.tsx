@@ -390,10 +390,11 @@ export default function SuperAdminModule() {
                     {window.location.hostname}
                   </div>
                   <ol className="text-[10px] text-indigo-700 space-y-1 list-decimal pl-4">
-                    <li>Go to <strong>Firebase Console</strong></li>
-                    <li>Select <strong>Authentication</strong> &gt; <strong>Settings</strong></li>
-                    <li>Click <strong>Authorized domains</strong></li>
-                    <li>Click <strong>Add domain</strong> and paste the URL above</li>
+                    <li>Go to the <a href={`https://console.firebase.google.com/project/${import.meta.env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0555602350"}/authentication/providers`} target="_blank" rel="noreferrer" className="text-indigo-600 font-bold underline">Firebase Auth Console</a>.</li>
+                    <li>In the <strong>Sign-in method</strong> tab, click <strong>Add new provider</strong>.</li>
+                    <li>Select <strong>Google</strong> and click <strong>Enable</strong> (configure the project support email).</li>
+                    <li>Go to <strong>Settings</strong> &gt; <strong>Authorized domains</strong>.</li>
+                    <li>Click <strong>Add domain</strong> and paste the URL above.</li>
                   </ol>
                 </div>
 

@@ -330,6 +330,18 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
                 <span>Demo</span>
               </button>
             </div>
+
+            <div className="text-center">
+              <p className="text-[10px] text-[var(--text-secondary)] font-medium">
+                Trouble with Google Sign-In? Try 
+                <button 
+                  onClick={() => window.open(window.location.href, '_blank')}
+                  className="mx-1 text-[var(--accent)] font-bold hover:underline"
+                >
+                  opening in a new tab
+                </button>
+              </p>
+            </div>
           </div>
 
           {/* Feature Highlights */}

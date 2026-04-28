@@ -381,6 +381,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           `Unauthorized Domain: The domain "${domain}" is not authorized for Google Sign-In in your Firebase Console. ` +
           `Please go to Authentication > Settings > Authorized domains and add "${domain}".`
         );
+      } else if (error.code === 'auth/operation-not-allowed') {
+        setErrorMessage(
+          'Google Sign-In is not enabled in your Firebase Console. ' +
+          'Please go to Authentication > Sign-in method, click "Add new provider", and enable "Google".'
+        );
       } else if (error.code === 'auth/popup-blocked') {
         setErrorMessage('The sign-in popup was blocked by your browser. Please allow popups for this site and try again.');
       } else if (
