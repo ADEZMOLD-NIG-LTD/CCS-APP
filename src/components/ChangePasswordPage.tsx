@@ -22,11 +22,24 @@ export default function ChangePasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
+      // In AuthContext we have setErrorMessage, but it's easier to show a local one here first
       return;
     }
+    
+    if (newPassword === currentPassword) {
+      alert("New password must be different from the current password.");
+      return;
+    }
+
     setIsSubmitting(true);
-    await changePassword(currentPassword, newPassword);
-    setIsSubmitting(false);
+    try {
+      await changePassword(currentPassword, newPassword);
+      // AuthContext will update mustChangePassword, triggering redirect in App.tsx
+    } catch (err) {
+      // Error handled by AuthContext
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (

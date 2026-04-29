@@ -47,6 +47,7 @@ export default function ReportsModule() {
   const [startDate, setStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
+  const [selectedCommodity, setSelectedCommodity] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Load Data from Firestore
@@ -254,20 +255,22 @@ export default function ReportsModule() {
       const date = new Date(t.date).toISOString().split('T')[0];
       const dateMatch = date >= startDate && date <= endDate;
       const warehouseMatch = selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId;
+      const commodityMatch = selectedCommodity === 'ALL' || t.commodity === selectedCommodity;
       const typeMatch = activeReport === 'operational_purchases' ? t.type === 'PURCHASE' : t.type === 'SALE';
-      return dateMatch && warehouseMatch && typeMatch;
+      return dateMatch && warehouseMatch && commodityMatch && typeMatch;
     });
-  }, [transactions, startDate, endDate, selectedWarehouseId, activeReport]);
+  }, [transactions, startDate, endDate, selectedWarehouseId, selectedCommodity, activeReport]);
 
   const filteredTransfers = useMemo(() => {
     const commodityTransfers = transactions.filter(t => {
       if (t.type !== 'TRANSFER') return false;
       const date = new Date(t.date).toISOString().split('T')[0];
       const dateMatch = date >= startDate && date <= endDate;
+      const commodityMatch = selectedCommodity === 'ALL' || t.commodity === selectedCommodity;
       const warehouseMatch = selectedWarehouseId === 'ALL' || 
                              t.sourceWarehouseId === selectedWarehouseId || 
                              t.destinationWarehouseId === selectedWarehouseId;
-      return dateMatch && warehouseMatch;
+      return dateMatch && warehouseMatch && commodityMatch;
     }).map(t => ({
       ...t,
       transferType: 'COMMODITY' as const
@@ -313,7 +316,8 @@ export default function ReportsModule() {
       totalBuyerCredit,
       packagingInventory,
       filteredOperationalTx,
-      filteredTransfers
+      filteredTransfers,
+      selectedCommodity
     });
   };
 
@@ -355,7 +359,10 @@ export default function ReportsModule() {
             setEndDate={setEndDate}
             selectedWarehouseId={selectedWarehouseId}
             setSelectedWarehouseId={setSelectedWarehouseId}
+            selectedCommodity={selectedCommodity}
+            setSelectedCommodity={setSelectedCommodity}
             warehouses={warehouses}
+            activeReport={activeReport}
           />
         )}
 

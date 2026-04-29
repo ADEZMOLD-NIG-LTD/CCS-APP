@@ -36,6 +36,7 @@ interface PDFData {
   packagingInventory: Record<string, number>;
   filteredOperationalTx: Transaction[];
   filteredTransfers: any[];
+  selectedCommodity: string;
 }
 
 export const generatePDF = (data: PDFData) => {
@@ -60,7 +61,8 @@ export const generatePDF = (data: PDFData) => {
     totalBuyerCredit,
     packagingInventory,
     filteredOperationalTx,
-    filteredTransfers
+    filteredTransfers,
+    selectedCommodity
   } = data;
 
   const doc = new jsPDF(activeReport === 'supplier_balances' ? 'p' : 'l');
@@ -261,10 +263,9 @@ export const generatePDF = (data: PDFData) => {
     doc.setFontSize(10);
     doc.text(`Generated on: ${timestamp}`, 14, 48);
     
-    if (activeReport !== 'search') {
-      const warehouseName = selectedWarehouseId === 'ALL' ? 'All Warehouses' : warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Unknown';
-      doc.text(`Period: ${startDate} to ${endDate} | Warehouse: ${warehouseName}`, 14, 54);
-    }
+    const warehouseName = selectedWarehouseId === 'ALL' ? 'All Warehouses' : warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Unknown';
+    const commodityInfo = selectedCommodity === 'ALL' ? 'All Commodities' : selectedCommodity;
+    doc.text(`Period: ${startDate} to ${endDate} | Warehouse: ${warehouseName} | Commodity: ${commodityInfo}`, 14, 54);
 
     autoTable(doc, {
       startY: (activeReport === 'search') ? 52 : 60,

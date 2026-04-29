@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
@@ -200,6 +200,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const isSuperAdmin = useMemo(() => 
+    user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' || 
+    user?.email?.toLowerCase() === 'abdullahiwasiu07@gmail.com'
+  , [user?.email]);
+
+  const isAdmin = useMemo(() => profile?.role === 'ADMIN' || isSuperAdmin, [profile?.role, isSuperAdmin]);
+  const isManager = useMemo(() => profile?.role === 'MANAGER' || isAdmin, [profile?.role, isAdmin]);
+  const isAccount = useMemo(() => profile?.role === 'ACCOUNT' || isManager, [profile?.role, isManager]);
+  const isAuditor = useMemo(() => profile?.role === 'AUDITOR' || isManager, [profile?.role, isManager]);
+  const isStoreKeeper = useMemo(() => profile?.role === 'STORE_KEEPER' || isAdmin, [profile?.role, isAdmin]);
+  const isStaff = useMemo(() => profile?.role === 'STAFF' || isAccount || isAuditor || isStoreKeeper, [profile?.role, isAccount, isAuditor, isStoreKeeper]);
+
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
     let unsubscribeCompany: (() => void) | null = null;
@@ -213,90 +225,71 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, 10000);
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      clearTimeout(loadingTimeout);
-      console.log('AuthContext: onAuthStateChanged', user?.uid || 'no user');
+      console.log('AuthContext: onAuthStateChanged trigger:', user?.uid || 'no user');
       setUser(user);
       
-      if (user) {
-        if (user.isAnonymous) {
-          setIsDemoMode(true);
-        }
+      try {
+        if (user) {
+          if (user.isAnonymous) {
+            setIsDemoMode(true);
+          }
 
-        if (unsubscribeProfile) {
-          console.log('Unsubscribing from profile...');
-          unsubscribeProfile();
-        }
-        if (unsubscribeCompany) {
-          console.log('Unsubscribing from company...');
-          unsubscribeCompany();
-        }
+          if (unsubscribeProfile) unsubscribeProfile();
+          if (unsubscribeCompany) unsubscribeCompany();
 
-        console.log('Setting up profile listener for user:', user.uid);
-        const profileId = user.isAnonymous ? 'demo_admin_profile' : user.uid;
-        const userRef = doc(db, 'users', profileId);
-        
-        unsubscribeProfile = onSnapshot(userRef, async (userDoc) => {
-          console.log('Profile snapshot received:', userDoc.exists() ? 'exists' : 'does not exist');
-          if (userDoc.exists()) {
-            const data = userDoc.data() as UserProfile;
-            
-            // Check for suspension
-            if (data.suspended && !isSuperAdmin) {
-              console.warn('User is suspended. Signing out.');
-              setErrorMessage('Your account has been suspended. Please contact the Super Admin.');
-              signOut(auth);
-              return;
-            }
+          const profileId = user.isAnonymous ? 'demo_admin_profile' : user.uid;
+          const userRef = doc(db, 'users', profileId);
+          
+          console.log('AuthContext: Setting up profile listener for:', profileId);
+          unsubscribeProfile = onSnapshot(userRef, async (userDoc) => {
+            if (userDoc.exists()) {
+              const data = userDoc.data() as UserProfile;
+              console.log('AuthContext: Profile update received:', { role: data.role, mustChange: !!data.lastPasswordUpdate });
+              
+              // Check for suspension
+              if (data.suspended && !isSuperAdmin) {
+                console.warn('AuthContext: User is suspended. Signing out.');
+                setErrorMessage('Your account has been suspended. Please contact the Super Admin.');
+                signOut(auth);
+                return;
+              }
 
-            setProfile(data);
+              setProfile(data);
 
-            // Check for password expiration (90 days)
-            const isEmailUser = user.providerData.some(p => p.providerId === 'password');
-            if (isEmailUser && data.lastPasswordUpdate) {
-              const lastUpdate = new Date(data.lastPasswordUpdate).getTime();
-              const now = new Date().getTime();
-              const diffDays = (now - lastUpdate) / (1000 * 60 * 60 * 24);
-              if (diffDays >= 90) {
-                setMustChangePassword(true);
+              // Password Policy Engine
+              const providers = user.providerData.map(p => p.providerId);
+              const isEmailUser = providers.includes('password');
+              
+              if (isEmailUser) {
+                if (data.lastPasswordUpdate) {
+                  const lastUpdate = new Date(data.lastPasswordUpdate).getTime();
+                  const now = new Date().getTime();
+                  const diffDays = (now - lastUpdate) / (1000 * 60 * 60 * 24);
+                  setMustChangePassword(diffDays >= 90);
+                } else {
+                  // Force change on first login for email users
+                  setMustChangePassword(true);
+                }
               } else {
                 setMustChangePassword(false);
               }
-            } else if (isEmailUser && !data.lastPasswordUpdate) {
-              // If no update date, force change (initial login)
-              setMustChangePassword(true);
-            } else {
-              setMustChangePassword(false);
-            }
-            
-            if (data.companyId) {
-              console.log('Setting up company listener for:', data.companyId);
-              const companyRef = doc(db, 'companies', data.companyId);
-              if (unsubscribeCompany) unsubscribeCompany();
               
-              unsubscribeCompany = onSnapshot(companyRef, (companyDoc) => {
-                console.log('Company snapshot received:', companyDoc.exists() ? 'exists' : 'does not exist');
-                if (companyDoc.exists()) {
-                  setCompany(companyDoc.data() as Company);
-                }
-              }, (error) => {
-                setErrorMessage(reportFirestoreError(error, OperationType.GET, `companies/${data.companyId}`));
-              });
-            }
-
-            // Ensure the designated super admin always has the ADMIN role
-            if (user.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' && data.role !== 'ADMIN') {
-              try {
-                const updateData = { ...data, role: 'ADMIN' };
-                Object.keys(updateData).forEach(key => (updateData as any)[key] === undefined && delete (updateData as any)[key]);
-                await setDoc(userRef, updateData, { merge: true });
-              } catch (error) {
-                setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`));
+              if (data.companyId) {
+                const companyRef = doc(db, 'companies', data.companyId);
+                if (unsubscribeCompany) unsubscribeCompany();
+                
+                unsubscribeCompany = onSnapshot(companyRef, (companyDoc) => {
+                  if (companyDoc.exists()) {
+                    setCompany(companyDoc.data() as Company);
+                  }
+                }, (error) => {
+                  setErrorMessage(reportFirestoreError(error, OperationType.GET, `companies/${data.companyId}`));
+                });
               }
-            }
-          } else {
-            // Check if this user is a pre-registered staff member
-            if (user.email) {
-              try {
+            } else {
+              // New User / Pre-registered Staff Logic
+              if (user.email) {
+                console.log('AuthContext: User profile missing, checking staff records for:', user.email);
                 const staffQuery = query(
                   collection(db, 'staff'),
                   where('email', '==', user.email.toLowerCase())
@@ -305,6 +298,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 
                 if (!staffDocs.empty) {
                   const staffData = staffDocs.docs[0].data() as Staff;
+                  console.log('AuthContext: Staff record found. Creating profile...');
                   const newProfile: any = {
                     uid: user.uid,
                     email: user.email.toLowerCase(),
@@ -312,39 +306,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     role: staffData.role,
                     companyId: staffData.companyId,
                     assignedWarehouseId: staffData.assignedWarehouseId,
-                    createdAt: new Date().toISOString()
+                    createdAt: new Date().toISOString(),
                   };
                   
                   Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
                   await setDoc(userRef, newProfile);
-                  // Profile will be set by the onSnapshot listener
                   
-                  // Update staff record with UID to mark as joined
-                  const staffUpdate = { uid: user.uid };
-                  await setDoc(doc(db, 'staff', staffDocs.docs[0].id), staffUpdate, { merge: true });
+                  // Link staff record to UID
+                  await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
                 } else {
                   setProfile(null);
                   setCompany(null);
                 }
-              } catch (error) {
-                setErrorMessage(reportFirestoreError(error, OperationType.GET, 'staff'));
+              } else {
                 setProfile(null);
                 setCompany(null);
               }
-            } else {
-              setProfile(null);
-              setCompany(null);
             }
-          }
-        }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.GET, `users/${user.uid}`)));
-      } else {
-        setIsDemoMode(false);
-        setProfile(null);
-        setCompany(null);
-        if (unsubscribeProfile) unsubscribeProfile();
-        if (unsubscribeCompany) unsubscribeCompany();
+          }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.GET, `users/${user.uid}`)));
+        } else {
+          setIsDemoMode(false);
+          setProfile(null);
+          setCompany(null);
+          if (unsubscribeProfile) unsubscribeProfile();
+          if (unsubscribeCompany) unsubscribeCompany();
+        }
+      } catch (err) {
+        console.error('AuthContext: onAuthStateChanged error:', err);
+      } finally {
+        setLoading(false);
+        clearTimeout(loadingTimeout);
       }
-      setLoading(false);
     });
 
     return () => {
@@ -352,7 +344,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribeCompany) unsubscribeCompany();
     };
-  }, [isDemoMode]);
+  }, [isDemoMode, isSuperAdmin]);
 
   const signIn = async () => {
     try {
@@ -511,25 +503,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const changePassword = async (currentPass: string, newPass: string) => {
-    if (!user || !user.email) return;
+    if (!user || !user.email) {
+      console.error('AuthContext: Cannot change password - no user');
+      return;
+    }
     try {
+      console.log('AuthContext: Starting password change process for:', user.email);
       setErrorMessage(null);
       const credential = EmailAuthProvider.credential(user.email, currentPass);
+      
+      console.log('AuthContext: Re-authenticating...');
       await reauthenticateWithCredential(user, credential);
+      
+      console.log('AuthContext: Updating auth password...');
       await updatePassword(user, newPass);
       
+      console.log('AuthContext: Password updated in Auth. Updating Firestore profile...');
+      
       // Update lastPasswordUpdate in Firestore
-      if (profile) {
-        const updateData = { 
-          lastPasswordUpdate: new Date().toISOString() 
-        };
-        await setDoc(doc(db, 'users', user.uid), updateData, { merge: true });
-      }
+      const updateData = { 
+        lastPasswordUpdate: new Date().toISOString() 
+      };
+      
+      await setDoc(doc(db, 'users', user.uid), updateData, { merge: true });
+      console.log('AuthContext: Firestore profile updated with lastPasswordUpdate');
       
       setMustChangePassword(false);
-      setSuccessMessage('Password updated successfully.');
+      setSuccessMessage('Password updated successfully. Accessing your dashboard...');
+      
+      // Force a slight delay to ensure onSnapshot can pick it up if needed, 
+      // though local state update should be enough.
     } catch (error: any) {
-      console.error('Password change failed:', error);
+      console.error('AuthContext: Password change failed:', error);
       if (error.code === 'auth/wrong-password') {
         setErrorMessage('Incorrect current password.');
       } else if (error.code === 'auth/weak-password') {
@@ -537,6 +542,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setErrorMessage(`Failed to update password: ${error.message}`);
       }
+      throw error; // Rethrow to let the component handle UI state
     }
   };
 
@@ -708,14 +714,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setErrorMessage(`Failed to delete user: ${error.message}`);
     }
   };
-
-  const isSuperAdmin = user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' || user?.email?.toLowerCase() === 'abdullahiwasiu07@gmail.com';
-  const isAdmin = profile?.role === 'ADMIN' || isSuperAdmin;
-  const isManager = profile?.role === 'MANAGER' || isAdmin;
-  const isAccount = profile?.role === 'ACCOUNT' || isManager;
-  const isAuditor = profile?.role === 'AUDITOR' || isManager;
-  const isStoreKeeper = profile?.role === 'STORE_KEEPER' || isAdmin;
-  const isStaff = profile?.role === 'STAFF' || isAccount || isAuditor || isStoreKeeper;
 
   // Refined permissions
   const canPostTransactions = isManager || isAccount;
