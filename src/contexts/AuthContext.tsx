@@ -523,12 +523,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setErrorMessage(null);
       setSuccessMessage(null);
-      console.log(`AuthContext: Manually resetting password state for user: ${userId}`);
+      console.log(`AuthContext: Manually resetting password state for user: ${userId} (Role: ${profile?.role})`);
       
-      // We can't change the actual Auth password from the client for another user,
-      // but we can clear the lastPasswordUpdate field in Firestore.
-      // This will trigger the mustChangePassword state for them upon their next login.
       const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      
+      if (!userSnap.exists()) {
+        console.warn('AuthContext: User profile does not exist. Cannot reset password for a user who hasn\'t signed up yet.');
+        setErrorMessage('Cannot reset password: This user has not created their account yet (no profile found). They should use the default password "welcome@2025" for their first login.');
+        return;
+      }
+
       await setDoc(userRef, { 
         lastPasswordUpdate: null 
       }, { merge: true });
@@ -537,7 +542,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSuccessMessage('Password state reset for user. They will be forced to change their password on next login.');
     } catch (error: any) {
       console.error('Manual reset failed:', error);
-      setErrorMessage(`Failed to reset password state: ${error.message} (Role: ${profile?.role}, Company: ${profile?.companyId})`);
+      const details = error.message?.includes('permission') ? 'Insufficient Firestore permissions.' : error.message;
+      setErrorMessage(`Failed to reset password state: ${details} (Target UID: ${userId})`);
     }
   };
 
