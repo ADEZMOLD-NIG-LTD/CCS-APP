@@ -290,46 +290,59 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     setCompany(companyDoc.data() as Company);
                   }
                 }, (error) => {
-                  setErrorMessage(reportFirestoreError(error, OperationType.GET, `companies/${data.companyId}`));
+                  // If company fetch fails during initial load, we still want to show the app
+                  console.warn('AuthContext: Company snapshot failed:', error);
                 });
               }
             } else {
               // New User / Pre-registered Staff Logic
-              if (user.email) {
+              if (user.email && !isDemoMode) {
                 console.log('AuthContext: User profile missing, checking staff records for:', user.email);
-                const staffQuery = query(
-                  collection(db, 'staff'),
-                  where('email', '==', user.email.toLowerCase())
-                );
-                const staffDocs = await getDocs(staffQuery);
-                
-                if (!staffDocs.empty) {
-                  const staffData = staffDocs.docs[0].data() as Staff;
-                  console.log('AuthContext: Staff record found. Creating profile...');
-                  const newProfile: any = {
-                    uid: user.uid,
-                    email: user.email.toLowerCase(),
-                    displayName: user.displayName || staffData.name,
-                    role: staffData.role,
-                    companyId: staffData.companyId,
-                    assignedWarehouseId: staffData.assignedWarehouseId,
-                    createdAt: new Date().toISOString(),
-                  };
+                try {
+                  const staffQuery = query(
+                    collection(db, 'staff'),
+                    where('email', '==', user.email.toLowerCase())
+                  );
+                  const staffDocs = await getDocs(staffQuery);
                   
-                  Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
-                  await setDoc(userRef, newProfile);
-                  
-                  // Link staff record to UID
-                  try {
-                    await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
-                    console.log('AuthContext: Staff record linked to UID successfully.');
-                  } catch (linkError) {
-                    console.warn('AuthContext: Failed to link staff record to UID. This may require an admin to fix.', linkError);
-                    // We don't block the profile creation if linking fails, but we log it
+                  if (!staffDocs.empty) {
+                    const staffData = staffDocs.docs[0].data() as Staff;
+                    console.log('AuthContext: Staff record found. Creating profile for new user...');
+                    const newProfile: any = {
+                      uid: user.uid,
+                      email: user.email.toLowerCase(),
+                      displayName: user.displayName || staffData.name,
+                      role: staffData.role,
+                      companyId: staffData.companyId,
+                      assignedWarehouseId: staffData.assignedWarehouseId,
+                      createdAt: new Date().toISOString(),
+                      lastPasswordUpdate: null // Force password change on first login
+                    };
+                    
+                    Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
+                    
+                    try {
+                      await setDoc(userRef, newProfile);
+                      console.log('AuthContext: Profile created successfully.');
+                    } catch (rulesError: any) {
+                      console.error('AuthContext: Profile creation REJECTED by rules:', rulesError);
+                      setErrorMessage(`Permission Denied: Could not create your login profile. Please contact the administrator to verify your staff record. Details: ${rulesError.message}`);
+                    }
+                    
+                    // Link staff record to UID
+                    try {
+                      await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
+                    } catch (linkError) {
+                      console.warn('AuthContext: Failed to link staff record to UID.', linkError);
+                    }
+                  } else {
+                    console.log('AuthContext: No staff record found for:', user.email);
+                    setProfile(null);
+                    setCompany(null);
                   }
-                } else {
-                  setProfile(null);
-                  setCompany(null);
+                } catch (staffFetchError: any) {
+                  console.error('AuthContext: Staff record lookup failed:', staffFetchError);
+                  setErrorMessage(`Login Error: Failed to verify your staff status. ${staffFetchError.message}`);
                 }
               } else {
                 setProfile(null);
