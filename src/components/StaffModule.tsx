@@ -52,7 +52,7 @@ import PayrollManager from './staff/PayrollManager';
 import PayslipModal from './staff/PayslipModal';
 
 export default function StaffModule() {
-  const { profile, company, isAdmin, isAccount, canManageStaff, isOnline } = useAuth();
+  const { profile, company, isAdmin, isAccount, canManageStaff, isOnline, manualResetPassword } = useAuth();
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -703,6 +703,7 @@ export default function StaffModule() {
               canManageStaff={canManageStaff}
               onUpdateRoster={updateRoster}
               onUpdateStatus={updateStaffStatus}
+              onResetPassword={manualResetPassword}
               onEdit={setEditingStaff}
               onDelete={deleteStaff}
             />

@@ -16,6 +16,7 @@ interface RosterManagerProps {
   canManageStaff: boolean;
   onUpdateRoster: (staffId: string, shift: 'MORNING' | 'AFTERNOON' | 'NIGHT' | 'OFF') => void;
   onUpdateStatus: (staffId: string, status: 'ACTIVE' | 'SUSPENDED' | 'DISMISSED') => void;
+  onResetPassword: (userId: string) => void;
   onEdit: (staff: Staff) => void;
   onDelete: (staffId: string) => void;
 }
@@ -28,6 +29,7 @@ export default function RosterManager({
   canManageStaff,
   onUpdateRoster,
   onUpdateStatus,
+  onResetPassword,
   onEdit,
   onDelete
 }: RosterManagerProps) {
@@ -118,6 +120,16 @@ export default function RosterManager({
                           <UserCheck size={14} />
                         </button>
                       ) : null}
+
+                      {staff.uid && (
+                        <button 
+                          onClick={() => onResetPassword(staff.uid!)}
+                          title="Force Password Reset"
+                          className="text-slate-300 hover:text-indigo-600 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <Lock size={14} />
+                        </button>
+                      )}
                       
                       {staff.status !== 'DISMISSED' && (
                         <button 

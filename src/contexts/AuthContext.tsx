@@ -43,6 +43,7 @@ interface AuthContextType {
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  manualResetPassword: (userId: string) => Promise<void>;
   changePassword: (currentPass: string, newPass: string) => Promise<void>;
   logout: () => Promise<void>;
   registerCompany: (companyName: string) => Promise<void>;
@@ -502,6 +503,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const manualResetPassword = async (userId: string) => {
+    if (!isAdmin) return;
+    try {
+      setErrorMessage(null);
+      // We can't change the actual Auth password from the client for another user,
+      // but we can clear the lastPasswordUpdate field in Firestore.
+      // This will trigger the mustChangePassword state for them upon their next login
+      // assuming they know their current password (or we give them a default one).
+      await setDoc(doc(db, 'users', userId), { 
+        lastPasswordUpdate: null 
+      }, { merge: true });
+      
+      setSuccessMessage('User record updated. They will be prompted to change their password on next login.');
+    } catch (error: any) {
+      console.error('Manual reset failed:', error);
+      setErrorMessage(`Failed to reset password state: ${error.message}`);
+    }
+  };
+
   const changePassword = async (currentPass: string, newPass: string) => {
     if (!user || !user.email) {
       console.error('AuthContext: Cannot change password - no user');
@@ -729,6 +749,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signInWithEmail,
     signUpWithEmail,
     resetPassword,
+    manualResetPassword,
     changePassword,
     logout,
     registerCompany,

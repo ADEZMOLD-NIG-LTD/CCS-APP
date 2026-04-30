@@ -239,6 +239,17 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
                 </div>
               </div>
 
+              {view === 'forgot' && (
+                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-4">
+                  <h4 className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-1 flex items-center gap-1">
+                    <AlertCircle size={10} /> Alternative Method
+                  </h4>
+                  <p className="text-[11px] text-blue-700 leading-normal">
+                    If you do not receive the email, please contact your <b>Warehouse Manager</b> or <b>System Administrator</b>. They can manually trigger a password reset for your account in the Staff module.
+                  </p>
+                </div>
+              )}
+
               {view !== 'forgot' && (
                 <div className="space-y-1">
                   <div className="flex justify-between items-center ml-4 mr-1">
