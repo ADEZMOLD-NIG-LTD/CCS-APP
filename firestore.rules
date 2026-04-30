@@ -14,13 +14,11 @@ service cloud.firestore {
     }
 
     function userExists() {
-      let uid = isAnonymousDemo() ? 'demo_admin_profile' : request.auth.uid;
-      return exists(/databases/$(database)/documents/users/$(uid));
+      return exists(/databases/$(database)/documents/users/$(isAnonymousDemo() ? 'demo_admin_profile' : request.auth.uid));
     }
 
     function getUserData() {
-      let uid = isAnonymousDemo() ? 'demo_admin_profile' : request.auth.uid;
-      return get(/databases/$(database)/documents/users/$(uid)).data;
+      return get(/databases/$(database)/documents/users/$(isAnonymousDemo() ? 'demo_admin_profile' : request.auth.uid)).data;
     }
 
     function isSuperAdmin() {
@@ -42,37 +40,83 @@ service cloud.firestore {
              get(/databases/$(database)/documents/companies/$(companyId)).data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower();
     }
 
+    function isCompanyAuthorized(companyId) {
+      return companyId != null && 
+             (isCompanyApproved(companyId) || isCompanyOwner(companyId));
+    }
+
     function isAdmin() {
-      return isAuthenticated() && (isSuperAdmin() || isAnonymousDemo() || (userExists() && getUserData().get('role', '') == 'ADMIN' && (isCompanyApproved(getUserData().get('companyId', '')) || isCompanyOwner(getUserData().get('companyId', '')))));
+      return isAuthenticated() && (
+        isSuperAdmin() || 
+        isAnonymousDemo() || (
+          userExists() && 
+          getUserData().get('role', '') == 'ADMIN' && 
+          isCompanyAuthorized(getUserData().get('companyId', ''))
+        )
+      );
     }
 
     function isManager() {
-      return isAuthenticated() && (isAdmin() || (userExists() && getUserData().get('role', '') == 'MANAGER' && (isCompanyApproved(getUserData().get('companyId', '')) || isCompanyOwner(getUserData().get('companyId', '')))));
+      return isAuthenticated() && (
+        isAdmin() || (
+          userExists() && 
+          getUserData().get('role', '') == 'MANAGER' && 
+          isCompanyAuthorized(getUserData().get('companyId', ''))
+        )
+      );
     }
 
     function isAccount() {
-      return isAuthenticated() && (isManager() || (userExists() && getUserData().get('role', '') == 'ACCOUNT' && isCompanyApproved(getUserData().get('companyId', ''))));
+      return isAuthenticated() && (
+        isManager() || (
+          userExists() && 
+          getUserData().get('role', '') == 'ACCOUNT' && 
+          isCompanyAuthorized(getUserData().get('companyId', ''))
+        )
+      );
     }
 
     function isAuditor() {
-      return isAuthenticated() && (isManager() || (userExists() && getUserData().get('role', '') == 'AUDITOR' && isCompanyApproved(getUserData().get('companyId', ''))));
+      return isAuthenticated() && (
+        isManager() || (
+          userExists() && 
+          getUserData().get('role', '') == 'AUDITOR' && 
+          isCompanyAuthorized(getUserData().get('companyId', ''))
+        )
+      );
     }
 
     function isStaff() {
-      return isAuthenticated() && (isAccount() || isAuditor() || isStoreKeeper() || (userExists() && getUserData().get('role', '') == 'STAFF' && (isCompanyApproved(getUserData().get('companyId', '')) || isCompanyOwner(getUserData().get('companyId', '')))));
+      return isAuthenticated() && (
+        isAccount() || 
+        isAuditor() || 
+        isStoreKeeper() || (
+          userExists() && 
+          getUserData().get('role', '') == 'STAFF' && 
+          isCompanyAuthorized(getUserData().get('companyId', ''))
+        )
+      );
     }
 
     function isStoreKeeper() {
-      return isAuthenticated() && (isAdmin() || (userExists() && getUserData().get('role', '') == 'STORE_KEEPER' && isCompanyApproved(getUserData().get('companyId', ''))));
+      return isAuthenticated() && (
+        isAdmin() || (
+          userExists() && 
+          getUserData().get('role', '') == 'STORE_KEEPER' && 
+          isCompanyAuthorized(getUserData().get('companyId', ''))
+        )
+      );
     }
 
     function belongsToCompany(companyId) {
-      return isAuthenticated() && 
-             (isSuperAdmin() || 
-              (isAnonymousDemo() && companyId == 'demo_company') ||
-              (userExists() && 
-               getUserData().get('companyId', '') == companyId && 
-               (isCompanyApproved(companyId) || isCompanyOwner(companyId))));
+      return isAuthenticated() && (
+        isSuperAdmin() || 
+        (isAnonymousDemo() && companyId == 'demo_company') || (
+          userExists() && 
+          getUserData().get('companyId', '') == companyId && 
+          isCompanyAuthorized(companyId)
+        )
+      );
     }
 
     function hasOnlyAllowedFields(fields) {
@@ -109,11 +153,10 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
 
-    function isValidUserProfile(data) {
-      let expectedUid = isAnonymousDemo() ? 'demo_admin_profile' : request.auth.uid;
+    function isValidUserProfile(data, userId) {
       return hasRequiredFields(['uid', 'email', 'role', 'companyId']) &&
-             hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'companyId', 'assignedWarehouseId', 'createdAt', 'lastPasswordUpdate']) &&
-             data.uid == expectedUid &&
+             hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'companyId', 'assignedWarehouseId', 'createdAt', 'lastPasswordUpdate', 'suspended']) &&
+             data.uid == userId &&
              isValidEmail(data.email) &&
              data.role in ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'AUDITOR', 'STORE_KEEPER'] &&
              data.companyId is string &&
@@ -272,7 +315,7 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin() || (userId == 'demo_admin_profile' && isAnonymousDemo()));
       // CRITICAL: Prevent self-assignment of ADMIN role unless it's the Super Admin or a Demo user.
       allow create: if isAuthenticated() && (
-        (request.auth.uid == userId && isValidUserProfile(request.resource.data) && (
+        (request.auth.uid == userId && isValidUserProfile(request.resource.data, userId) && (
           (isSuperAdmin() && request.resource.data.role == 'ADMIN') ||
           (request.resource.data.role == 'STAFF') || // Default safe role
           (exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) && 
@@ -282,13 +325,17 @@ service cloud.firestore {
         (userId == 'demo_admin_profile' && isAnonymousDemo() && request.resource.data.role == 'ADMIN')
       );
       allow update: if isAuthenticated() && (
-        (request.auth.uid == userId && isValidUserProfile(request.resource.data) && (
+        (request.auth.uid == userId && isValidUserProfile(request.resource.data, userId) && (
           request.resource.data.role == resource.data.role ||
           (request.resource.data.role == 'ADMIN' && 
            exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) && 
            get(/databases/$(database)/documents/companies/$(request.resource.data.companyId)).data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower())
         )) || // User can update profile, and can become ADMIN if they own the company
-        (isAdmin() && isValidUserProfile(request.resource.data)) || // Admin can update roles
+        (isManager() && 
+         belongsToCompany(resource.data.companyId) && 
+         resource.data.companyId == request.resource.data.companyId &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastPasswordUpdate'])) ||
+        (isAdmin() && isValidUserProfile(request.resource.data, userId)) || // Admin can update roles
         (userId == 'demo_admin_profile' && isAnonymousDemo())
       );
       allow delete: if isSuperAdmin();

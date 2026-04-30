@@ -201,10 +201,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const isSuperAdmin = useMemo(() => 
-    user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' || 
-    user?.email?.toLowerCase() === 'abdullahiwasiu07@gmail.com'
-  , [user?.email]);
+  const isSuperAdmin = useMemo(() => {
+    const email = user?.email?.toLowerCase();
+    return email === 'wasiuadebisi89@gmail.com' || 
+           email === 'abdullahiwasiu07@gmail.com';
+  }, [user?.email]);
 
   const isAdmin = useMemo(() => profile?.role === 'ADMIN' || isSuperAdmin, [profile?.role, isSuperAdmin]);
   const isManager = useMemo(() => profile?.role === 'MANAGER' || isAdmin, [profile?.role, isAdmin]);
@@ -362,26 +363,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
       
-      // Detect mobile devices and iframe environment
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const isIframe = window.self !== window.top;
+      const domain = window.location.hostname;
+      console.log(`AuthContext: Attempting Google Sign-In on domain: ${domain}`);
       
-      // In an iframe (like AI Studio), signInWithRedirect almost always fails with a 403 or redirect loop
-      // We should prefer Popup in iframes if possible, or show a clear warning
-      if (isMobile && !isIframe) {
-        console.log('Mobile (non-iframe) detected, using signInWithRedirect');
-        await signInWithRedirect(auth, provider);
-      } else {
-        console.log(isIframe ? 'Iframe detected, using signInWithPopup' : 'Desktop detected, using signInWithPopup');
-        await signInWithPopup(auth, provider);
-      }
+      // Use Popup for best compatibility in shared and iframe environments
+      await signInWithPopup(auth, provider);
     } catch (error: any) {
       console.error('Sign in failed:', error);
+      const domain = window.location.hostname;
+      
       if (error.code === 'auth/unauthorized-domain' || error.message?.includes('403')) {
-        const domain = window.location.hostname;
         setErrorMessage(
-          `Unauthorized Domain: The domain "${domain}" is not authorized for Google Sign-In in your Firebase Console. ` +
-          `Please go to Authentication > Settings > Authorized domains and add "${domain}".`
+          `Unauthorized Domain: "${domain}" is not authorized. ` +
+          `Please go to Firebase Console > Authentication > Settings > Authorized domains and add "${domain}".`
         );
       } else if (error.code === 'auth/operation-not-allowed') {
         setErrorMessage(
@@ -522,22 +516,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const manualResetPassword = async (userId: string) => {
-    if (!isAdmin) return;
+    if (!isManager && !isAccount) {
+      setErrorMessage('Permission Denied: You do not have the required role to reset passwords.');
+      return;
+    }
     try {
       setErrorMessage(null);
       setSuccessMessage(null);
+      console.log(`AuthContext: Manually resetting password state for user: ${userId}`);
       
       // We can't change the actual Auth password from the client for another user,
       // but we can clear the lastPasswordUpdate field in Firestore.
       // This will trigger the mustChangePassword state for them upon their next login.
-      await setDoc(doc(db, 'users', userId), { 
+      const userRef = doc(db, 'users', userId);
+      await setDoc(userRef, { 
         lastPasswordUpdate: null 
       }, { merge: true });
       
-      setSuccessMessage('Password state reset for user. They will be forced to change their password on next login. Note: This does not change their actual password; if they forgot it, they must still use the "Forgot Password" email link.');
+      console.log('AuthContext: Password state reset successful in Firestore.');
+      setSuccessMessage('Password state reset for user. They will be forced to change their password on next login.');
     } catch (error: any) {
       console.error('Manual reset failed:', error);
-      setErrorMessage(`Failed to reset password state: ${error.message}`);
+      setErrorMessage(`Failed to reset password state: ${error.message} (Role: ${profile?.role}, Company: ${profile?.companyId})`);
     }
   };
 
