@@ -22,9 +22,11 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return isAuthenticated() && 
-             (request.auth.token.get('email', '').lower() == "wasiuadebisi89@gmail.com" || 
-              request.auth.token.get('email', '').lower() == "abdullahiwasiu07@gmail.com");
+      return isAuthenticated() && (
+        request.auth.token.get('email', '').lower() == "wasiuadebisi89@gmail.com" || 
+        request.auth.token.get('email', '').lower() == "adezmoldent@gmail.com" || 
+        request.auth.token.get('email', '').lower() == "abdullahiwasiu07@gmail.com"
+      );
     }
 
     function isCompanyApproved(companyId) {
@@ -41,8 +43,13 @@ service cloud.firestore {
     }
 
     function isCompanyAuthorized(companyId) {
-      return companyId != null && 
-             (isCompanyApproved(companyId) || isCompanyOwner(companyId));
+      return companyId != null && (
+        isCompanyApproved(companyId) || (
+          request.auth.token.get('email', '').lower() != '' &&
+          exists(/databases/$(database)/documents/companies/$(companyId)) && 
+          get(/databases/$(database)/documents/companies/$(companyId)).data.get('ownerEmail', '').lower() == request.auth.token.get('email', '').lower()
+        )
+      );
     }
 
     function isAdmin() {
@@ -312,6 +319,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
+      allow list: if isAuthenticated() && (isSuperAdmin() || isAnonymousDemo());
       allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin() || (userId == 'demo_admin_profile' && isAnonymousDemo()));
       // CRITICAL: Prevent self-assignment of ADMIN role unless it's the Super Admin or a Demo user.
       allow create: if isAuthenticated() && (

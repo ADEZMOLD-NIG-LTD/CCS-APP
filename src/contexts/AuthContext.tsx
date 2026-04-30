@@ -105,7 +105,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Permission Engine Logic
   const can = (action: PermissionAction): boolean => {
-    if (user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com') return true; // Super Admin bypass
+    const adminEmails = ['wasiuadebisi89@gmail.com', 'adezmoldent@gmail.com', 'abdullahiwasiu07@gmail.com'];
+    if (user?.email && adminEmails.includes(user.email.toLowerCase())) return true; // Super Admin bypass
     if (isDemoMode) return true; // Demo mode has all permissions
     if (!profile) return false;
 
@@ -204,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSuperAdmin = useMemo(() => {
     const email = user?.email?.toLowerCase();
     return email === 'wasiuadebisi89@gmail.com' || 
+           email === 'adezmoldent@gmail.com' ||
            email === 'abdullahiwasiu07@gmail.com';
   }, [user?.email]);
 
@@ -724,8 +726,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const approveCompany = async (companyId: string) => {
-    if (user?.email?.toLowerCase() !== 'wasiuadebisi89@gmail.com') return;
+   const approveCompany = async (companyId: string) => {
+    if (!isSuperAdmin) return;
     try {
       await setDoc(doc(db, 'companies', companyId), { isApproved: true }, { merge: true });
       setSuccessMessage('Company approved successfully.');
@@ -736,7 +738,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const disapproveCompany = async (companyId: string) => {
-    if (user?.email?.toLowerCase() !== 'wasiuadebisi89@gmail.com') return;
+    if (!isSuperAdmin) return;
     await setDoc(doc(db, 'companies', companyId), { isApproved: false }, { merge: true });
   };
 
