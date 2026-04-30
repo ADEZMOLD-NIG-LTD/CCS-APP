@@ -30,14 +30,14 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onNavigate }: DashboardProps) {
-  const { profile } = useAuth();
+  const { profile, company, isSuperAdmin } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
   useEffect(() => {
-    if (!profile?.companyId) return;
+    if (!profile?.companyId || (company && !company.isApproved && !isSuperAdmin)) return;
 
     const qTx = query(
       collection(db, 'transactions'), 

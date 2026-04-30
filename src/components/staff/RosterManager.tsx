@@ -107,7 +107,7 @@ export default function RosterManager({
                         <button 
                           onClick={() => onUpdateStatus(staff.id, 'SUSPENDED')}
                           title="Suspend Staff"
-                          className="text-slate-300 hover:text-amber-600 transition-colors opacity-0 group-hover:opacity-100"
+                          className="text-slate-400 hover:text-amber-600 transition-colors"
                         >
                           <UserMinus size={14} />
                         </button>
@@ -115,29 +115,29 @@ export default function RosterManager({
                         <button 
                           onClick={() => onUpdateStatus(staff.id, 'ACTIVE')}
                           title="Recall Staff"
-                          className="text-slate-300 hover:text-emerald-600 transition-colors opacity-0 group-hover:opacity-100"
+                          className="text-slate-400 hover:text-emerald-600 transition-colors"
                         >
                           <UserCheck size={14} />
                         </button>
                       ) : null}
 
-                      {staff.uid && (
-                        <div className="flex items-center gap-2">
-                          <button 
-                            onClick={() => onResetPassword(staff.uid!)}
-                            title="Force Password Reset (on next login)"
-                            className="text-slate-300 hover:text-indigo-600 transition-colors opacity-0 group-hover:opacity-100"
-                          >
-                            <Lock size={14} />
-                          </button>
-                        </div>
-                      )}
+                      <button 
+                        onClick={() => onResetPassword(staff.uid || staff.id)}
+                        disabled={!staff.email || !staff.uid}
+                        title={staff.uid ? "Force Password Reset (on next login)" : "Cannot reset - User has not signed up yet"}
+                        className={cn(
+                          "transition-colors",
+                          staff.uid ? "text-slate-400 hover:text-indigo-600" : "text-slate-200 cursor-not-allowed"
+                        )}
+                      >
+                        <Lock size={14} />
+                      </button>
                       
                       {staff.status !== 'DISMISSED' && (
                         <button 
                           onClick={() => onUpdateStatus(staff.id, 'DISMISSED')}
                           title="Dismiss Staff"
-                          className="text-slate-300 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
+                          className="text-slate-400 hover:text-rose-600 transition-colors"
                         >
                           <UserX size={14} />
                         </button>
@@ -146,14 +146,14 @@ export default function RosterManager({
                       <button 
                         onClick={() => onEdit(staff)}
                         title="Edit Staff"
-                        className="text-slate-300 hover:text-indigo-600 transition-colors opacity-0 group-hover:opacity-100"
+                        className="text-slate-400 hover:text-indigo-600 transition-colors"
                       >
                         <FileText size={14} />
                       </button>
                       <button 
                         onClick={() => onDelete(staff.id)}
                         title="Delete Staff"
-                        className="text-slate-300 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
+                        className="text-slate-400 hover:text-rose-600 transition-colors"
                       >
                         <Trash2 size={14} />
                       </button>

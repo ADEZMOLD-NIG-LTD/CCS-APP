@@ -317,7 +317,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   await setDoc(userRef, newProfile);
                   
                   // Link staff record to UID
-                  await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
+                  try {
+                    await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
+                    console.log('AuthContext: Staff record linked to UID successfully.');
+                  } catch (linkError) {
+                    console.warn('AuthContext: Failed to link staff record to UID. This may require an admin to fix.', linkError);
+                    // We don't block the profile creation if linking fails, but we log it
+                  }
                 } else {
                   setProfile(null);
                   setCompany(null);

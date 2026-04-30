@@ -59,7 +59,7 @@ service cloud.firestore {
     }
 
     function isStaff() {
-      return isAuthenticated() && (isAccount() || isAuditor() || isStoreKeeper() || (userExists() && getUserData().get('role', '') == 'STAFF' && isCompanyApproved(getUserData().get('companyId', ''))));
+      return isAuthenticated() && (isAccount() || isAuditor() || isStoreKeeper() || (userExists() && getUserData().get('role', '') == 'STAFF' && (isCompanyApproved(getUserData().get('companyId', '')) || isCompanyOwner(getUserData().get('companyId', '')))));
     }
 
     function isStoreKeeper() {
@@ -321,7 +321,8 @@ service cloud.firestore {
         (isAccount() && belongsToCompany(resource.data.companyId))
       );
       allow create: if isManager() && belongsToCompany(request.resource.data.companyId) && isValidStaff(request.resource.data);
-      allow update: if isManager() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidStaff(request.resource.data);
+      allow update: if (isManager() && belongsToCompany(resource.data.companyId) && belongsToCompany(request.resource.data.companyId) && isValidStaff(request.resource.data)) ||
+                     (isAuthenticated() && request.auth.token.get('email', '').lower() == resource.data.get('email', '').lower() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid']));
       allow delete: if isAdmin() && belongsToCompany(resource.data.companyId);
     }
 

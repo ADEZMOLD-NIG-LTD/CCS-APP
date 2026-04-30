@@ -138,6 +138,15 @@ function AppContent() {
     );
   }
 
+  if (user && profile?.companyId && !company && !isSuperAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
+        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Loading company profile...</p>
+      </div>
+    );
+  }
+
   if (user && company && !company.isApproved && !isSuperAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-6 text-center">
