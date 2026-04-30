@@ -5,11 +5,11 @@
 
 import React, { useState } from 'react';
 import { Shield, Lock, ArrowRight, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function ChangePasswordPage() {
-  const { changePassword, logout, errorMessage, successMessage } = useAuth();
+  const { changePassword, logout, errorMessage, successMessage, setErrorMessage } = useAuth();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -22,12 +22,12 @@ export default function ChangePasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
-      // In AuthContext we have setErrorMessage, but it's easier to show a local one here first
+      setErrorMessage("Passwords do not match.");
       return;
     }
     
     if (newPassword === currentPassword) {
-      alert("New password must be different from the current password.");
+      setErrorMessage("New password must be different from the current password.");
       return;
     }
 
@@ -36,7 +36,8 @@ export default function ChangePasswordPage() {
       await changePassword(currentPassword, newPassword);
       // AuthContext will update mustChangePassword, triggering redirect in App.tsx
     } catch (err) {
-      // Error handled by AuthContext
+      console.error('ChangePasswordPage: handleSubmit error:', err);
+      // Error is set in AuthContext
     } finally {
       setIsSubmitting(false);
     }
@@ -58,6 +59,35 @@ export default function ChangePasswordPage() {
             Your password has expired or needs to be updated for security reasons. Please set a new password to continue.
           </p>
         </div>
+
+        <AnimatePresence>
+          {errorMessage && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-start gap-3 mb-6 overflow-hidden"
+            >
+              <AlertCircle className="text-rose-600 shrink-0 mt-0.5" size={18} />
+              <div className="flex-1">
+                <p className="text-xs font-bold text-rose-900 leading-tight">{errorMessage}</p>
+              </div>
+            </motion.div>
+          )}
+          {successMessage && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3 mb-6 overflow-hidden"
+            >
+              <CheckCircle2 className="text-emerald-600 shrink-0 mt-0.5" size={18} />
+              <div className="flex-1">
+                <p className="text-xs font-bold text-emerald-900 leading-tight">{successMessage}</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1">
@@ -136,7 +166,7 @@ export default function ChangePasswordPage() {
 
           <button 
             type="submit"
-            disabled={isSubmitting || !newPassword || newPassword !== confirmPassword}
+            disabled={isSubmitting || !currentPassword || !newPassword || newPassword !== confirmPassword}
             className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold shadow-xl flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 mt-4"
           >
             {isSubmitting ? (

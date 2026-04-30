@@ -266,9 +266,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   const lastUpdate = new Date(data.lastPasswordUpdate).getTime();
                   const now = new Date().getTime();
                   const diffDays = (now - lastUpdate) / (1000 * 60 * 60 * 24);
-                  setMustChangePassword(diffDays >= 90);
+                  const expired = diffDays >= 90;
+                  console.log('AuthContext: Password policy check:', { lastPasswordUpdate: data.lastPasswordUpdate, diffDays, expired });
+                  setMustChangePassword(expired);
                 } else {
                   // Force change on first login for email users
+                  console.log('AuthContext: Force change - lastPasswordUpdate missing');
                   setMustChangePassword(true);
                 }
               } else {
@@ -480,8 +483,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      await sendPasswordResetEmail(auth, email);
-      setSuccessMessage('Password reset link sent to your email. Please check your inbox and spam folder. The link will expire in 1 hour.');
+      // Configure ActionCodeSettings to handle the redirect back to the app
+      const actionCodeSettings = {
+        // Point back to the current app URL
+        url: window.location.origin,
+        handleCodeInApp: false, // Use the default Firebase handler page
+      };
+
+      await sendPasswordResetEmail(auth, email, actionCodeSettings);
+      setSuccessMessage('Password reset link sent to your email. Please check your inbox and spam folder. If the link shows as "expired", ensure you are clicking the MOST RECENT email sent and that you don\'t have any duplicate requests pending.');
     } catch (error: any) {
       console.error('Password reset failed:', error);
       
@@ -494,9 +504,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (error.code === 'auth/operation-not-allowed') {
         msg = 'Password reset is currently disabled. Please contact the administrator to enable Email/Password provider in Firebase Console.';
       } else if (error.code === 'auth/too-many-requests') {
-        msg = 'Too many requests. Please try again later.';
+        msg = 'Too many requests. Please try again later. Wait at least 15 minutes before the next attempt.';
       } else if (error.code === 'auth/network-request-failed') {
         msg = 'Network error. Please check your internet connection and try again.';
+      } else if (error.code === 'auth/unauthorized-domain') {
+        msg = 'The current domain is not authorized for password reset. Contact the administrator.';
       }
       
       setErrorMessage(msg);
@@ -507,15 +519,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isAdmin) return;
     try {
       setErrorMessage(null);
+      setSuccessMessage(null);
+      
       // We can't change the actual Auth password from the client for another user,
       // but we can clear the lastPasswordUpdate field in Firestore.
-      // This will trigger the mustChangePassword state for them upon their next login
-      // assuming they know their current password (or we give them a default one).
+      // This will trigger the mustChangePassword state for them upon their next login.
       await setDoc(doc(db, 'users', userId), { 
         lastPasswordUpdate: null 
       }, { merge: true });
       
-      setSuccessMessage('User record updated. They will be prompted to change their password on next login.');
+      setSuccessMessage('Password state reset for user. They will be forced to change their password on next login. Note: This does not change their actual password; if they forgot it, they must still use the "Forgot Password" email link.');
     } catch (error: any) {
       console.error('Manual reset failed:', error);
       setErrorMessage(`Failed to reset password state: ${error.message}`);
@@ -541,13 +554,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('AuthContext: Password updated in Auth. Updating Firestore profile...');
       
       // Update lastPasswordUpdate in Firestore
+      const now = new Date().toISOString();
       const updateData = { 
-        lastPasswordUpdate: new Date().toISOString() 
+        lastPasswordUpdate: now 
       };
       
       await setDoc(doc(db, 'users', user.uid), updateData, { merge: true });
-      console.log('AuthContext: Firestore profile updated with lastPasswordUpdate');
+      console.log('AuthContext: Firestore profile updated with lastPasswordUpdate:', now);
       
+      // Local update to avoid waiting for snapshot if possible
+      setProfile(prev => prev ? { ...prev, lastPasswordUpdate: now } : null);
       setMustChangePassword(false);
       setSuccessMessage('Password updated successfully. Accessing your dashboard...');
       

@@ -122,13 +122,15 @@ export default function RosterManager({
                       ) : null}
 
                       {staff.uid && (
-                        <button 
-                          onClick={() => onResetPassword(staff.uid!)}
-                          title="Force Password Reset"
-                          className="text-slate-300 hover:text-indigo-600 transition-colors opacity-0 group-hover:opacity-100"
-                        >
-                          <Lock size={14} />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button 
+                            onClick={() => onResetPassword(staff.uid!)}
+                            title="Force Password Reset (on next login)"
+                            className="text-slate-300 hover:text-indigo-600 transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <Lock size={14} />
+                          </button>
+                        </div>
                       )}
                       
                       {staff.status !== 'DISMISSED' && (
