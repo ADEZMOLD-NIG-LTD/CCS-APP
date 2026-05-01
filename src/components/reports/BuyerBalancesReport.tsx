@@ -6,6 +6,7 @@
 import React from 'react';
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { Buyer } from '../../types';
+import { formatCurrency } from '../../lib/utils';
 
 interface BuyerBalancesReportProps {
   totalBuyerDebit: number;
@@ -26,11 +27,11 @@ export default function BuyerBalancesReport({
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-blue-600 rounded-2xl p-4 text-white shadow-lg">
           <p className="text-[10px] font-bold uppercase opacity-60 mb-1">Total Debit (They Owe)</p>
-          <h2 className="text-xl font-black">₦{totalBuyerDebit.toLocaleString()}</h2>
+          <h2 className="text-xl font-black">{formatCurrency(totalBuyerDebit)}</h2>
         </div>
         <div className="bg-emerald-600 rounded-2xl p-4 text-white shadow-lg">
           <p className="text-[10px] font-bold uppercase opacity-60 mb-1">Total Credit (We Owe)</p>
-          <h2 className="text-xl font-black">₦{totalBuyerCredit.toLocaleString()}</h2>
+          <h2 className="text-xl font-black">{formatCurrency(totalBuyerCredit)}</h2>
         </div>
       </div>
 
@@ -51,7 +52,7 @@ export default function BuyerBalancesReport({
                   <p className="font-bold text-slate-900">{b.name}</p>
                   <p className="text-[10px] text-slate-400 uppercase">{b.location}</p>
                 </div>
-                <p className="text-lg font-black text-blue-600">₦{b.balance.toLocaleString()}</p>
+                <p className="text-lg font-black text-blue-600">{formatCurrency(b.balance)}</p>
               </div>
             ))
           )}
@@ -75,7 +76,7 @@ export default function BuyerBalancesReport({
                   <p className="font-bold text-slate-900">{b.name}</p>
                   <p className="text-[10px] text-slate-400 uppercase">{b.location}</p>
                 </div>
-                <p className="text-lg font-black text-emerald-600">₦{Math.abs(b.balance).toLocaleString()}</p>
+                <p className="text-lg font-black text-emerald-600">{formatCurrency(Math.abs(b.balance))}</p>
               </div>
             ))
           )}

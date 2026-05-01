@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { reportFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
+import { formatNumber } from '../lib/utils';
 
 // Sub-components
 import StoreRecordForm from './store/StoreRecordForm';
@@ -145,7 +146,7 @@ export default function StoreKeeperModule() {
         const currentStock = getWarehouseStock(sourceId, formData.commodity!, editingRecord?.id);
         
         if (formData.actualWeight! > currentStock) {
-          setErrorMessage(`Insufficient stock in ${warehouses.find(w => w.id === sourceId)?.name}. Available: ${currentStock.toLocaleString()} kg`);
+          setErrorMessage(`Insufficient stock in ${warehouses.find(w => w.id === sourceId)?.name}. Available: ${formatNumber(currentStock)} kg`);
           return;
         }
       }

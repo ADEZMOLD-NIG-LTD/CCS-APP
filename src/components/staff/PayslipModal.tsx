@@ -7,6 +7,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Download } from 'lucide-react';
 import { Payroll, Staff } from '../../types';
+import { formatCurrency } from '../../lib/utils';
 
 interface PayslipModalProps {
   viewingPayroll: Payroll | null;
@@ -55,22 +56,22 @@ export default function PayslipModal({
             </div>
             <div className="text-right">
               <p className="text-[10px] text-slate-400 font-bold uppercase">Net Pay</p>
-              <p className="text-xl font-black text-indigo-600">₦{viewingPayroll.netPay.toLocaleString()}</p>
+              <p className="text-xl font-black text-indigo-600">{formatCurrency(viewingPayroll.netPay)}</p>
             </div>
           </div>
 
           <div className="space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">Basic Salary</span>
-              <span className="font-bold text-slate-900">₦{viewingPayroll.basicSalary.toLocaleString()}</span>
+              <span className="font-bold text-slate-900">{formatCurrency(viewingPayroll.basicSalary)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">Allowances</span>
-              <span className="font-bold text-slate-900">₦{viewingPayroll.allowances.toLocaleString()}</span>
+              <span className="font-bold text-slate-900">{formatCurrency(viewingPayroll.allowances)}</span>
             </div>
             <div className="flex justify-between text-sm pt-2 border-t border-slate-50">
               <span className="font-bold text-slate-900">Gross Income</span>
-              <span className="font-bold text-slate-900">₦{viewingPayroll.grossIncome.toLocaleString()}</span>
+              <span className="font-bold text-slate-900">{formatCurrency(viewingPayroll.grossIncome)}</span>
             </div>
           </div>
 
@@ -78,11 +79,11 @@ export default function PayslipModal({
             <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Deductions</p>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">Pension (8%)</span>
-              <span className="font-bold text-rose-500">-₦{viewingPayroll.pension.toLocaleString()}</span>
+              <span className="font-bold text-rose-500">-{formatCurrency(viewingPayroll.pension)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">PAYE Tax</span>
-              <span className="font-bold text-rose-500">-₦{viewingPayroll.paye.toLocaleString()}</span>
+              <span className="font-bold text-rose-500">-{formatCurrency(viewingPayroll.paye)}</span>
             </div>
           </div>
 

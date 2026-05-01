@@ -6,7 +6,7 @@
 import React from 'react';
 import { Users, Lock, Clock, XCircle, Briefcase, Phone, Building2, UserMinus, UserCheck, UserX, FileText, Trash2 } from 'lucide-react';
 import { Staff, Roster, Warehouse } from '../../types';
-import { cn } from '../../lib/utils';
+import { cn, formatCurrency } from '../../lib/utils';
 
 interface RosterManagerProps {
   filteredStaff: Staff[];
@@ -99,7 +99,7 @@ export default function RosterManager({
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-black text-slate-900">₦{((staff.salary || 0) + (staff.allowances || 0)).toLocaleString()}</p>
+                  <p className="text-sm font-black text-slate-900">{formatCurrency((staff.salary || 0) + (staff.allowances || 0))}</p>
                   <p className="text-[9px] text-slate-400 uppercase">Gross Salary</p>
                   {canManageStaff && (
                     <div className="flex items-center justify-end gap-2 mt-2">

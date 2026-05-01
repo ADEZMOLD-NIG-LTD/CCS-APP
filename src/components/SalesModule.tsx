@@ -31,7 +31,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
-import { cn } from '../lib/utils';
+import { cn, roundTo, formatNumber, formatCurrency } from '../lib/utils';
 import SaleForm from './sales/SaleForm';
 import BuyerForm from './sales/BuyerForm';
 import SalesList from './sales/SalesList';
@@ -162,11 +162,11 @@ export default function SalesModule() {
     const actual = Number(moistureActual) || 0;
     const benchmark = Number(moistureBenchmark) || 0;
     const gross = Number(grossWeight) || 0;
-    return ((actual - benchmark) * gross) / 100;
+    return roundTo(((actual - benchmark) * gross) / 100, 2);
   }, [moistureActual, moistureBenchmark, grossWeight]);
 
-  const totalDeductions = moistureLoss + Number(tareWeight) + Number(moldWeight) + Number(otherDeduction);
-  const netWeight = Math.max(0, Number(grossWeight) - totalDeductions);
+  const totalDeductions = roundTo(moistureLoss + Number(tareWeight) + Number(moldWeight) + Number(otherDeduction), 2);
+  const netWeight = Math.max(0, roundTo(Number(grossWeight) - totalDeductions, 2));
 
   const handleAddBuyer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -210,7 +210,7 @@ export default function SalesModule() {
     // Check inventory availability (Skip for direct delivery)
     const availableStock = inventory[commodity];
     if (!isDirectDelivery && netWeight > availableStock) {
-      setErrorMessage(`Insufficient inventory! Available ${commodity} stock is only ${(availableStock || 0).toLocaleString()} kg.`);
+      setErrorMessage(`Insufficient inventory! Available ${commodity} stock is only ${formatNumber(availableStock || 0)} kg.`);
       return;
     }
 
@@ -233,7 +233,7 @@ export default function SalesModule() {
       bags: Number(formData.get('bags')) || 0,
       noOfBags: Number(formData.get('bags')) || 0,
       pricePerKg: Number(formData.get('price')) || 0,
-      totalValue: netWeight * (Number(formData.get('price')) || 0),
+      totalValue: roundTo(netWeight * (Number(formData.get('price')) || 0), 2),
       referenceId: `SL-${Date.now().toString().slice(-6)}`,
       truckNo: formData.get('truckNo') as string,
       driverName: formData.get('driverName') as string,

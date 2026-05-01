@@ -13,7 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { reportFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
-import { cn } from '../lib/utils';
+import { cn, roundTo, formatNumber, formatCurrency } from '../lib/utils';
 
 // Sub-components
 import PurchaseForm from './inventory/PurchaseForm';
@@ -245,7 +245,7 @@ export default function InventoryModule() {
       bags: data.bags,
       noOfBags: data.bags,
       pricePerKg: data.price,
-      totalValue: data.netWeight * data.price,
+      totalValue: roundTo(data.netWeight * data.price, 2),
       referenceId: editingTransaction?.referenceId || `TX-${Date.now().toString().slice(-6)}`,
       warehouseId: data.warehouseId || profile?.assignedWarehouseId || '',
       deductions: data.deductions
@@ -308,7 +308,7 @@ export default function InventoryModule() {
       }
       const currentStock = getWarehouseBagStock(newTx.warehouseId, data.packagingType);
       if (data.quantity > currentStock) {
-        setErrorMessage(`Insufficient ${data.packagingType.replace('_', ' ')} stock. Available: ${currentStock.toLocaleString()} units`);
+        setErrorMessage(`Insufficient ${data.packagingType.replace('_', ' ')} stock. Available: ${formatNumber(currentStock, 0)} units`);
         setSubmitting(false);
         return;
       }
@@ -348,7 +348,7 @@ export default function InventoryModule() {
 
     const sourceStock = getWarehouseBagStock(data.sourceWarehouseId, data.packagingType);
     if (data.quantity > sourceStock) {
-      setErrorMessage(`Insufficient stock in source warehouse. Available: ${(sourceStock || 0).toLocaleString()} units`);
+      setErrorMessage(`Insufficient stock in source warehouse. Available: ${formatNumber(sourceStock || 0, 0)} units`);
       return;
     }
 
@@ -402,7 +402,7 @@ export default function InventoryModule() {
 
     const sourceStock = getWarehouseStock(data.sourceWarehouseId, data.commodity);
     if (data.weight > sourceStock) {
-      setErrorMessage(`Insufficient stock in source warehouse. Available: ${sourceStock.toFixed(2)}kg`);
+      setErrorMessage(`Insufficient stock in source warehouse. Available: ${formatNumber(sourceStock)}kg`);
       return;
     }
 

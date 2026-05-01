@@ -43,7 +43,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import Toast from './Toast';
-import { cn } from '../lib/utils';
+import { cn, roundTo, formatCurrency } from '../lib/utils';
 
 const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -103,22 +103,22 @@ export default function AnalyticsModule() {
 
   // KPI Calculations
   const totalPurchaseValue = useMemo(() => 
-    filteredTx.filter(tx => tx.type === 'PURCHASE').reduce((sum, tx) => sum + (tx.totalValue || 0), 0), 
+    filteredTx.filter(tx => tx.type === 'PURCHASE').reduce((sum, tx) => sum + roundTo(tx.totalValue || 0, 2), 0), 
   [filteredTx]);
 
   const totalSalesValue = useMemo(() => 
-    filteredTx.filter(tx => tx.type === 'SALE').reduce((sum, tx) => sum + (tx.totalValue || 0), 0), 
+    filteredTx.filter(tx => tx.type === 'SALE').reduce((sum, tx) => sum + roundTo(tx.totalValue || 0, 2), 0), 
   [filteredTx]);
 
   const totalInflowValue = useMemo(() => 
-    filteredJournal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + e.amount, 0), 
+    filteredJournal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0), 
   [filteredJournal]);
 
   const totalOutflowValue = useMemo(() => 
-    filteredJournal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + e.amount, 0), 
+    filteredJournal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0), 
   [filteredJournal]);
 
-  const grossProfit = (totalSalesValue + totalInflowValue) - (totalPurchaseValue + totalOutflowValue);
+  const grossProfit = roundTo((totalSalesValue + totalInflowValue) - (totalPurchaseValue + totalOutflowValue), 2);
 
   // Commodity Distribution (Pie Chart)
   const commodityData = useMemo(() => {
@@ -191,7 +191,7 @@ export default function AnalyticsModule() {
               </div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Sales</p>
             </div>
-            <h3 className="text-lg font-black text-slate-900">₦{(totalSalesValue || 0).toLocaleString()}</h3>
+            <h3 className="text-lg font-black text-slate-900">{formatCurrency(totalSalesValue || 0)}</h3>
           </div>
           <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm">
             <div className="flex items-center gap-2 mb-2">
@@ -200,7 +200,7 @@ export default function AnalyticsModule() {
               </div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Purchases</p>
             </div>
-            <h3 className="text-lg font-black text-slate-900">₦{(totalPurchaseValue || 0).toLocaleString()}</h3>
+            <h3 className="text-lg font-black text-slate-900">{formatCurrency(totalPurchaseValue || 0)}</h3>
           </div>
           <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm">
             <div className="flex items-center gap-2 mb-2">
@@ -209,7 +209,7 @@ export default function AnalyticsModule() {
               </div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Inflow</p>
             </div>
-            <h3 className="text-lg font-black text-slate-900">₦{(totalInflowValue || 0).toLocaleString()}</h3>
+            <h3 className="text-lg font-black text-slate-900">{formatCurrency(totalInflowValue || 0)}</h3>
           </div>
           <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm">
             <div className="flex items-center gap-2 mb-2">
@@ -218,7 +218,7 @@ export default function AnalyticsModule() {
               </div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Outflow</p>
             </div>
-            <h3 className="text-lg font-black text-slate-900">₦{(totalOutflowValue || 0).toLocaleString()}</h3>
+            <h3 className="text-lg font-black text-slate-900">{formatCurrency(totalOutflowValue || 0)}</h3>
           </div>
           <div className={cn(
             "p-4 rounded-3xl border shadow-sm",
@@ -230,7 +230,7 @@ export default function AnalyticsModule() {
               </div>
               <p className="text-[10px] font-bold opacity-80 uppercase tracking-wider">Net Profit/Loss</p>
             </div>
-            <h3 className="text-lg font-black">₦{(grossProfit || 0).toLocaleString()}</h3>
+            <h3 className="text-lg font-black">{formatCurrency(grossProfit || 0)}</h3>
           </div>
         </div>
 

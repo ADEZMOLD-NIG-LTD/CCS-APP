@@ -602,6 +602,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setErrorMessage('Incorrect current password.');
       } else if (error.code === 'auth/weak-password') {
         setErrorMessage('New password is too weak.');
+      } else if (error.code === 'auth/network-request-failed') {
+        setErrorMessage('Network error during password update. This often points to an API key restriction or an unauthorized domain. Please check your internet connection and ensure your domain is authorized in the Firebase Console.');
       } else {
         setErrorMessage(`Failed to update password: ${error.message}`);
       }

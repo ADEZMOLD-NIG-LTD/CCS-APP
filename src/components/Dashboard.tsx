@@ -24,6 +24,7 @@ import { collection, onSnapshot, query, orderBy, limit, where } from 'firebase/f
 import { Transaction, Payment, JournalEntry, Supplier } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, OperationType } from '../lib/firestore';
+import { roundTo, formatCurrency } from '../lib/utils';
 
 interface DashboardProps {
   onNavigate: (module: any) => void;
@@ -86,11 +87,11 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   }, [profile?.companyId]);
 
   const stats = useMemo(() => {
-    const totalPurchases = transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + (t.totalValue || 0), 0);
-    const totalSales = transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + (t.totalValue || 0), 0);
-    const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0);
-    const totalInflow = journal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + e.amount, 0);
-    const totalOutflow = journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + e.amount, 0);
+    const totalPurchases = transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
+    const totalSales = transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
+    const totalPayments = payments.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
+    const totalInflow = journal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
+    const totalOutflow = journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
 
     // Calculate total supplier balance
     const totalSupplierBalance = suppliers.reduce((sum, s) => {
@@ -98,11 +99,11 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       const sPay = payments.filter(p => p.supplierId === s.id);
       const sExp = journal.filter(e => e.supplierId === s.id && e.type === 'OUTFLOW');
       
-      const sPurchases = sTx.reduce((sum, t) => sum + (t.totalValue || 0), 0);
-      const sPayments = sPay.reduce((sum, p) => sum + p.amount, 0);
-      const sCharges = sExp.reduce((sum, e) => sum + e.amount, 0);
+      const sPurchases = sTx.reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
+      const sPayments = sPay.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
+      const sCharges = sExp.reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
       
-      return sum + (s.previousBalance || 0) + sPurchases - sPayments - sCharges;
+      return roundTo(sum + (s.previousBalance || 0) + sPurchases - sPayments - sCharges, 2);
     }, 0);
 
     return {
@@ -165,7 +166,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             <TrendingUp size={18} />
           </div>
           <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Sales</p>
-          <p className="text-lg font-bold text-[var(--text-primary)]">₦{(stats.totalSales || 0).toLocaleString()}</p>
+          <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalSales || 0)}</p>
         </motion.div>
 
         <motion.div
@@ -178,7 +179,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             <TrendingDown size={18} />
           </div>
           <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Purchases</p>
-          <p className="text-lg font-bold text-[var(--text-primary)]">₦{(stats.totalPurchases || 0).toLocaleString()}</p>
+          <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalPurchases || 0)}</p>
         </motion.div>
 
         <motion.div
@@ -191,7 +192,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             <TrendingUp size={18} />
           </div>
           <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Inflow</p>
-          <p className="text-lg font-bold text-[var(--text-primary)]">₦{(stats.totalInflow || 0).toLocaleString()}</p>
+          <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalInflow || 0)}</p>
         </motion.div>
 
         <motion.div
@@ -204,7 +205,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             <TrendingDown size={18} />
           </div>
           <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Outflow</p>
-          <p className="text-lg font-bold text-[var(--text-primary)]">₦{(stats.totalOutflow || 0).toLocaleString()}</p>
+          <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalOutflow || 0)}</p>
         </motion.div>
       </div>
 
@@ -216,7 +217,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       >
         <div className="relative z-10">
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">Total Accounts Payable</p>
-          <h2 className="text-3xl font-bold">₦{(stats.totalSupplierBalance || 0).toLocaleString()}</h2>
+          <h2 className="text-3xl font-bold">{formatCurrency(stats.totalSupplierBalance || 0)}</h2>
           <p className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
             <AlertCircle size={10} /> Total outstanding balance to all suppliers
           </p>
@@ -247,7 +248,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
               </div>
               <div className="text-right">
                 <p className={`font-bold ${activity.color}`}>
-                  {activity.type === 'PURCHASE' || activity.type === 'EXPENSE' ? '-' : '+'}₦{(activity.amount || 0).toLocaleString()}
+                  {activity.type === 'PURCHASE' || activity.type === 'EXPENSE' ? '-' : '+'}{formatCurrency(activity.amount || 0)}
                 </p>
               </div>
             </motion.div>

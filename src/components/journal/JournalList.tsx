@@ -1,6 +1,6 @@
 import React from 'react';
 import { Receipt, ArrowUpRight, ArrowDownRight, Calendar, Trash2, AlertCircle } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, formatCurrency } from '../../lib/utils';
 import { JournalEntry, Supplier, Buyer, Warehouse } from '../../types';
 
 interface JournalListProps {
@@ -74,7 +74,7 @@ export default function JournalList({
                   "text-lg font-black",
                   entry.type === 'INFLOW' ? "text-emerald-600" : "text-rose-600"
                 )}>
-                  {entry.type === 'INFLOW' ? '+' : '-'}₦{(entry.amount || 0).toLocaleString()}
+                  {entry.type === 'INFLOW' ? '+' : '-'}{formatCurrency(entry.amount || 0)}
                 </p>
                 {isAdmin && (
                   <button 

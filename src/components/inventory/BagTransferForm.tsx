@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { ArrowLeftRight, X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { PackagingType, Warehouse } from '../../types';
+import { formatNumber } from '../../lib/utils';
 
 const PACKAGING: PackagingType[] = ['JUTE_BAG', 'NYLON_BAG'];
 
@@ -89,7 +90,7 @@ export default function BagTransferForm({
             <div className="col-span-2 bg-amber-50 p-3 rounded-xl border border-amber-100">
               <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">Available Stock in Source</p>
               <p className="text-lg font-black text-amber-700">
-                {(getWarehouseBagStock(transferBagSourceId, transferBagType) || 0).toLocaleString()} units
+                {formatNumber(getWarehouseBagStock(transferBagSourceId, transferBagType) || 0, 0)} units
               </p>
             </div>
           )}

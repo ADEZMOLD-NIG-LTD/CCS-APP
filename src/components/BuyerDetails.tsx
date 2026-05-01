@@ -31,6 +31,7 @@ import { reportFirestoreError, OperationType } from '../lib/firestore';
 import Toast from './Toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { roundTo, formatNumber, formatCurrency } from '../lib/utils';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -90,9 +91,9 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         date: s.date,
         type: 'SALE' as const,
         description: s.isDirectDelivery 
-          ? `Direct Delivery: ${s.commodity} (${(s.netWeight || 0).toFixed(2)}kg @ ₦${(s.pricePerKg || 0).toLocaleString()})`
-          : `${s.commodity} Sale (${(s.netWeight || 0).toFixed(2)}kg @ ₦${(s.pricePerKg || 0).toLocaleString()})`,
-        debit: s.totalValue || 0,
+          ? `Direct Delivery: ${s.commodity} (${formatNumber(s.netWeight || 0)}kg @ ${formatCurrency(s.pricePerKg || 0)})`
+          : `${s.commodity} Sale (${formatNumber(s.netWeight || 0)}kg @ ${formatCurrency(s.pricePerKg || 0)})`,
+        debit: roundTo(s.totalValue || 0, 2),
         credit: 0,
         reference: s.referenceId
       })),
@@ -102,7 +103,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         type: 'PAYMENT' as const,
         description: p.description || 'Cash Payment',
         debit: 0,
-        credit: p.amount || 0,
+        credit: roundTo(p.amount || 0, 2),
         reference: p.category
       }))
     ];
@@ -111,9 +112,9 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
   }, [sales, payments]);
 
   const stats = useMemo(() => {
-    const totalSales = sales.reduce((sum, s) => sum + (s.totalValue || 0), 0);
-    const totalPayments = payments.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const currentBalance = (buyer.previousBalance || 0) + totalSales - totalPayments;
+    const totalSales = sales.reduce((sum, s) => sum + roundTo(s.totalValue || 0, 2), 0);
+    const totalPayments = payments.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
+    const currentBalance = roundTo((buyer.previousBalance || 0) + totalSales - totalPayments, 2);
 
     return { totalSales, totalPayments, currentBalance };
   }, [sales, payments, buyer.previousBalance]);
@@ -150,13 +151,13 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
     doc.setTextColor(15, 23, 42);
     doc.text('SUMMARY', pageWidth - 80, 45);
     doc.setFontSize(9);
-    doc.text(`Opening Balance: NGN ${(buyer.previousBalance || 0).toLocaleString()}`, pageWidth - 80, 52);
-    doc.text(`Total Sales: NGN ${(stats.totalSales || 0).toLocaleString()}`, pageWidth - 80, 58);
-    doc.text(`Total Payments: NGN ${(stats.totalPayments || 0).toLocaleString()}`, pageWidth - 80, 64);
+    doc.text(`Opening Balance: ${formatCurrency(buyer.previousBalance || 0)}`, pageWidth - 80, 52);
+    doc.text(`Total Sales: ${formatCurrency(stats.totalSales || 0)}`, pageWidth - 80, 58);
+    doc.text(`Total Payments: ${formatCurrency(stats.totalPayments || 0)}`, pageWidth - 80, 64);
     
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
-    doc.text(`CURRENT BALANCE: NGN ${(stats.currentBalance || 0).toLocaleString()}`, pageWidth - 80, 72);
+    doc.text(`CURRENT BALANCE: ${formatCurrency(stats.currentBalance || 0)}`, pageWidth - 80, 72);
     doc.setFont('helvetica', 'normal');
 
     // Table
@@ -168,8 +169,8 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         entry.date ? new Date(entry.date).toLocaleDateString() : 'N/A',
         entry.description || '',
         entry.reference || '',
-        (entry.debit || 0) > 0 ? `NGN ${(entry.debit || 0).toLocaleString()}` : '-',
-        (entry.credit || 0) > 0 ? `NGN ${(entry.credit || 0).toLocaleString()}` : '-',
+        (entry.debit || 0) > 0 ? `${formatCurrency(entry.debit || 0)}` : '-',
+        (entry.credit || 0) > 0 ? `${formatCurrency(entry.credit || 0)}` : '-',
       ];
     });
 
@@ -178,7 +179,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       head: [['Date', 'Description', 'Reference', 'Debit (Sales)', 'Credit (Payments)']],
       body: tableData,
       foot: [
-        ['TOTAL', '', '', `NGN ${(stats.totalSales || 0).toLocaleString()}`, `NGN ${(stats.totalPayments || 0).toLocaleString()}`]
+        ['TOTAL', '', '', `${formatCurrency(stats.totalSales || 0)}`, `${formatCurrency(stats.totalPayments || 0)}`]
       ],
       theme: 'striped',
       headStyles: { fillColor: [15, 23, 42], textColor: 255, fontSize: 9 },
@@ -229,18 +230,18 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         <div className="grid grid-cols-3 gap-2">
           <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100">
             <p className="text-[8px] font-bold text-blue-600 uppercase mb-1">Total Sales</p>
-            <p className="text-sm font-black text-blue-900">₦{(stats.totalSales || 0).toLocaleString()}</p>
+            <p className="text-sm font-black text-blue-900">{formatCurrency(stats.totalSales || 0)}</p>
           </div>
           <div className="bg-emerald-50 p-3 rounded-2xl border border-emerald-100">
             <p className="text-[8px] font-bold text-emerald-600 uppercase mb-1">Payments</p>
-            <p className="text-sm font-black text-emerald-900">₦{(stats.totalPayments || 0).toLocaleString()}</p>
+            <p className="text-sm font-black text-emerald-900">{formatCurrency(stats.totalPayments || 0)}</p>
           </div>
           <div className={cn(
             "p-3 rounded-2xl border shadow-sm",
             (stats.currentBalance || 0) >= 0 ? "bg-slate-900 border-slate-800 text-white" : "bg-rose-600 border-rose-500 text-white"
           )}>
             <p className="text-[8px] font-bold uppercase mb-1 opacity-70">Balance</p>
-            <p className="text-sm font-black">₦{(stats.currentBalance || 0).toLocaleString()}</p>
+            <p className="text-sm font-black">{formatCurrency(stats.currentBalance || 0)}</p>
           </div>
         </div>
       </header>
@@ -288,7 +289,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
                   "text-sm font-black",
                   (buyer.previousBalance || 0) >= 0 ? "text-blue-600" : "text-rose-600"
                 )}>
-                  {(buyer.previousBalance || 0) >= 0 ? '+' : ''}₦{(buyer.previousBalance || 0).toLocaleString()}
+                  {(buyer.previousBalance || 0) >= 0 ? '+' : ''}{formatCurrency(buyer.previousBalance || 0)}
                 </p>
               </div>
             </div>
@@ -322,10 +323,10 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
                       </div>
                       <div className="text-right">
                         {(entry.debit || 0) > 0 && (
-                          <p className="text-sm font-black text-blue-600">+₦{(entry.debit || 0).toLocaleString()}</p>
+                          <p className="text-sm font-black text-blue-600">+{formatCurrency(entry.debit)}</p>
                         )}
                         {(entry.credit || 0) > 0 && (
-                          <p className="text-sm font-black text-emerald-600">-₦{(entry.credit || 0).toLocaleString()}</p>
+                          <p className="text-sm font-black text-emerald-600">-{formatCurrency(entry.credit)}</p>
                         )}
                         <p className="text-[9px] text-slate-400 uppercase font-bold">
                           {entry.type === 'SALE' ? 'Debit' : 'Credit'}

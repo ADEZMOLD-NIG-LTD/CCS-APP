@@ -31,7 +31,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
-import { cn } from '../lib/utils';
+import { cn, roundTo, formatNumber, formatCurrency } from '../lib/utils';
 
 interface Props {
   supplier: Supplier;
@@ -134,10 +134,10 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       ...transactions.map(t => ({
         date: t.date,
         description: t.type === 'SALE' 
-          ? (t.isDirectDelivery ? `Direct Delivery Sale: ${t.commodity}` : `Sale: ${t.commodity} (${t.netWeight || 0}kg)`)
-          : `Purchase: ${t.commodity} (${t.netWeight || 0}kg)`,
-        credit: t.type === 'PURCHASE' ? (t.totalValue || 0) : 0,
-        debit: t.type === 'SALE' ? (t.totalValue || 0) : 0,
+          ? (t.isDirectDelivery ? `Direct Delivery Sale: ${t.commodity}` : `Sale: ${t.commodity} (${formatNumber(t.netWeight || 0)}kg)`)
+          : `Purchase: ${t.commodity} (${formatNumber(t.netWeight || 0)}kg)`,
+        credit: t.type === 'PURCHASE' ? roundTo(t.totalValue || 0, 2) : 0,
+        debit: t.type === 'SALE' ? roundTo(t.totalValue || 0, 2) : 0,
         ref: t.referenceId,
         grossWeight: t.grossWeight || 0,
         netWeight: t.netWeight || 0,
@@ -150,7 +150,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         date: p.date,
         description: `Payment: ${p.method} - ${p.description}`,
         credit: 0,
-        debit: p.amount || 0,
+        debit: roundTo(p.amount || 0, 2),
         ref: p.reference,
         grossWeight: 0,
         netWeight: 0,
@@ -163,7 +163,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         date: e.date,
         description: `Charge: ${e.category} - ${e.description}`,
         credit: 0,
-        debit: e.amount || 0,
+        debit: roundTo(e.amount || 0, 2),
         ref: 'JOURNAL',
         grossWeight: 0,
         netWeight: 0,
@@ -181,7 +181,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     for (const entry of allEntries) {
       const entryDate = (entry.date || '').split('T')[0];
       if (entryDate < startDate) {
-        bbf += ((entry.credit || 0) - (entry.debit || 0));
+        bbf = roundTo(bbf + ((entry.credit || 0) - (entry.debit || 0)), 2);
       } else if (entryDate <= endDate) {
         filtered.push(entry);
       }
@@ -190,7 +190,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const sortedEntries = filtered.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
     let runningBalance = bbf;
     const entriesWithBalance = sortedEntries.map(entry => {
-      runningBalance += ((entry.credit || 0) - (entry.debit || 0));
+      runningBalance = roundTo(runningBalance + ((entry.credit || 0) - (entry.debit || 0)), 2);
       return { ...entry, runningBalance };
     });
 
@@ -200,11 +200,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     };
   }, [transactions, payments, journal, supplier.previousBalance, startDate, endDate, supplier.id]);
 
-  const totalPurchases = useMemo(() => transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + (t.totalValue || 0), 0), [transactions]);
-  const totalSales = useMemo(() => transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + (t.totalValue || 0), 0), [transactions]);
-  const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + (p.amount || 0), 0), [payments]);
-  const totalCharges = useMemo(() => journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + (e.amount || 0), 0), [journal]);
-  const currentBalance = (supplier.previousBalance || 0) + totalPurchases - totalSales - totalPayments - totalCharges;
+  const totalPurchases = useMemo(() => transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0), [transactions]);
+  const totalSales = useMemo(() => transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0), [transactions]);
+  const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0), [payments]);
+  const totalCharges = useMemo(() => journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0), [journal]);
+  const currentBalance = roundTo((supplier.previousBalance || 0) + totalPurchases - totalSales - totalPayments - totalCharges, 2);
 
   const bagBalance = useMemo(() => {
     return bagTransactions.reduce((sum, b) => {
@@ -255,7 +255,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         action: AuditAction.CREATE,
         module: 'Payments',
         recordId: id,
-        details: `Recorded payment of ₦${newPayment.amount.toLocaleString()} to ${supplier.name}`,
+        details: `Recorded payment of ${formatCurrency(newPayment.amount)} to ${supplier.name}`,
         newData: newPayment
       }).catch(err => console.error('Audit log failed:', err));
 
@@ -354,11 +354,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     doc.text('CURRENT BALANCE', 222, 58);
     doc.setFontSize(12);
     doc.setTextColor(16, 185, 129);
-    doc.text(`N${(currentBalance || 0).toLocaleString()}`, 222, 68);
+    doc.text(`${formatCurrency(currentBalance)}`, 222, 68);
 
     const tableData = [
       ['Date', 'Description', 'Bags', 'Gross', 'Ded.', 'Net', 'Price', 'Credit (+)', 'Debit (-)', 'Balance'],
-      [startDate ? new Date(startDate).toLocaleDateString() : 'N/A', 'Balance Brought Forward', '-', '-', '-', '-', '-', `NGN ${(ledgerEntries.bbf || 0).toLocaleString()}`, '-', `NGN ${(ledgerEntries.bbf || 0).toLocaleString()}`]
+      [startDate ? new Date(startDate).toLocaleDateString() : 'N/A', 'Balance Brought Forward', '-', '-', '-', '-', '-', `${formatCurrency(ledgerEntries.bbf)}`, '-', `${formatCurrency(ledgerEntries.bbf)}`]
     ];
 
     let runningBalance = ledgerEntries.bbf || 0;
@@ -368,19 +368,19 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     let totalDebit = 0;
     
     chronologicalEntries.forEach(entry => {
-      totalCredit += (entry.credit || 0);
-      totalDebit += (entry.debit || 0);
-      runningBalance += ((entry.credit || 0) - (entry.debit || 0));
+      totalCredit = roundTo(totalCredit + (entry.credit || 0), 2);
+      totalDebit = roundTo(totalDebit + (entry.debit || 0), 2);
+      runningBalance = roundTo(runningBalance + ((entry.credit || 0) - (entry.debit || 0)), 2);
 
       let deductionBreakdown = '';
       if (entry.deductions) {
         const d = entry.deductions;
-        const mLoss = ((d.moistureActual - d.moistureBenchmark) * (entry.grossWeight || 0)) / 100;
+        const mLoss = roundTo(((d.moistureActual - d.moistureBenchmark) * (entry.grossWeight || 0)) / 100, 2);
         const parts = [];
-        if (mLoss > 0) parts.push(`Moisture: ${mLoss.toFixed(2)}kg`);
-        if (d.tareWeight > 0) parts.push(`Tare: ${d.tareWeight}kg`);
-        if (d.moldWeight > 0) parts.push(`Mold: ${d.moldWeight}kg`);
-        if (d.otherDeduction > 0) parts.push(`Other: ${d.otherDeduction}kg`);
+        if (mLoss > 0) parts.push(`Moisture: ${formatNumber(mLoss)}kg`);
+        if (d.tareWeight > 0) parts.push(`Tare: ${formatNumber(d.tareWeight)}kg`);
+        if (d.moldWeight > 0) parts.push(`Mold: ${formatNumber(d.moldWeight)}kg`);
+        if (d.otherDeduction > 0) parts.push(`Other: ${formatNumber(d.otherDeduction)}kg`);
         deductionBreakdown = parts.join(', ');
       }
 
@@ -388,13 +388,13 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         entry.date ? new Date(entry.date).toLocaleDateString() : 'N/A',
         entry.description + (deductionBreakdown ? `\n(${deductionBreakdown})` : ''),
         (entry.bags || 0) > 0 ? entry.bags.toString() : '-',
-        (entry.grossWeight || 0) > 0 ? `${entry.grossWeight}kg` : '-',
-        (entry.deductionWeight || 0) > 0 ? `${entry.deductionWeight.toFixed(2)}kg` : '-',
-        (entry.netWeight || 0) > 0 ? `${entry.netWeight}kg` : '-',
-        (entry.pricePerKg || 0) > 0 ? `NGN ${(entry.pricePerKg || 0).toLocaleString()}` : '-',
-        (entry.credit || 0) > 0 ? `NGN ${(entry.credit || 0).toLocaleString()}` : '-',
-        (entry.debit || 0) > 0 ? `NGN ${(entry.debit || 0).toLocaleString()}` : '-',
-        `NGN ${(runningBalance || 0).toLocaleString()}`
+        (entry.grossWeight || 0) > 0 ? `${formatNumber(entry.grossWeight)}kg` : '-',
+        (entry.deductionWeight || 0) > 0 ? `${formatNumber(entry.deductionWeight)}kg` : '-',
+        (entry.netWeight || 0) > 0 ? `${formatNumber(entry.netWeight)}kg` : '-',
+        (entry.pricePerKg || 0) > 0 ? `${formatCurrency(entry.pricePerKg)}` : '-',
+        (entry.credit || 0) > 0 ? `${formatCurrency(entry.credit)}` : '-',
+        (entry.debit || 0) > 0 ? `${formatCurrency(entry.debit)}` : '-',
+        `${formatCurrency(runningBalance)}`
       ]);
     });
 
@@ -403,7 +403,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       head: [tableData[0]],
       body: tableData.slice(1),
       foot: [
-        ['TOTAL', '', '', '', '', '', '', `NGN ${totalCredit.toLocaleString()}`, `NGN ${totalDebit.toLocaleString()}`, `NGN ${runningBalance.toLocaleString()}`]
+        ['TOTAL', '', '', '', '', '', '', `${formatCurrency(totalCredit)}`, `${formatCurrency(totalDebit)}`, `${formatCurrency(runningBalance)}`]
       ],
       theme: 'grid',
       headStyles: { fillColor: [16, 185, 129], textColor: 255 },
@@ -477,7 +477,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
               "text-lg font-black",
               (currentBalance || 0) >= 0 ? "text-emerald-700" : "text-rose-700"
             )}>
-              ₦{(currentBalance || 0).toLocaleString()}
+              {formatCurrency(currentBalance || 0)}
             </p>
           </div>
           <div className="bg-blue-50 p-3 rounded-2xl border border-blue-100">
@@ -553,7 +553,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                     <p className="text-[10px] font-bold uppercase opacity-60">Balance Brought Forward</p>
                     <p className="text-[8px] opacity-40 uppercase tracking-widest">As at {startDate ? new Date(startDate).toLocaleDateString() : 'N/A'}</p>
                   </div>
-                  <p className="text-lg font-black">₦{(ledgerEntries.bbf || 0).toLocaleString()}</p>
+                  <p className="text-lg font-black">{formatCurrency(ledgerEntries.bbf || 0)}</p>
                 </div>
 
                 <div className="space-y-3">
@@ -582,50 +582,50 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                               </p>
                               {(entry.grossWeight || 0) > 0 && (
                                 <div className="flex flex-wrap gap-1">
-                                  <span className="text-[8px] font-bold text-blue-600 bg-blue-50 px-1 rounded">Bags: {entry.bags}</span>
-                                  <span className="text-[8px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">Net: {entry.netWeight}kg</span>
+                                  <span className="text-[8px] font-bold text-blue-600 bg-blue-50 px-1 rounded">Bags: {formatNumber(entry.bags, 0)}</span>
+                                  <span className="text-[8px] font-bold text-emerald-600 bg-emerald-50 px-1 rounded">Net: {formatNumber(entry.netWeight)}kg</span>
                                 </div>
                               )}
                             </div>
                             {(entry.grossWeight || 0) > 0 && (
                               <div className="mt-2 space-y-2">
-                                <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-lg border border-slate-100">
-                                  <div>
-                                    <p className="text-[7px] text-slate-400 uppercase font-bold">Gross</p>
-                                    <p className="text-[9px] font-black text-slate-700">{entry.grossWeight}kg</p>
+                                  <div className="grid grid-cols-3 gap-2 p-2 bg-slate-50 rounded-lg border border-slate-100">
+                                    <div>
+                                      <p className="text-[7px] text-slate-400 uppercase font-bold">Gross</p>
+                                      <p className="text-[9px] font-black text-slate-700">{formatNumber(entry.grossWeight)}kg</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[7px] text-slate-400 uppercase font-bold">Ded.</p>
+                                      <p className="text-[9px] font-black text-rose-600">{formatNumber(entry.deductionWeight)}kg</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[7px] text-slate-400 uppercase font-bold">Price</p>
+                                      <p className="text-[9px] font-black text-amber-600">{formatCurrency(entry.pricePerKg || 0)}</p>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <p className="text-[7px] text-slate-400 uppercase font-bold">Ded.</p>
-                                    <p className="text-[9px] font-black text-rose-600">{(entry.deductionWeight || 0).toFixed(2)}kg</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-[7px] text-slate-400 uppercase font-bold">Price</p>
-                                    <p className="text-[9px] font-black text-amber-600">₦{(entry.pricePerKg || 0).toLocaleString()}</p>
-                                  </div>
-                                </div>
                                 
                                 {entry.deductions && (
                                   <div className="flex flex-wrap gap-2 px-1">
-                                    {((entry.deductions.moistureActual - entry.deductions.moistureBenchmark) * (entry.grossWeight || 0) / 100) > 0 && (
-                                      <span className="text-[8px] text-slate-500">
-                                        Moisture: <span className="font-bold text-rose-500">{(((entry.deductions.moistureActual - entry.deductions.moistureBenchmark) * (entry.grossWeight || 0)) / 100).toFixed(2)}kg</span>
-                                      </span>
-                                    )}
-                                    {entry.deductions.tareWeight > 0 && (
-                                      <span className="text-[8px] text-slate-500">
-                                        Tare: <span className="font-bold text-rose-500">{entry.deductions.tareWeight}kg</span>
-                                      </span>
-                                    )}
-                                    {entry.deductions.moldWeight > 0 && (
-                                      <span className="text-[8px] text-slate-500">
-                                        Mold: <span className="font-bold text-rose-500">{entry.deductions.moldWeight}kg</span>
-                                      </span>
-                                    )}
-                                    {entry.deductions.otherDeduction > 0 && (
-                                      <span className="text-[8px] text-slate-500">
-                                        Other: <span className="font-bold text-rose-500">{entry.deductions.otherDeduction}kg</span>
-                                      </span>
-                                    )}
+                                      {((entry.deductions.moistureActual - entry.deductions.moistureBenchmark) * (entry.grossWeight || 0) / 100) > 0 && (
+                                        <span className="text-[8px] text-slate-500">
+                                          Moisture: <span className="font-bold text-rose-500">{formatNumber(((entry.deductions.moistureActual - entry.deductions.moistureBenchmark) * (entry.grossWeight || 0)) / 100)}kg</span>
+                                        </span>
+                                      )}
+                                      {entry.deductions.tareWeight > 0 && (
+                                        <span className="text-[8px] text-slate-500">
+                                          Tare: <span className="font-bold text-rose-500">{formatNumber(entry.deductions.tareWeight)}kg</span>
+                                        </span>
+                                      )}
+                                      {entry.deductions.moldWeight > 0 && (
+                                        <span className="text-[8px] text-slate-500">
+                                          Mold: <span className="font-bold text-rose-500">{formatNumber(entry.deductions.moldWeight)}kg</span>
+                                        </span>
+                                      )}
+                                      {entry.deductions.otherDeduction > 0 && (
+                                        <span className="text-[8px] text-slate-500">
+                                          Other: <span className="font-bold text-rose-500">{formatNumber(entry.deductions.otherDeduction)}kg</span>
+                                        </span>
+                                      )}
                                   </div>
                                 )}
                               </div>
@@ -637,14 +637,14 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                             "text-base font-black leading-none",
                             (entry.credit || 0) > 0 ? "text-emerald-600" : "text-rose-600"
                           )}>
-                            {(entry.credit || 0) > 0 ? '+' : '-'}₦{((entry.debit || 0) || (entry.credit || 0)).toLocaleString()}
+                            {(entry.credit || 0) > 0 ? '+' : '-'}{formatCurrency((entry.debit || 0) || (entry.credit || 0))}
                           </p>
                           <p className="text-[8px] text-slate-400 uppercase font-bold tracking-tighter mt-1">
                             {entry.credit > 0 ? 'Purchase' : entry.debit > 0 ? (entry.description.includes('Sale') ? 'Sale' : 'Payment/Charge') : 'Transaction'}
                           </p>
                           <div className="mt-2 pt-1 border-t border-slate-100">
                             <p className="text-[7px] text-slate-400 uppercase font-bold">Balance</p>
-                            <p className="text-[10px] font-black text-slate-600">₦{(entry.runningBalance || 0).toLocaleString()}</p>
+                            <p className="text-[10px] font-black text-slate-600">{formatCurrency(entry.runningBalance || 0)}</p>
                           </div>
                         </div>
                       </div>
@@ -689,7 +689,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                         "text-lg font-black",
                         bt.type === 'ISSUE' ? "text-blue-600" : "text-slate-600"
                       )}>
-                        {bt.type === 'ISSUE' ? '+' : '-'}{(bt.quantity || 0)}
+                        {bt.type === 'ISSUE' ? '+' : '-'}{formatNumber(bt.quantity || 0, 0)}
                       </p>
                     </div>
                   </div>
@@ -726,7 +726,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-lg font-black text-emerald-600">₦{(p.amount || 0).toLocaleString()}</p>
+                        <p className="text-lg font-black text-emerald-600">{formatCurrency(p.amount || 0)}</p>
                         <p className="text-[9px] text-slate-400 uppercase tracking-tighter">Paid</p>
                       </div>
                     </div>

@@ -6,6 +6,7 @@
 import React from 'react';
 import { Calculator, Download, CreditCard, FileText } from 'lucide-react';
 import { Payroll, Staff } from '../../types';
+import { roundTo, formatCurrency } from '../../lib/utils';
 
 interface PayrollManagerProps {
   filteredPayrolls: Payroll[];
@@ -36,7 +37,7 @@ export default function PayrollManager({
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase">Total Payroll Cost</p>
               <p className="text-xl font-black text-slate-900">
-                ₦{filteredPayrolls.reduce((sum, p) => sum + p.netPay, 0).toLocaleString()}
+                {formatCurrency(filteredPayrolls.reduce((sum, p) => sum + roundTo(p.netPay || 0, 2), 0))}
               </p>
             </div>
             <Calculator className="text-indigo-600" size={24} />
@@ -92,10 +93,10 @@ export default function PayrollManager({
                         <p className="font-bold text-slate-900 text-sm">{staff?.name || 'Unknown'}</p>
                         <p className="text-[9px] text-slate-400 uppercase">{staff?.role}</p>
                       </td>
-                      <td className="px-4 py-4 text-xs font-medium text-slate-600">₦{p.grossIncome.toLocaleString()}</td>
-                      <td className="px-4 py-4 text-xs font-medium text-rose-500">-₦{p.pension.toLocaleString()}</td>
-                      <td className="px-4 py-4 text-xs font-medium text-rose-500">-₦{p.paye.toLocaleString()}</td>
-                      <td className="px-4 py-4 text-sm font-black text-indigo-600 text-right">₦{p.netPay.toLocaleString()}</td>
+                      <td className="px-4 py-4 text-xs font-medium text-slate-600">{formatCurrency(p.grossIncome)}</td>
+                      <td className="px-4 py-4 text-xs font-medium text-rose-500">-{formatCurrency(p.pension)}</td>
+                      <td className="px-4 py-4 text-xs font-medium text-rose-500">-{formatCurrency(p.paye)}</td>
+                      <td className="px-4 py-4 text-sm font-black text-indigo-600 text-right">{formatCurrency(p.netPay)}</td>
                       <td className="px-4 py-4 text-right">
                         <button 
                           onClick={() => onViewPayslip(p)}

@@ -6,7 +6,7 @@
 import React from 'react';
 import { ArrowRightLeft } from 'lucide-react';
 import { Transaction, BagTransaction, Warehouse } from '../../types';
-import { cn } from '../../lib/utils';
+import { cn, formatNumber } from '../../lib/utils';
 
 interface TransfersReportProps {
   filteredTransfers: ((Transaction & { transferType: 'COMMODITY' }) | (BagTransaction & { transferType: 'BAG' }))[];
@@ -62,7 +62,7 @@ export default function TransfersReport({
                 </div>
                 <div className="text-right">
                   <p className="text-lg font-black text-slate-900">
-                    {t.transferType === 'COMMODITY' ? `${(t as Transaction).netWeight.toLocaleString()}kg` : `${(t as BagTransaction).quantity.toLocaleString()} units`}
+                    {t.transferType === 'COMMODITY' ? `${formatNumber((t as Transaction).netWeight)}kg` : `${formatNumber((t as BagTransaction).quantity, 0)} units`}
                   </p>
                   <p className="text-[10px] text-slate-400 font-bold uppercase">{(t as any).reference || (t as any).referenceId}</p>
                 </div>

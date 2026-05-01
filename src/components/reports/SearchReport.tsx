@@ -6,7 +6,7 @@
 import React from 'react';
 import { Search, FileText } from 'lucide-react';
 import { Transaction, Supplier, Buyer, Warehouse } from '../../types';
-import { cn } from '../../lib/utils';
+import { cn, formatNumber, formatCurrency } from '../../lib/utils';
 
 interface SearchReportProps {
   searchQuery: string;
@@ -84,7 +84,7 @@ export default function SearchReport({
                       <p className="text-xs text-slate-500 font-medium">Ref: {t.referenceId}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-xl font-black text-slate-900">₦{(t.totalValue || 0).toLocaleString()}</p>
+                      <p className="text-xl font-black text-slate-900">{formatCurrency(t.totalValue || 0)}</p>
                       <p className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Tranx ID: {t.storeRecordId}</p>
                     </div>
                   </div>
@@ -92,11 +92,11 @@ export default function SearchReport({
                   <div className="grid grid-cols-4 gap-2 pt-4 border-t border-slate-50">
                     <div className="text-center">
                       <p className="text-[9px] text-slate-400 font-bold uppercase">Gross</p>
-                      <p className="text-sm font-bold">{t.grossWeight}kg</p>
+                      <p className="text-sm font-bold">{formatNumber(t.grossWeight)}kg</p>
                     </div>
                     <div className="text-center">
                       <p className="text-[9px] text-slate-400 font-bold uppercase">Net</p>
-                      <p className="text-sm font-bold text-emerald-600">{t.netWeight}kg</p>
+                      <p className="text-sm font-bold text-emerald-600">{formatNumber(t.netWeight)}kg</p>
                     </div>
                     <div className="text-center">
                       <p className="text-[9px] text-slate-400 font-bold uppercase">Bags</p>

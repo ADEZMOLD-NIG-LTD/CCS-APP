@@ -6,7 +6,7 @@
 import React from 'react';
 import { Truck, Calculator, Users } from 'lucide-react';
 import { CommodityType, Warehouse, Supplier, Buyer, UserProfile } from '../../types';
-import { cn } from '../../lib/utils';
+import { cn, formatNumber, formatCurrency } from '../../lib/utils';
 
 interface SaleFormProps {
   profile: UserProfile | null;
@@ -290,13 +290,13 @@ export default function SaleForm({
           <div className="flex justify-between items-center">
             <div>
               <p className="text-[10px] uppercase font-bold opacity-80">Final Net Weight</p>
-              <p className="text-2xl font-black">{netWeight.toFixed(2)} <span className="text-sm font-normal">kg</span></p>
+              <p className="text-2xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal">kg</span></p>
             </div>
             {!isDirectDelivery && (
               <div className="text-right">
                 <p className="text-[10px] uppercase font-bold opacity-80">Available {commodity} Stock</p>
                 <p className="text-xl font-black">
-                  {(inventory[commodity] || 0).toLocaleString()} <span className="text-xs font-normal">kg</span>
+                  {formatNumber(inventory[commodity] || 0)} <span className="text-xs font-normal">kg</span>
                 </p>
                 {netWeight > inventory[commodity] && (
                   <p className="text-[9px] font-bold text-rose-200 mt-1 uppercase tracking-tighter animate-pulse">
@@ -316,7 +316,7 @@ export default function SaleForm({
           </div>
           <div className="pt-3 border-t border-white/20 flex justify-between items-center">
             <p className="text-[10px] uppercase font-bold opacity-80">Total Value</p>
-            <p className="text-lg font-bold">₦{(netWeight * (Number((document.querySelector('input[name="price"]') as HTMLInputElement)?.value) || 0) || 0).toLocaleString()}</p>
+            <p className="text-lg font-bold">{formatCurrency(netWeight * (Number((document.querySelector('input[name="price"]') as HTMLInputElement)?.value) || 0) || 0)}</p>
           </div>
         </div>
 

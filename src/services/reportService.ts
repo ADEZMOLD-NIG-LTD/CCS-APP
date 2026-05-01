@@ -13,6 +13,7 @@ import {
   BagTransaction, 
   Company 
 } from '../types';
+import { formatNumber, formatCurrency } from '../lib/utils';
 
 interface PDFData {
   activeReport: string;
@@ -101,8 +102,8 @@ export const generatePDF = (data: PDFData) => {
           ? (suppliers.find(s => s.id === t.supplierId)?.name || 'Unknown')
           : (buyers.find(b => b.id === t.buyerId)?.name || t.buyerName || 'Unknown'),
         t.commodity,
-        `${t.netWeight}kg`,
-        (t.totalValue || 0).toLocaleString()
+        `${formatNumber(t.netWeight)}kg`,
+        formatNumber(t.totalValue || 0)
       ]);
   } else if (activeReport === 'supplier_balances') {
     title = `Supplier Balances Report (As at ${endDate})`;
@@ -118,8 +119,8 @@ export const generatePDF = (data: PDFData) => {
       autoTable(doc, {
         startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
         head: [['Supplier Name', 'Location', 'Balance (NGN)']],
-        body: creditSuppliers.map(s => [s.name, s.location, s.balance.toLocaleString()]),
-        foot: [['TOTAL CREDIT', '', totalCreditBalance.toLocaleString()]],
+        body: creditSuppliers.map(s => [s.name, s.location, formatNumber(s.balance)]),
+        foot: [['TOTAL CREDIT', '', formatNumber(totalCreditBalance)]],
         theme: 'grid',
         headStyles: { fillColor: [79, 70, 229] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
@@ -137,8 +138,8 @@ export const generatePDF = (data: PDFData) => {
       autoTable(doc, {
         startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
         head: [['Supplier Name', 'Location', 'Balance (NGN)']],
-        body: debitSuppliers.map(s => [s.name, s.location, Math.abs(s.balance).toLocaleString()]),
-        foot: [['TOTAL DEBIT', '', totalDebitBalance.toLocaleString()]],
+        body: debitSuppliers.map(s => [s.name, s.location, formatNumber(Math.abs(s.balance))]),
+        foot: [['TOTAL DEBIT', '', formatNumber(totalDebitBalance)]],
         theme: 'grid',
         headStyles: { fillColor: [225, 29, 72] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
@@ -168,8 +169,8 @@ export const generatePDF = (data: PDFData) => {
       autoTable(doc, {
         startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
         head: [['Customer Name', 'Location', 'Balance (NGN)']],
-        body: debitBuyers.map(b => [b.name, b.location, b.balance.toLocaleString()]),
-        foot: [['TOTAL DEBIT', '', totalBuyerDebit.toLocaleString()]],
+        body: debitBuyers.map(b => [b.name, b.location, formatNumber(b.balance)]),
+        foot: [['TOTAL DEBIT', '', formatNumber(totalBuyerDebit)]],
         theme: 'grid',
         headStyles: { fillColor: [37, 99, 235] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
@@ -187,8 +188,8 @@ export const generatePDF = (data: PDFData) => {
       autoTable(doc, {
         startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
         head: [['Customer Name', 'Location', 'Balance (NGN)']],
-        body: creditBuyers.map(b => [b.name, b.location, Math.abs(b.balance).toLocaleString()]),
-        foot: [['TOTAL CREDIT', '', totalBuyerCredit.toLocaleString()]],
+        body: creditBuyers.map(b => [b.name, b.location, formatNumber(Math.abs(b.balance))]),
+        foot: [['TOTAL CREDIT', '', formatNumber(totalBuyerCredit)]],
         theme: 'grid',
         headStyles: { fillColor: [5, 150, 105] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
@@ -213,7 +214,7 @@ export const generatePDF = (data: PDFData) => {
       tableData = Object.entries(packagingInventory).map(([type, qty]) => [
         type?.replace('_', ' ') || 'N/A',
         warehouseName,
-        qty.toLocaleString()
+        formatNumber(qty)
       ]);
     } else if (activeReport === 'transfers') {
       title = `Stock Transfers Report (${startDate} to ${endDate})`;
@@ -224,7 +225,7 @@ export const generatePDF = (data: PDFData) => {
         t.transferType === 'COMMODITY' ? (t as Transaction).commodity : (t as BagTransaction).packagingType.replace('_', ' '),
         warehouses.find(w => w.id === t.sourceWarehouseId)?.name || 'Unknown',
         warehouses.find(w => w.id === t.destinationWarehouseId)?.name || 'Unknown',
-        t.transferType === 'COMMODITY' ? `${(t as Transaction).netWeight}kg` : `${(t as BagTransaction).quantity} units`
+        t.transferType === 'COMMODITY' ? `${formatNumber((t as Transaction).netWeight)}kg` : `${formatNumber((t as BagTransaction).quantity)} units`
       ]);
     } else {
       title = activeReport === 'operational_purchases' ? 'Purchases Operational Report' : 'Sales Operational Report';
@@ -235,10 +236,10 @@ export const generatePDF = (data: PDFData) => {
           const d = t.deductions;
           const mLoss = ((d.moistureActual - d.moistureBenchmark) * (t.grossWeight || 0)) / 100;
           const parts = [];
-          if (mLoss > 0) parts.push(`M: ${mLoss.toFixed(2)}kg`);
-          if (d.tareWeight > 0) parts.push(`T: ${d.tareWeight}kg`);
-          if (d.moldWeight > 0) parts.push(`Q: ${d.moldWeight}kg`);
-          if (d.otherDeduction > 0) parts.push(`O: ${d.otherDeduction}kg`);
+          if (mLoss > 0) parts.push(`M: ${formatNumber(mLoss, 2)}kg`);
+          if (d.tareWeight > 0) parts.push(`T: ${formatNumber(d.tareWeight, 2)}kg`);
+          if (d.moldWeight > 0) parts.push(`Q: ${formatNumber(d.moldWeight, 2)}kg`);
+          if (d.otherDeduction > 0) parts.push(`O: ${formatNumber(d.otherDeduction, 2)}kg`);
           deductionBreakdown = parts.join(', ');
         }
 
@@ -247,12 +248,12 @@ export const generatePDF = (data: PDFData) => {
           t.referenceId,
           t.commodity,
           warehouses.find(w => w.id === t.warehouseId)?.name || t.warehouse || 'Main',
-          t.noOfBags || t.bags || '-',
-          `${t.grossWeight}kg`,
-          `${(t.grossWeight - t.netWeight).toFixed(2)}kg${deductionBreakdown ? `\n(${deductionBreakdown})` : ''}`,
-          `${t.netWeight}kg`,
-          t.pricePerKg ? `NGN ${t.pricePerKg.toLocaleString()}` : '-',
-          (t.totalValue || 0).toLocaleString()
+          formatNumber(t.noOfBags || t.bags || 0, 0),
+          `${formatNumber(t.grossWeight)}kg`,
+          `${formatNumber(t.grossWeight - t.netWeight)}kg${deductionBreakdown ? `\n(${deductionBreakdown})` : ''}`,
+          `${formatNumber(t.netWeight)}kg`,
+          t.pricePerKg ? `NGN ${formatNumber(t.pricePerKg)}` : '-',
+          formatNumber(t.totalValue || 0)
         ];
       });
     }
@@ -273,12 +274,12 @@ export const generatePDF = (data: PDFData) => {
       body: tableData,
       foot: (activeReport === 'operational_purchases' || activeReport === 'operational_sales') ? [
         ['TOTAL', '', '', '', 
-          filteredOperationalTx.reduce((sum, t) => sum + (t.noOfBags || t.bags || 0), 0).toLocaleString(),
-          `${filteredOperationalTx.reduce((sum, t) => sum + t.grossWeight, 0).toLocaleString()}kg`,
-          `${filteredOperationalTx.reduce((sum, t) => sum + (t.grossWeight - t.netWeight), 0).toFixed(2)}kg`,
-          `${filteredOperationalTx.reduce((sum, t) => sum + t.netWeight, 0).toLocaleString()}kg`,
+          formatNumber(filteredOperationalTx.reduce((sum, t) => sum + (t.noOfBags || t.bags || 0), 0), 0),
+          `${formatNumber(filteredOperationalTx.reduce((sum, t) => sum + t.grossWeight, 0))}kg`,
+          `${formatNumber(filteredOperationalTx.reduce((sum, t) => sum + (t.grossWeight - t.netWeight), 0))}kg`,
+          `${formatNumber(filteredOperationalTx.reduce((sum, t) => sum + t.netWeight, 0))}kg`,
           '',
-          filteredOperationalTx.reduce((sum, t) => sum + (t.totalValue || 0), 0).toLocaleString()
+          formatNumber(filteredOperationalTx.reduce((sum, t) => sum + (t.totalValue || 0), 0))
         ]
       ] : undefined,
       theme: 'grid',

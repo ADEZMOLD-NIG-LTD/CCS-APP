@@ -7,6 +7,7 @@ import React from 'react';
 import { StoreRecord, Warehouse, CommodityType } from '../../types';
 import { X } from 'lucide-react';
 import { motion } from 'motion/react';
+import { formatNumber } from '../../lib/utils';
 
 interface StoreRecordFormProps {
   formData: Partial<StoreRecord>;
@@ -84,7 +85,7 @@ export default function StoreRecordForm({
                   </select>
                   {formData.sourceWarehouseId && (
                     <p className="mt-1 text-xs font-medium text-indigo-600">
-                      Available: {getWarehouseStock(formData.sourceWarehouseId, formData.commodity!, editingRecord?.id).toLocaleString()} kg
+                      Available: {formatNumber(getWarehouseStock(formData.sourceWarehouseId, formData.commodity!, editingRecord?.id))} kg
                     </p>
                   )}
                 </div>
@@ -119,7 +120,7 @@ export default function StoreRecordForm({
                 </select>
                 {formData.type === 'OUT' && formData.warehouseId && (
                   <p className="mt-1 text-xs font-medium text-indigo-600">
-                    Available: {getWarehouseStock(formData.warehouseId, formData.commodity!, editingRecord?.id).toLocaleString()} kg
+                    Available: {formatNumber(getWarehouseStock(formData.warehouseId, formData.commodity!, editingRecord?.id))} kg
                   </p>
                 )}
               </div>

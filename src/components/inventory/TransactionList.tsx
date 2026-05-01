@@ -1,17 +1,7 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React from 'react';
 import { History, Package, Edit, Trash2 } from 'lucide-react';
 import { Transaction, BagTransaction, Supplier, Warehouse } from '../../types';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { formatNumber, formatCurrency, cn } from '../../lib/utils';
 
 interface TransactionListProps {
   activeTab: 'COMMODITIES' | 'PACKAGING';
@@ -88,7 +78,7 @@ export default function TransactionList({
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-[var(--text-primary)]">{tx.netWeight.toFixed(2)} kg</p>
+                    <p className="text-sm font-bold text-[var(--text-primary)]">{formatNumber(tx.netWeight)} kg</p>
                     <p className="text-[10px] text-[var(--text-secondary)]">Net Weight</p>
                     {tx.storeRecordId && (
                       <p className="text-[9px] font-bold text-indigo-600 mt-1">
@@ -101,27 +91,27 @@ export default function TransactionList({
                 <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-50">
                   <div className="text-center">
                     <p className="text-[9px] text-[var(--text-secondary)] uppercase">Gross</p>
-                    <p className="text-[11px] font-bold">{tx.grossWeight}kg</p>
+                    <p className="text-[11px] font-bold">{formatNumber(tx.grossWeight)}kg</p>
                   </div>
                   <div className="text-center">
                     <p className="text-[9px] text-[var(--text-secondary)] uppercase">Deductions</p>
                     <p className="text-[11px] font-bold text-rose-500">
-                      -{(tx.grossWeight - tx.netWeight).toFixed(1)}kg
+                      -{formatNumber(tx.grossWeight - tx.netWeight)}kg
                     </p>
                     {tx.deductions && (
                       <div className="mt-1 flex flex-wrap gap-1 text-[7px] font-bold uppercase tracking-tighter justify-center text-[var(--text-secondary)]">
                         {((tx.deductions.moistureActual - tx.deductions.moistureBenchmark) * (tx.grossWeight || 0) / 100) > 0 && (
-                          <span>M: {(((tx.deductions.moistureActual - tx.deductions.moistureBenchmark) * (tx.grossWeight || 0)) / 100).toFixed(1)}kg</span>
+                          <span>M: {formatNumber(((tx.deductions.moistureActual - tx.deductions.moistureBenchmark) * (tx.grossWeight || 0)) / 100, 1)}kg</span>
                         )}
-                        {tx.deductions.tareWeight > 0 && <span>T: {tx.deductions.tareWeight}kg</span>}
-                        {tx.deductions.moldWeight > 0 && <span>Q: {tx.deductions.moldWeight}kg</span>}
-                        {tx.deductions.otherDeduction > 0 && <span>O: {tx.deductions.otherDeduction}kg</span>}
+                        {tx.deductions.tareWeight > 0 && <span>T: {formatNumber(tx.deductions.tareWeight, 1)}kg</span>}
+                        {tx.deductions.moldWeight > 0 && <span>Q: {formatNumber(tx.deductions.moldWeight, 1)}kg</span>}
+                        {tx.deductions.otherDeduction > 0 && <span>O: {formatNumber(tx.deductions.otherDeduction, 1)}kg</span>}
                       </div>
                     )}
                   </div>
                   <div className="text-center">
                     <p className="text-[9px] text-[var(--text-secondary)] uppercase">Value</p>
-                    <p className="text-[11px] font-bold text-emerald-600">₦{(tx.totalValue || 0).toLocaleString()}</p>
+                    <p className="text-[11px] font-bold text-emerald-600">{formatCurrency(tx.totalValue || 0)}</p>
                   </div>
                 </div>
               </div>
@@ -160,7 +150,7 @@ export default function TransactionList({
                       "text-lg font-bold",
                       tx.type === 'STOCK_IN' ? "text-emerald-600" : "text-amber-600"
                     )}>
-                      {tx.type === 'STOCK_IN' ? '+' : '-'}{tx.quantity}
+                      {tx.type === 'STOCK_IN' ? '+' : '-'}{formatNumber(tx.quantity, 0)}
                     </p>
                     <p className="text-[10px] text-[var(--text-secondary)]">Units</p>
                   </div>

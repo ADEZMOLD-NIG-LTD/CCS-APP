@@ -7,6 +7,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Calculator, Droplets, Scale } from 'lucide-react';
 import { motion } from 'motion/react';
 import { CommodityType, Transaction, Supplier, Warehouse, UserProfile } from '../../types';
+import { roundTo, formatNumber, formatCurrency } from '../../lib/utils';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 const BENCHMARKS = { COCOA: 8, CASHEW: 10, PK: 8 };
@@ -49,11 +50,11 @@ export default function PurchaseForm({
     const actual = Number(moistureActual) || 0;
     const benchmark = Number(moistureBenchmark) || 0;
     const gross = Number(grossWeight) || 0;
-    return ((actual - benchmark) * gross) / 100;
+    return roundTo(((actual - benchmark) * gross) / 100, 2);
   }, [moistureActual, moistureBenchmark, grossWeight]);
 
-  const totalDeductions = moistureLoss + Number(tareWeight) + Number(moldWeight) + Number(otherDeduction);
-  const netWeight = Math.max(0, Number(grossWeight) - totalDeductions);
+  const totalDeductions = roundTo(moistureLoss + Number(tareWeight) + Number(moldWeight) + Number(otherDeduction), 2);
+  const netWeight = Math.max(0, roundTo(Number(grossWeight) - totalDeductions, 2));
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -255,11 +256,11 @@ export default function PurchaseForm({
           <div className="pt-3 border-t border-amber-200 grid grid-cols-2 gap-2 text-[11px]">
             <div className="flex justify-between text-amber-700">
               <span>Moisture Loss:</span>
-              <span className="font-bold">-{moistureLoss.toFixed(2)} kg</span>
+              <span className="font-bold">-{formatNumber(moistureLoss)} kg</span>
             </div>
             <div className="flex justify-between text-amber-700">
               <span>Manual Deductions:</span>
-              <span className="font-bold">-{(Number(tareWeight) + Number(moldWeight) + Number(otherDeduction)).toFixed(2)} kg</span>
+              <span className="font-bold">-{formatNumber(Number(tareWeight) + Number(moldWeight) + Number(otherDeduction))} kg</span>
             </div>
           </div>
         </div>
@@ -268,11 +269,11 @@ export default function PurchaseForm({
         <div className="bg-emerald-600 rounded-2xl p-4 text-white flex justify-between items-center shadow-lg">
           <div>
             <p className="text-[10px] uppercase font-bold opacity-80">Final Net Weight</p>
-            <p className="text-2xl font-black">{netWeight.toFixed(2)} <span className="text-sm font-normal">kg</span></p>
+            <p className="text-2xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal">kg</span></p>
           </div>
           <div className="text-right">
             <p className="text-[10px] uppercase font-bold opacity-80">Total Deductions</p>
-            <p className="text-lg font-bold">-{totalDeductions.toFixed(2)} kg</p>
+            <p className="text-lg font-bold">-{formatNumber(totalDeductions)} kg</p>
           </div>
         </div>
 

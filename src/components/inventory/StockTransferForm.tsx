@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { CommodityType, Warehouse } from '../../types';
+import { formatNumber } from '../../lib/utils';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 
@@ -92,7 +93,7 @@ export default function StockTransferForm({
             <div className="col-span-2 bg-indigo-50 p-3 rounded-xl border border-indigo-100">
               <p className="text-[10px] font-bold text-indigo-600 uppercase mb-1">Available Stock in Source</p>
               <p className="text-lg font-black text-indigo-700">
-                {(getWarehouseStock(transferSourceId, transferCommodity) || 0).toLocaleString()} kg
+                {formatNumber(getWarehouseStock(transferSourceId, transferCommodity) || 0)} kg
               </p>
             </div>
           )}

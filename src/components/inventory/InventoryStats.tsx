@@ -1,10 +1,6 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React from 'react';
 import { CommodityType, PackagingType } from '../../types';
+import { formatNumber } from '../../lib/utils';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 const PACKAGING: PackagingType[] = ['JUTE_BAG', 'NYLON_BAG'];
@@ -26,14 +22,14 @@ export default function InventoryStats({
         COMMODITIES.map(c => (
           <div key={c} className="google-card p-3 text-center">
             <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase mb-1">{c}</p>
-            <p className="text-sm font-bold text-[var(--text-primary)]">{(inventory[c] || 0).toLocaleString()} kg</p>
+            <p className="text-sm font-bold text-[var(--text-primary)]">{formatNumber(inventory[c] || 0)} kg</p>
           </div>
         ))
       ) : (
         PACKAGING.map(p => (
           <div key={p} className="google-card p-3 text-center">
             <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase mb-1">{p.replace('_', ' ')}</p>
-            <p className="text-sm font-bold text-[var(--text-primary)]">{(packagingInventory[p] || 0).toLocaleString()} pcs</p>
+            <p className="text-sm font-bold text-[var(--text-primary)]">{formatNumber(packagingInventory[p] || 0, 0)} pcs</p>
           </div>
         ))
       )}

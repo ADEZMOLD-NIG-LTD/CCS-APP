@@ -6,6 +6,7 @@
 import React from 'react';
 import { StoreRecord, Warehouse } from '../../types';
 import { ArrowLeftRight, ArrowRightLeft, Scale, History } from 'lucide-react';
+import { formatNumber } from '../../lib/utils';
 
 interface StoreKeeperSummaryProps {
   totals: {
@@ -35,7 +36,7 @@ export default function StoreKeeperSummary({ totals, inventoryByCommodity, recor
             <div key={commodity} className="flex justify-between items-center bg-green-50/50 p-2 rounded-lg">
               <span className="text-sm font-bold text-green-800">{commodity}</span>
               <span className="text-sm font-black text-green-900">
-                {data.weight.toLocaleString()} kg <span className="text-[10px] font-normal opacity-70">({data.bags} bags)</span>
+                {formatNumber(data.weight)} kg <span className="text-[10px] font-normal opacity-70">({data.bags} bags)</span>
               </span>
             </div>
           ))}
@@ -57,7 +58,7 @@ export default function StoreKeeperSummary({ totals, inventoryByCommodity, recor
             <div key={commodity} className="flex justify-between items-center bg-red-50/50 p-2 rounded-lg">
               <span className="text-sm font-bold text-red-800">{commodity}</span>
               <span className="text-sm font-black text-red-900">
-                {data.weight.toLocaleString()} kg <span className="text-[10px] font-normal opacity-70">({data.bags} bags)</span>
+                {formatNumber(data.weight)} kg <span className="text-[10px] font-normal opacity-70">({data.bags} bags)</span>
               </span>
             </div>
           ))}
@@ -79,7 +80,7 @@ export default function StoreKeeperSummary({ totals, inventoryByCommodity, recor
             <div key={commodity} className="flex justify-between items-center bg-indigo-50/50 p-2 rounded-lg">
               <span className="text-sm font-bold text-indigo-800">{commodity}</span>
               <span className="text-sm font-black text-indigo-900">
-                {data.quantity.toLocaleString()} kg <span className="text-[10px] font-normal opacity-70">({data.bags} bags)</span>
+                {formatNumber(data.quantity)} kg <span className="text-[10px] font-normal opacity-70">({data.bags} bags)</span>
               </span>
             </div>
           ))}

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { BagTransaction } from '../../types';
-import { cn } from '../../lib/utils';
+import { cn, formatNumber } from '../../lib/utils';
 
 interface PackagingReportProps {
   packagingInventory: Record<string, number>;
@@ -32,11 +32,11 @@ export default function PackagingReport({
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-amber-600 rounded-2xl p-4 text-white shadow-lg">
           <p className="text-[10px] font-bold uppercase opacity-60 mb-1">Jute Bags</p>
-          <h2 className="text-xl font-black">{packagingInventory['JUTE_BAG']?.toLocaleString() || 0} pcs</h2>
+          <h2 className="text-xl font-black">{formatNumber(packagingInventory['JUTE_BAG'] || 0, 0)} pcs</h2>
         </div>
         <div className="bg-slate-600 rounded-2xl p-4 text-white shadow-lg">
           <p className="text-[10px] font-bold uppercase opacity-60 mb-1">Nylon Bags</p>
-          <h2 className="text-xl font-black">{packagingInventory['NYLON_BAG']?.toLocaleString() || 0} pcs</h2>
+          <h2 className="text-xl font-black">{formatNumber(packagingInventory['NYLON_BAG'] || 0, 0)} pcs</h2>
         </div>
       </div>
 
@@ -67,7 +67,7 @@ export default function PackagingReport({
                   "text-lg font-black",
                   tx.type === 'STOCK_IN' ? "text-emerald-600" : "text-amber-600"
                 )}>
-                  {tx.type === 'STOCK_IN' ? '+' : '-'}{tx.quantity}
+                  {tx.type === 'STOCK_IN' ? '+' : '-'}{formatNumber(tx.quantity, 0)}
                 </p>
               </div>
             ))

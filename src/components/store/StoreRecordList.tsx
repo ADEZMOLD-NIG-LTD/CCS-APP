@@ -8,6 +8,7 @@ import { StoreRecord, Warehouse } from '../../types';
 import { ArrowRightLeft, Edit, Trash2, Copy, Check } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { formatNumber } from '../../lib/utils';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -77,12 +78,12 @@ export default function StoreRecordList({ records, warehouses, onEdit, onDelete 
                   <div className="text-xs text-gray-500">{record.location}</div>
                 </td>
                 <td className="px-6 py-4 text-sm text-right text-gray-600">
-                  {record.nominalWeight.toLocaleString()}
+                  {formatNumber(record.nominalWeight)}
                 </td>
                 <td className="px-6 py-4 text-sm text-right font-semibold text-gray-900">
-                  {record.actualWeight.toLocaleString()}
+                  {formatNumber(record.actualWeight)}
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-600">{record.noOfBags}</td>
+                <td className="px-6 py-4 text-sm text-gray-600">{formatNumber(record.noOfBags, 0)}</td>
                 <td className="px-6 py-4">
                   <div className="text-sm text-gray-900">{record.truckNo}</div>
                   <div className="text-xs text-gray-500">{record.fieldOfficer}</div>

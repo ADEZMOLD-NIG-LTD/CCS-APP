@@ -15,7 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import Toast from './Toast';
 import ConfirmModal from './ConfirmModal';
-import { cn } from '../lib/utils';
+import { cn, formatNumber } from '../lib/utils';
 import BuyerDetails from './BuyerDetails';
 
 export default function BuyerModule() {
@@ -289,7 +289,7 @@ export default function BuyerModule() {
                           "text-sm font-bold",
                           buyer.previousBalance >= 0 ? "text-blue-600" : "text-rose-600"
                         )}>
-                          {buyer.previousBalance >= 0 ? '+' : ''}{(buyer.previousBalance || 0).toLocaleString()}
+                          {buyer.previousBalance >= 0 ? '+' : ''}{formatNumber(buyer.previousBalance || 0)}
                         </span>
                         <p className="text-[10px] text-slate-400 uppercase tracking-tighter">Balance</p>
                       </div>

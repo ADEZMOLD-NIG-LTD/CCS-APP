@@ -16,7 +16,7 @@ import { handleFirestoreError, reportFirestoreError, formatFirestoreError, Opera
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import ConfirmModal from './ConfirmModal';
-import { cn } from '../lib/utils';
+import { cn, formatNumber, formatCurrency } from '../lib/utils';
 
 import SupplierDetails from './SupplierDetails';
 
@@ -381,7 +381,7 @@ export default function SupplierModule() {
                            "text-sm font-bold",
                            supplier.previousBalance >= 0 ? "text-emerald-600" : "text-rose-600"
                         )}>
-                          {supplier.previousBalance >= 0 ? '+' : ''}{(supplier.previousBalance || 0).toLocaleString()}
+                          {supplier.previousBalance >= 0 ? '+' : ''}{formatNumber(supplier.previousBalance || 0)}
                         </span>
                         <p className="text-[10px] text-[var(--text-secondary)] uppercase tracking-tighter">Balance</p>
                       </div>

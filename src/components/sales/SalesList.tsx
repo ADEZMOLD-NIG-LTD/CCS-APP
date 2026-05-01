@@ -6,6 +6,7 @@
 import React from 'react';
 import { History, TrendingUp, Trash2, Truck } from 'lucide-react';
 import { Transaction, Buyer, Warehouse, Supplier } from '../../types';
+import { formatNumber, formatCurrency } from '../../lib/utils';
 
 interface SalesListProps {
   filteredSales: Transaction[];
@@ -76,7 +77,7 @@ export default function SalesList({
                   )}
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-black text-slate-900">{tx.netWeight.toFixed(2)} kg</p>
+                  <p className="text-sm font-black text-slate-900">{formatNumber(tx.netWeight)} kg</p>
                   <p className="text-[10px] text-slate-400">Net Weight</p>
                   {tx.storeRecordId && (
                     <p className="text-[9px] font-bold text-blue-600 mt-1">
@@ -88,7 +89,7 @@ export default function SalesList({
               <div className="grid grid-cols-2 gap-2 pt-3 border-t border-slate-50">
                 <div className="text-left">
                   <p className="text-[9px] text-slate-400 uppercase">Total Value</p>
-                  <p className="text-[11px] font-bold text-blue-600">₦{(tx.totalValue || 0).toLocaleString()}</p>
+                  <p className="text-[11px] font-bold text-blue-600">{formatCurrency(tx.totalValue || 0)}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[9px] text-slate-400 uppercase">Ref</p>

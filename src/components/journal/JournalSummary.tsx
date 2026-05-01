@@ -1,5 +1,6 @@
 import React from 'react';
 import { Wallet, DollarSign, Building2, TrendingUp, TrendingDown } from 'lucide-react';
+import { formatCurrency } from '../../lib/utils';
 
 interface JournalSummaryProps {
   openingBalances: { cash: number; bank: number };
@@ -21,7 +22,7 @@ export default function JournalSummary({
           <div className="flex justify-between items-start mb-6">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Harmonized Cash Position</p>
-              <h2 className="text-3xl font-black">₦{(closingBalances.cash + closingBalances.bank).toLocaleString()}</h2>
+              <h2 className="text-3xl font-black">{formatCurrency(closingBalances.cash + closingBalances.bank)}</h2>
             </div>
             <div className="bg-white/10 p-3 rounded-2xl backdrop-blur-md">
               <Wallet className="text-indigo-400" size={24} />
@@ -34,9 +35,9 @@ export default function JournalSummary({
                 <DollarSign size={12} className="text-emerald-400" />
                 <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Cash-in-Hand</p>
               </div>
-              <p className="text-lg font-black">₦{closingBalances.cash.toLocaleString()}</p>
+              <p className="text-lg font-black">{formatCurrency(closingBalances.cash)}</p>
               <div className="mt-2 pt-2 border-t border-white/5 flex justify-between items-center">
-                <span className="text-[8px] text-slate-500 uppercase">Opening: ₦{openingBalances.cash.toLocaleString()}</span>
+                <span className="text-[8px] text-slate-500 uppercase">Opening: {formatCurrency(openingBalances.cash)}</span>
               </div>
             </div>
             <div className="bg-white/5 rounded-2xl p-4 backdrop-blur-sm border border-white/10">
@@ -44,9 +45,9 @@ export default function JournalSummary({
                 <Building2 size={12} className="text-blue-400" />
                 <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Bank Balance</p>
               </div>
-              <p className="text-lg font-black">₦{closingBalances.bank.toLocaleString()}</p>
+              <p className="text-lg font-black">{formatCurrency(closingBalances.bank)}</p>
               <div className="mt-2 pt-2 border-t border-white/5 flex justify-between items-center">
-                <span className="text-[8px] text-slate-500 uppercase">Opening: ₦{openingBalances.bank.toLocaleString()}</span>
+                <span className="text-[8px] text-slate-500 uppercase">Opening: {formatCurrency(openingBalances.bank)}</span>
               </div>
             </div>
           </div>
@@ -60,14 +61,14 @@ export default function JournalSummary({
           <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Period Inflow</p>
           <div className="flex items-center gap-2">
             <TrendingUp size={14} className="text-emerald-500" />
-            <span className="text-sm font-black text-slate-900">₦{totalInflow.toLocaleString()}</span>
+            <span className="text-sm font-black text-slate-900">{formatCurrency(totalInflow)}</span>
           </div>
         </div>
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
           <p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Period Outflow</p>
           <div className="flex items-center gap-2">
             <TrendingDown size={14} className="text-rose-500" />
-            <span className="text-sm font-black text-slate-900">₦{totalOutflow.toLocaleString()}</span>
+            <span className="text-sm font-black text-slate-900">{formatCurrency(totalOutflow)}</span>
           </div>
         </div>
       </div>
