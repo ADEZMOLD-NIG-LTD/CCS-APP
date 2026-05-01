@@ -38,6 +38,7 @@ export interface Supplier {
 
 export type CommodityType = 'COCOA' | 'CASHEW' | 'PK';
 export type PackagingType = 'JUTE_BAG' | 'NYLON_BAG';
+export type CalculationMethod = 'DIRECT' | 'MANUAL';
 
 export interface Warehouse {
   id: string;
@@ -191,6 +192,7 @@ export interface Transaction {
   noOfBags?: number;
   pricePerKg?: number;
   totalValue?: number;
+  calculationMethod?: CalculationMethod;
   deductions: DeductionParams;
   referenceId: string;
   storeRecordId?: string;

@@ -13,7 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { reportFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
-import { cn, roundTo, formatNumber, formatCurrency } from '../lib/utils';
+import { cn, roundTo, formatNumber, formatCurrency, getWeightInKg } from '../lib/utils';
 
 // Sub-components
 import PurchaseForm from './inventory/PurchaseForm';
@@ -140,16 +140,17 @@ export default function InventoryModule() {
   const inventory = useMemo(() => {
     const summary: Record<CommodityType, number> = { COCOA: 0, CASHEW: 0, PK: 0 };
     allTransactions.forEach(tx => {
+      const weightKg = getWeightInKg(tx.netWeight);
       if (selectedWarehouseId !== 'ALL') {
-        if (tx.type === 'PURCHASE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] += tx.netWeight;
-        if (tx.type === 'SALE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] -= tx.netWeight;
+        if (tx.type === 'PURCHASE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
+        if (tx.type === 'SALE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
         if (tx.type === 'TRANSFER') {
-          if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.commodity] -= tx.netWeight;
-          if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.commodity] += tx.netWeight;
+          if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
+          if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
         }
       } else {
-        if (tx.type === 'PURCHASE') summary[tx.commodity] += tx.netWeight;
-        if (tx.type === 'SALE') summary[tx.commodity] -= tx.netWeight;
+        if (tx.type === 'PURCHASE') summary[tx.commodity] += weightKg;
+        if (tx.type === 'SALE') summary[tx.commodity] -= weightKg;
         // Transfers don't change total inventory, only location
       }
     });
@@ -175,11 +176,12 @@ export default function InventoryModule() {
   const getWarehouseStock = (warehouseId: string, commodityType: CommodityType) => {
     return allTransactions.reduce((sum, tx) => {
       if (tx.commodity !== commodityType) return sum;
-      if (tx.type === 'PURCHASE' && tx.warehouseId === warehouseId) return sum + tx.netWeight;
-      if (tx.type === 'SALE' && tx.warehouseId === warehouseId) return sum - tx.netWeight;
+      const weightKg = getWeightInKg(tx.netWeight);
+      if (tx.type === 'PURCHASE' && tx.warehouseId === warehouseId) return sum + weightKg;
+      if (tx.type === 'SALE' && tx.warehouseId === warehouseId) return sum - weightKg;
       if (tx.type === 'TRANSFER') {
-        if (tx.sourceWarehouseId === warehouseId) return sum - tx.netWeight;
-        if (tx.destinationWarehouseId === warehouseId) return sum + tx.netWeight;
+        if (tx.sourceWarehouseId === warehouseId) return sum - weightKg;
+        if (tx.destinationWarehouseId === warehouseId) return sum + weightKg;
       }
       return sum;
     }, 0);
@@ -238,6 +240,7 @@ export default function InventoryModule() {
       date: editingTransaction?.date || new Date().toISOString(),
       type: 'PURCHASE',
       commodity: data.commodity,
+      calculationMethod: data.calculationMethod,
       supplierId,
       storeRecordId: data.storeRecordId,
       grossWeight: data.grossWeight,
@@ -245,7 +248,7 @@ export default function InventoryModule() {
       bags: data.bags,
       noOfBags: data.bags,
       pricePerKg: data.price,
-      totalValue: roundTo(data.netWeight * data.price, 2),
+      totalValue: data.totalValue || roundTo(data.netWeight * data.price, 2),
       referenceId: editingTransaction?.referenceId || `TX-${Date.now().toString().slice(-6)}`,
       warehouseId: data.warehouseId || profile?.assignedWarehouseId || '',
       deductions: data.deductions

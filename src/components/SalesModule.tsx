@@ -22,7 +22,7 @@ import {
   Truck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CommodityType, Transaction, Buyer, DeductionParams, Warehouse, Supplier } from '../types';
+import { CommodityType, Transaction, Buyer, DeductionParams, Warehouse, Supplier, CalculationMethod } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
@@ -31,7 +31,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
-import { cn, roundTo, formatNumber, formatCurrency } from '../lib/utils';
+import { cn, roundTo, formatNumber, formatCurrency, getWeightInKg } from '../lib/utils';
 import SaleForm from './sales/SaleForm';
 import BuyerForm from './sales/BuyerForm';
 import SalesList from './sales/SalesList';
@@ -63,6 +63,7 @@ export default function SalesModule() {
   }, [profile, isAdmin, profile?.assignedWarehouseId]);
 
   // Form State for Sale
+  const [calculationMethod, setCalculationMethod] = useState<CalculationMethod>('DIRECT');
   const [commodity, setCommodity] = useState<CommodityType>('COCOA');
   const [grossWeight, setGrossWeight] = useState<number | string>('');
   const [moistureActual, setMoistureActual] = useState<number | string>(8);
@@ -70,6 +71,10 @@ export default function SalesModule() {
   const [tareWeight, setTareWeight] = useState<number | string>('');
   const [moldWeight, setMoldWeight] = useState<number | string>('');
   const [otherDeduction, setOtherDeduction] = useState<number | string>('');
+  const [price, setPrice] = useState<number | string>('');
+
+  const [manualNetWeight, setManualNetWeight] = useState<number | string>('');
+  const [manualTotalValue, setManualTotalValue] = useState<number | string>('');
 
   // Load Data from Firestore
   useEffect(() => {
@@ -142,16 +147,17 @@ export default function SalesModule() {
   const inventory = useMemo(() => {
     const summary: Record<CommodityType, number> = { COCOA: 0, CASHEW: 0, PK: 0 };
     allTransactions.forEach(tx => {
-      if (selectedWarehouseId) {
-        if (tx.type === 'PURCHASE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] += tx.netWeight;
-        if (tx.type === 'SALE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] -= tx.netWeight;
+      const weightKg = getWeightInKg(tx.netWeight);
+      if (selectedWarehouseId && selectedWarehouseId !== 'ALL') {
+        if (tx.type === 'PURCHASE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
+        if (tx.type === 'SALE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
         if (tx.type === 'TRANSFER') {
-          if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.commodity] -= tx.netWeight;
-          if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.commodity] += tx.netWeight;
+          if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
+          if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
         }
       } else {
-        if (tx.type === 'PURCHASE') summary[tx.commodity] += tx.netWeight;
-        if (tx.type === 'SALE') summary[tx.commodity] -= tx.netWeight;
+        if (tx.type === 'PURCHASE') summary[tx.commodity] += weightKg;
+        if (tx.type === 'SALE') summary[tx.commodity] -= weightKg;
       }
     });
     return summary;
@@ -166,7 +172,19 @@ export default function SalesModule() {
   }, [moistureActual, moistureBenchmark, grossWeight]);
 
   const totalDeductions = roundTo(moistureLoss + Number(tareWeight) + Number(moldWeight) + Number(otherDeduction), 2);
-  const netWeight = Math.max(0, roundTo(Number(grossWeight) - totalDeductions, 2));
+  
+  const calculatedNetWeight = useMemo(() => {
+    const gross = Number(grossWeight) || 0;
+    return Math.max(0, roundTo(gross - totalDeductions, 2));
+  }, [grossWeight, totalDeductions]);
+
+  // Sync manual values with calculated values if in DIRECT mode
+  useEffect(() => {
+    if (calculationMethod === 'DIRECT') {
+      setManualNetWeight(calculatedNetWeight);
+      setManualTotalValue(roundTo(calculatedNetWeight * Number(price), 2));
+    }
+  }, [calculatedNetWeight, price, calculationMethod]);
 
   const handleAddBuyer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -209,7 +227,10 @@ export default function SalesModule() {
 
     // Check inventory availability (Skip for direct delivery)
     const availableStock = inventory[commodity];
-    if (!isDirectDelivery && netWeight > availableStock) {
+    const finalNetWeight = calculationMethod === 'MANUAL' ? Number(manualNetWeight) : calculatedNetWeight;
+    const finalTotalValue = calculationMethod === 'MANUAL' ? Number(manualTotalValue) : roundTo(finalNetWeight * Number(price), 2);
+
+    if (!isDirectDelivery && finalNetWeight > availableStock) {
       setErrorMessage(`Insufficient inventory! Available ${commodity} stock is only ${formatNumber(availableStock || 0)} kg.`);
       return;
     }
@@ -228,12 +249,13 @@ export default function SalesModule() {
       storeRecordId: formData.get('storeRecordId') as string,
       supplierId: isSupplierBuyer ? (formData.get('supplierId') as string) : (isDirectDelivery ? (formData.get('supplierId') as string) : undefined),
       isDirectDelivery,
+      calculationMethod,
       grossWeight: Number(grossWeight) || 0,
-      netWeight,
+      netWeight: finalNetWeight,
       bags: Number(formData.get('bags')) || 0,
       noOfBags: Number(formData.get('bags')) || 0,
-      pricePerKg: Number(formData.get('price')) || 0,
-      totalValue: roundTo(netWeight * (Number(formData.get('price')) || 0), 2),
+      pricePerKg: Number(price) || 0,
+      totalValue: finalTotalValue,
       referenceId: `SL-${Date.now().toString().slice(-6)}`,
       truckNo: formData.get('truckNo') as string,
       driverName: formData.get('driverName') as string,
@@ -288,6 +310,7 @@ export default function SalesModule() {
   };
 
   const resetForm = () => {
+    setCalculationMethod('DIRECT');
     setGrossWeight('');
     setMoistureActual(8);
     setMoistureBenchmark(BENCHMARKS[commodity]);
@@ -373,6 +396,8 @@ export default function SalesModule() {
                 profile={profile}
                 commodity={commodity}
                 setCommodity={setCommodity}
+                calculationMethod={calculationMethod}
+                setCalculationMethod={setCalculationMethod}
                 grossWeight={grossWeight}
                 setGrossWeight={setGrossWeight}
                 moistureActual={moistureActual}
@@ -395,7 +420,13 @@ export default function SalesModule() {
                 suppliers={suppliers}
                 buyers={buyers}
                 inventory={inventory}
-                netWeight={netWeight}
+                netWeight={calculationMethod === 'MANUAL' ? Number(manualNetWeight) : calculatedNetWeight}
+                price={price}
+                setPrice={setPrice}
+                manualNetWeight={manualNetWeight}
+                setManualNetWeight={setManualNetWeight}
+                manualTotalValue={manualTotalValue}
+                setManualTotalValue={setManualTotalValue}
                 submitting={submitting}
                 onSubmit={handleAddSale}
                 onCancel={() => setIsAddingSale(false)}

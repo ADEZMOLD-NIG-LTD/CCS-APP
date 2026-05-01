@@ -94,6 +94,7 @@
         "noOfBags": { "type": "number" },
         "pricePerKg": { "type": "number" },
         "totalValue": { "type": "number" },
+        "calculationMethod": { "type": "string", "enum": ["DIRECT", "MANUAL"] },
         "deductions": {
           "type": "object",
           "properties": {

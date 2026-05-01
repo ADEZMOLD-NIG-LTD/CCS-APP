@@ -13,7 +13,7 @@ import {
   BagTransaction, 
   Company 
 } from '../types';
-import { formatNumber, formatCurrency } from '../lib/utils';
+import { formatNumber, formatCurrency, getWeightInKg } from '../lib/utils';
 
 interface PDFData {
   activeReport: string;
@@ -77,12 +77,12 @@ export const generatePDF = (data: PDFData) => {
   
   doc.setFontSize(10);
   doc.setTextColor(100);
-  doc.text('Financial & Commodity Management Solutions', pageWidth / 2, 26, { align: 'center' });
+  doc.text('Financial & Commodity Management Solutions', pageWidth / 2, 28, { align: 'center' });
   
   doc.setDrawColor(200);
-  doc.line(14, 32, pageWidth - 14, 32);
+  doc.line(14, 34, pageWidth - 14, 34);
 
-  doc.setFontSize(14);
+  doc.setFontSize(16);
   doc.setTextColor(0);
   
   let title = '';
@@ -112,7 +112,7 @@ export const generatePDF = (data: PDFData) => {
 
     // Credit Table (We Owe)
     if (creditSuppliers.length > 0) {
-      doc.setFontSize(12);
+      doc.setFontSize(14);
       doc.setTextColor(79, 70, 229); // Indigo-600
       doc.text('CREDIT BALANCES (ACCOUNTS PAYABLE - WE OWE)', 14, (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : 52);
       
@@ -124,14 +124,14 @@ export const generatePDF = (data: PDFData) => {
         theme: 'grid',
         headStyles: { fillColor: [79, 70, 229] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-        styles: { fontSize: 8 },
+        styles: { fontSize: 10 },
         columnStyles: { 2: { halign: 'right' } }
       });
     }
-
+ 
     // Debit Table (They Owe)
     if (debitSuppliers.length > 0) {
-      doc.setFontSize(12);
+      doc.setFontSize(14);
       doc.setTextColor(225, 29, 72); // Rose-600
       doc.text('DEBIT BALANCES (ACCOUNTS RECEIVABLE - THEY OWE US)', 14, (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : 52);
       
@@ -143,7 +143,7 @@ export const generatePDF = (data: PDFData) => {
         theme: 'grid',
         headStyles: { fillColor: [225, 29, 72] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-        styles: { fontSize: 8 },
+        styles: { fontSize: 10 },
         columnStyles: { 2: { halign: 'right' } }
       });
     }
@@ -162,7 +162,7 @@ export const generatePDF = (data: PDFData) => {
 
     // Debit Table (They Owe)
     if (debitBuyers.length > 0) {
-      doc.setFontSize(12);
+      doc.setFontSize(14);
       doc.setTextColor(37, 99, 235); // Blue-600
       doc.text('DEBIT BALANCES (ACCOUNTS RECEIVABLE - THEY OWE US)', 14, (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : 52);
       
@@ -174,14 +174,14 @@ export const generatePDF = (data: PDFData) => {
         theme: 'grid',
         headStyles: { fillColor: [37, 99, 235] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-        styles: { fontSize: 8 },
+        styles: { fontSize: 10 },
         columnStyles: { 2: { halign: 'right' } }
       });
     }
-
+ 
     // Credit Table (We Owe)
     if (creditBuyers.length > 0) {
-      doc.setFontSize(12);
+      doc.setFontSize(14);
       doc.setTextColor(5, 150, 105); // Emerald-600
       doc.text('CREDIT BALANCES (ACCOUNTS PAYABLE - WE OWE THEM)', 14, (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 15 : 52);
       
@@ -193,7 +193,7 @@ export const generatePDF = (data: PDFData) => {
         theme: 'grid',
         headStyles: { fillColor: [5, 150, 105] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-        styles: { fontSize: 8 },
+        styles: { fontSize: 10 },
         columnStyles: { 2: { halign: 'right' } }
       });
     }
@@ -243,10 +243,12 @@ export const generatePDF = (data: PDFData) => {
           deductionBreakdown = parts.join(', ');
         }
 
+        const isManual = t.calculationMethod === 'MANUAL';
+
         return [
           new Date(t.date).toLocaleDateString(),
           t.referenceId,
-          t.commodity,
+          t.commodity + (isManual ? ' (Manual)' : ''),
           warehouses.find(w => w.id === t.warehouseId)?.name || t.warehouse || 'Main',
           formatNumber(t.noOfBags || t.bags || 0, 0),
           `${formatNumber(t.grossWeight)}kg`,
@@ -261,13 +263,13 @@ export const generatePDF = (data: PDFData) => {
 
   if (activeReport !== 'supplier_balances' && activeReport !== 'buyer_balances') {
     doc.text(title, 14, 42);
-    doc.setFontSize(10);
+    doc.setFontSize(11);
     doc.text(`Generated on: ${timestamp}`, 14, 48);
     
     const warehouseName = selectedWarehouseId === 'ALL' ? 'All Warehouses' : warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Unknown';
     const commodityInfo = selectedCommodity === 'ALL' ? 'All Commodities' : selectedCommodity;
     doc.text(`Period: ${startDate} to ${endDate} | Warehouse: ${warehouseName} | Commodity: ${commodityInfo}`, 14, 54);
-
+ 
     autoTable(doc, {
       startY: (activeReport === 'search') ? 52 : 60,
       head: [tableHeaders],
@@ -285,7 +287,7 @@ export const generatePDF = (data: PDFData) => {
       theme: 'grid',
       headStyles: { fillColor: [79, 70, 229] },
       footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-      styles: { fontSize: 8 },
+      styles: { fontSize: 9 },
       columnStyles: {
         4: { halign: 'center' },
         5: { halign: 'right' },

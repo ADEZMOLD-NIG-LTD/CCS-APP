@@ -78,8 +78,12 @@ export default function TransactionList({
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-[var(--text-primary)]">{formatNumber(tx.netWeight)} kg</p>
-                    <p className="text-[10px] text-[var(--text-secondary)]">Net Weight</p>
+                    <p className="text-sm font-bold text-[var(--text-primary)]">
+                       {formatNumber(tx.netWeight || 0)} kg
+                    </p>
+                    <p className="text-[10px] text-[var(--text-secondary)]">
+                      {tx.calculationMethod === 'MANUAL' ? 'Manual Weight' : 'Net Weight'}
+                    </p>
                     {tx.storeRecordId && (
                       <p className="text-[9px] font-bold text-indigo-600 mt-1">
                         Store ID: {tx.storeRecordId}

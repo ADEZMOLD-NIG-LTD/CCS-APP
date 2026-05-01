@@ -5,13 +5,15 @@
 
 import React from 'react';
 import { Truck, Calculator, Users } from 'lucide-react';
-import { CommodityType, Warehouse, Supplier, Buyer, UserProfile } from '../../types';
+import { CommodityType, Warehouse, Supplier, Buyer, UserProfile, CalculationMethod } from '../../types';
 import { cn, formatNumber, formatCurrency } from '../../lib/utils';
 
 interface SaleFormProps {
   profile: UserProfile | null;
   commodity: CommodityType;
   setCommodity: (c: CommodityType) => void;
+  calculationMethod: CalculationMethod;
+  setCalculationMethod: (m: CalculationMethod) => void;
   grossWeight: number | string;
   setGrossWeight: (w: number | string) => void;
   moistureActual: number | string;
@@ -35,6 +37,12 @@ interface SaleFormProps {
   buyers: Buyer[];
   inventory: Record<CommodityType, number>;
   netWeight: number;
+  price: number | string;
+  setPrice: (p: number | string) => void;
+  manualNetWeight: number | string;
+  setManualNetWeight: (w: number | string) => void;
+  manualTotalValue: number | string;
+  setManualTotalValue: (v: number | string) => void;
   submitting: boolean;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
@@ -69,9 +77,17 @@ export default function SaleForm({
   buyers,
   inventory,
   netWeight,
+  price,
+  setPrice,
+  manualNetWeight,
+  setManualNetWeight,
+  manualTotalValue,
+  setManualTotalValue,
   submitting,
   onSubmit,
-  onCancel
+  onCancel,
+  calculationMethod,
+  setCalculationMethod
 }: SaleFormProps) {
   return (
     <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
@@ -190,6 +206,19 @@ export default function SaleForm({
               {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          {commodity === 'COCOA' && (
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calculation Method</label>
+              <select 
+                value={calculationMethod} 
+                onChange={(e) => setCalculationMethod(e.target.value as CalculationMethod)}
+                className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold rounded-xl outline-none"
+              >
+                <option value="DIRECT">Direct (Auto)</option>
+                <option value="MANUAL">Manual (Custom)</option>
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">No of Bags</label>
             <input name="bags" type="number" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
@@ -211,7 +240,16 @@ export default function SaleForm({
           </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Selling Price per kg (₦)</label>
-            <input name="price" type="number" step="0.01" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" placeholder="0.00" />
+            <input 
+              name="price" 
+              type="number" 
+              step="0.01" 
+              required 
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" 
+              placeholder="0.00" 
+            />
           </div>
         </div>
 
@@ -284,22 +322,33 @@ export default function SaleForm({
         </div>
 
         <div className={cn(
-          "rounded-2xl p-4 text-white flex flex-col gap-4 shadow-lg transition-all",
-          !isDirectDelivery && netWeight > inventory[commodity] ? "bg-rose-600" : "bg-blue-600"
+          "rounded-2xl p-6 text-white shadow-xl transition-all",
+          !isDirectDelivery && netWeight > inventory[commodity] ? "bg-rose-600" : (calculationMethod === 'MANUAL' ? "bg-indigo-600" : "bg-blue-600")
         )}>
-          <div className="flex justify-between items-center">
+          <div className="grid grid-cols-2 gap-6">
             <div>
-              <p className="text-[10px] uppercase font-bold opacity-80">Final Net Weight</p>
-              <p className="text-2xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal">kg</span></p>
+              <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Final Net Weight (kg)</p>
+              {calculationMethod === 'MANUAL' ? (
+                <input 
+                  type="number" 
+                  step="0.01"
+                  value={manualNetWeight}
+                  onChange={(e) => setManualNetWeight(e.target.value)}
+                  className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xl font-black outline-none placeholder:text-white/40"
+                  placeholder="0.00"
+                />
+              ) : (
+                <p className="text-3xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal text-white/70">kg</span></p>
+              )}
             </div>
             {!isDirectDelivery && (
               <div className="text-right">
-                <p className="text-[10px] uppercase font-bold opacity-80">Available {commodity} Stock</p>
+                <p className="text-[10px] uppercase font-bold opacity-80 mb-1">Available {commodity} Stock</p>
                 <p className="text-xl font-black">
                   {formatNumber(inventory[commodity] || 0)} <span className="text-xs font-normal">kg</span>
                 </p>
                 {netWeight > inventory[commodity] && (
-                  <p className="text-[9px] font-bold text-rose-200 mt-1 uppercase tracking-tighter animate-pulse">
+                  <p className="text-[9px] font-bold text-rose-200 mt-1 uppercase tracking-tighter animate-pulse text-right">
                     Insufficient Stock
                   </p>
                 )}
@@ -307,16 +356,30 @@ export default function SaleForm({
             )}
             {isDirectDelivery && (
               <div className="text-right">
-                <div className="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg">
+                <div className="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg inline-flex">
                   <Truck size={14} />
                   <span className="text-[10px] font-bold uppercase">Direct Delivery</span>
                 </div>
               </div>
             )}
-          </div>
-          <div className="pt-3 border-t border-white/20 flex justify-between items-center">
-            <p className="text-[10px] uppercase font-bold opacity-80">Total Value</p>
-            <p className="text-lg font-bold">{formatCurrency(netWeight * (Number((document.querySelector('input[name="price"]') as HTMLInputElement)?.value) || 0) || 0)}</p>
+            <div className="col-span-2 pt-4 border-t border-white/20">
+              <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Total Amount (Final Figure)</p>
+              {calculationMethod === 'MANUAL' ? (
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-white/50">₦</span>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={manualTotalValue}
+                    onChange={(e) => setManualTotalValue(e.target.value)}
+                    className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-4 py-3 text-2xl font-black outline-none placeholder:text-white/40"
+                    placeholder="0.00"
+                  />
+                </div>
+              ) : (
+                <p className="text-3xl font-black">{formatCurrency(netWeight * Number(price))}</p>
+              )}
+            </div>
           </div>
         </div>
 

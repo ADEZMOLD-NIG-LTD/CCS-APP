@@ -191,10 +191,11 @@ service cloud.firestore {
 
     function isValidTransaction(data) {
       return hasRequiredFields(['id', 'companyId', 'date', 'type', 'commodity', 'netWeight', 'deductions']) &&
-             hasOnlyAllowedFields(['id', 'companyId', 'date', 'type', 'commodity', 'supplierId', 'buyerId', 'buyerName', 'sourceWarehouseId', 'destinationWarehouseId', 'warehouseId', 'warehouse', 'grossWeight', 'netWeight', 'bags', 'noOfBags', 'pricePerKg', 'totalValue', 'deductions', 'referenceId', 'storeRecordId', 'isDirectDelivery', 'truckNo', 'driverName', 'driverPhone', 'staffName', 'notes', 'isDeleted', 'createdAt']) &&
+             hasOnlyAllowedFields(['id', 'companyId', 'date', 'type', 'commodity', 'supplierId', 'buyerId', 'buyerName', 'sourceWarehouseId', 'destinationWarehouseId', 'warehouseId', 'warehouse', 'grossWeight', 'netWeight', 'bags', 'noOfBags', 'pricePerKg', 'totalValue', 'calculationMethod', 'deductions', 'referenceId', 'storeRecordId', 'isDirectDelivery', 'truckNo', 'driverName', 'driverPhone', 'staffName', 'notes', 'isDeleted', 'createdAt']) &&
              isValidDateString(data.date) &&
              data.type in ['PURCHASE', 'SALE', 'TRANSFER'] &&
              data.commodity in ['COCOA', 'CASHEW', 'PK'] &&
+             (!('calculationMethod' in data) || data.calculationMethod in ['DIRECT', 'MANUAL']) &&
              data.netWeight is number && data.netWeight >= 0 &&
              data.deductions is map;
     }

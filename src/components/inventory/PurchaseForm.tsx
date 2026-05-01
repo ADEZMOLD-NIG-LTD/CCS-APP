@@ -6,8 +6,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Calculator, Droplets, Scale } from 'lucide-react';
 import { motion } from 'motion/react';
-import { CommodityType, Transaction, Supplier, Warehouse, UserProfile } from '../../types';
-import { roundTo, formatNumber, formatCurrency } from '../../lib/utils';
+import { CommodityType, Transaction, Supplier, Warehouse, UserProfile, CalculationMethod } from '../../types';
+import { roundTo, formatNumber, formatCurrency, cn } from '../../lib/utils';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 const BENCHMARKS = { COCOA: 8, CASHEW: 10, PK: 8 };
@@ -32,6 +32,7 @@ export default function PurchaseForm({
   submitting
 }: PurchaseFormProps) {
   const [commodity, setCommodity] = useState<CommodityType>(editingTransaction?.commodity || 'COCOA');
+  const [calculationMethod, setCalculationMethod] = useState<CalculationMethod>(editingTransaction?.calculationMethod || 'DIRECT');
   const [grossWeight, setGrossWeight] = useState<number | string>(editingTransaction?.grossWeight || '');
   const [moistureActual, setMoistureActual] = useState<number | string>(editingTransaction?.deductions.moistureActual || 8);
   const [moistureBenchmark, setMoistureBenchmark] = useState<number | string>(editingTransaction?.deductions.moistureBenchmark || 10);
@@ -39,6 +40,10 @@ export default function PurchaseForm({
   const [moldWeight, setMoldWeight] = useState<number | string>(editingTransaction?.deductions.moldWeight || '');
   const [otherDeduction, setOtherDeduction] = useState<number | string>(editingTransaction?.deductions.otherDeduction || '');
   const [isWalkIn, setIsWalkIn] = useState(editingTransaction?.supplierId?.startsWith('WALK_IN_') || false);
+
+  const [manualNetWeight, setManualNetWeight] = useState<number | string>(editingTransaction?.netWeight || '');
+  const [manualTotalValue, setManualTotalValue] = useState<number | string>(editingTransaction?.totalValue || '');
+  const [price, setPrice] = useState<number | string>(editingTransaction?.pricePerKg || 0);
 
   useEffect(() => {
     if (!editingTransaction) {
@@ -54,18 +59,35 @@ export default function PurchaseForm({
   }, [moistureActual, moistureBenchmark, grossWeight]);
 
   const totalDeductions = roundTo(moistureLoss + Number(tareWeight) + Number(moldWeight) + Number(otherDeduction), 2);
-  const netWeight = Math.max(0, roundTo(Number(grossWeight) - totalDeductions, 2));
+  
+  const calculatedNetWeight = useMemo(() => {
+    const gross = Number(grossWeight) || 0;
+    return Math.max(0, roundTo(gross - totalDeductions, 2));
+  }, [grossWeight, totalDeductions]);
+
+  // Sync manual values with calculated values if not manually changed
+  useEffect(() => {
+    if (calculationMethod === 'DIRECT') {
+      setManualNetWeight(calculatedNetWeight);
+      setManualTotalValue(roundTo(calculatedNetWeight * Number(price), 2));
+    }
+  }, [calculatedNetWeight, price, calculationMethod]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
+    const finalNetWeight = calculationMethod === 'MANUAL' ? Number(manualNetWeight) : calculatedNetWeight;
+    const finalTotalValue = calculationMethod === 'MANUAL' ? Number(manualTotalValue) : roundTo(finalNetWeight * Number(price), 2);
+    
     const data = {
       commodity,
+      calculationMethod,
       grossWeight: Number(grossWeight),
-      netWeight,
+      netWeight: finalNetWeight,
+      totalValue: finalTotalValue,
       bags: Number(formData.get('bags')),
-      price: Number(formData.get('price')),
+      price: Number(price),
       supplierId: formData.get('supplierId'),
       storeRecordId: formData.get('storeRecordId'),
       warehouseId: formData.get('warehouseId'),
@@ -154,6 +176,19 @@ export default function PurchaseForm({
               {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+          {commodity === 'COCOA' && (
+            <div>
+              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calculation Method</label>
+              <select 
+                value={calculationMethod} 
+                onChange={(e) => setCalculationMethod(e.target.value as CalculationMethod)}
+                className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold rounded-xl outline-none"
+              >
+                <option value="DIRECT">Direct (Auto)</option>
+                <option value="MANUAL">Manual (Custom)</option>
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">No of Bags</label>
             <input name="bags" type="number" defaultValue={editingTransaction?.bags || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
@@ -176,7 +211,16 @@ export default function PurchaseForm({
           </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price per kg (₦)</label>
-            <input name="price" type="number" step="0.01" required defaultValue={editingTransaction?.pricePerKg || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" placeholder="0.00" />
+            <input 
+              name="price" 
+              type="number" 
+              step="0.01" 
+              required 
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" 
+              placeholder="0.00" 
+            />
           </div>
         </div>
 
@@ -266,14 +310,48 @@ export default function PurchaseForm({
         </div>
 
         {/* Final Result */}
-        <div className="bg-emerald-600 rounded-2xl p-4 text-white flex justify-between items-center shadow-lg">
-          <div>
-            <p className="text-[10px] uppercase font-bold opacity-80">Final Net Weight</p>
-            <p className="text-2xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal">kg</span></p>
-          </div>
-          <div className="text-right">
-            <p className="text-[10px] uppercase font-bold opacity-80">Total Deductions</p>
-            <p className="text-lg font-bold">-{formatNumber(totalDeductions)} kg</p>
+        <div className={cn(
+          "rounded-2xl p-6 text-white shadow-xl transition-all",
+          calculationMethod === 'MANUAL' ? "bg-indigo-600" : "bg-emerald-600"
+        )}>
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Final Net Weight (kg)</p>
+              {calculationMethod === 'MANUAL' ? (
+                <input 
+                  type="number" 
+                  step="0.01"
+                  value={manualNetWeight}
+                  onChange={(e) => setManualNetWeight(e.target.value)}
+                  className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xl font-black outline-none placeholder:text-white/40"
+                  placeholder="0.00"
+                />
+              ) : (
+                <p className="text-3xl font-black">{formatNumber(calculatedNetWeight)} <span className="text-sm font-normal text-white/70">kg</span></p>
+              )}
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Total Deductions</p>
+              <p className="text-xl font-bold">-{formatNumber(totalDeductions)} <span className="text-sm font-normal opacity-70">kg</span></p>
+            </div>
+            <div className="col-span-2 pt-4 border-t border-white/20">
+              <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Total Amount (Final Figure)</p>
+              {calculationMethod === 'MANUAL' ? (
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-white/50">₦</span>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={manualTotalValue}
+                    onChange={(e) => setManualTotalValue(e.target.value)}
+                    className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-4 py-3 text-2xl font-black outline-none placeholder:text-white/40"
+                    placeholder="0.00"
+                  />
+                </div>
+              ) : (
+                <p className="text-3xl font-black">{formatCurrency(calculatedNetWeight * Number(price))}</p>
+              )}
+            </div>
           </div>
         </div>
 

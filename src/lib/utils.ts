@@ -29,3 +29,10 @@ export function formatNumber(value: number, decimals: number = 2): string {
 export function formatCurrency(value: number): string {
   return `₦${formatNumber(value, 2)}`;
 }
+
+/**
+ * Returns the actual weight in KG. Since we now store all netWeights in KG, this just returns the value.
+ */
+export function getWeightInKg(netWeight: number): number {
+  return netWeight;
+}

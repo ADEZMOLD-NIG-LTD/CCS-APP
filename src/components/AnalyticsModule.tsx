@@ -43,7 +43,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import Toast from './Toast';
-import { cn, roundTo, formatCurrency } from '../lib/utils';
+import { cn, roundTo, formatCurrency, getWeightInKg } from '../lib/utils';
 
 const COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -124,7 +124,8 @@ export default function AnalyticsModule() {
   const commodityData = useMemo(() => {
     const distribution: Record<string, number> = {};
     filteredTx.filter(tx => tx.type === 'PURCHASE').forEach(tx => {
-      distribution[tx.commodity] = (distribution[tx.commodity] || 0) + tx.netWeight;
+      const weightKg = getWeightInKg(tx.netWeight || 0);
+      distribution[tx.commodity] = (distribution[tx.commodity] || 0) + weightKg;
     });
     return Object.entries(distribution).map(([name, value]) => ({ name, value }));
   }, [filteredTx]);
@@ -134,9 +135,10 @@ export default function AnalyticsModule() {
     const daily: Record<string, { date: string, purchase: number, sale: number }> = {};
     filteredTx.forEach(tx => {
       const date = new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const weightKg = getWeightInKg(tx.netWeight || 0);
       if (!daily[date]) daily[date] = { date, purchase: 0, sale: 0 };
-      if (tx.type === 'PURCHASE') daily[date].purchase += tx.netWeight;
-      if (tx.type === 'SALE') daily[date].sale += tx.netWeight;
+      if (tx.type === 'PURCHASE') daily[date].purchase += weightKg;
+      if (tx.type === 'SALE') daily[date].sale += weightKg;
     });
     return Object.values(daily).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [filteredTx]);
