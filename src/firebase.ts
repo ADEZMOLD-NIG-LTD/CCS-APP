@@ -5,7 +5,7 @@
 
 import { initializeApp, FirebaseOptions } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, doc, getDocFromServer, enableIndexedDbPersistence } from 'firebase/firestore';
+import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 
 // Use import.meta.glob to optionally load the config file if it exists (AI Studio environment)
 // This prevents build failures in environments like GitHub Actions where the file is missing.
@@ -51,21 +51,6 @@ export const db = initializeFirestore(app, {
   host: "firestore.googleapis.com",
   ssl: true,
 }, databaseId);
-
-// Enable offline persistence
-import { enableMultiTabIndexedDbPersistence } from 'firebase/firestore';
-
-enableMultiTabIndexedDbPersistence(db).catch((err) => {
-  if (err.code === 'failed-precondition') {
-    // Multiple tabs open, persistence can only be enabled in one tab at a time.
-    console.warn('Firestore persistence failed: Multiple tabs open');
-  } else if (err.code === 'unimplemented') {
-    // The current browser does not support all of the features required to enable persistence
-    console.warn('Firestore persistence failed: Browser not supported');
-  } else {
-    console.error('Firestore persistence error:', err);
-  }
-});
 
 export const auth = getAuth(app);
 console.log("Firebase initialized.");
