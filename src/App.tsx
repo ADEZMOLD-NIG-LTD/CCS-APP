@@ -68,6 +68,52 @@ function AppContent() {
     return <LoginPage onSignIn={signIn} onSignInAsDemo={signInAsDemo} />;
   }
 
+  if (user && (!profile || !profile.companyId)) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-6 text-center">
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl w-full max-w-md">
+          <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <Building2 size={32} />
+          </div>
+          <h2 className="text-2xl font-black text-slate-900 mb-2">Register Company</h2>
+          <p className="text-slate-500 mb-8">Welcome! To get started, please register your company name.</p>
+          
+          <div className="space-y-4">
+            <div className="text-left">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-4 mb-1 block">Company Name</label>
+              <input 
+                type="text"
+                value={newCompanyName}
+                onChange={(e) => setNewCompanyName(e.target.value)}
+                placeholder="e.g. CCS Enterprise"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+              />
+            </div>
+            
+            <button 
+              onClick={() => registerCompany(newCompanyName)}
+              disabled={!newCompanyName.trim() || loading}
+              className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
+            >
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                'Create Account'
+              )}
+            </button>
+            
+            <button 
+              onClick={logout}
+              className="w-full text-slate-400 py-2 text-sm font-bold hover:text-slate-600 transition-colors"
+            >
+              Cancel & Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (mustChangePassword) {
     return <ChangePasswordPage />;
   }
@@ -163,52 +209,6 @@ function AppContent() {
           >
             Sign Out
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (user && (!profile || !profile.companyId)) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-6 text-center">
-        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl w-full max-w-md">
-          <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <Building2 size={32} />
-          </div>
-          <h2 className="text-2xl font-black text-slate-900 mb-2">Register Company</h2>
-          <p className="text-slate-500 mb-8">Welcome! To get started, please register your company name.</p>
-          
-          <div className="space-y-4">
-            <div className="text-left">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-4 mb-1 block">Company Name</label>
-              <input 
-                type="text"
-                value={newCompanyName}
-                onChange={(e) => setNewCompanyName(e.target.value)}
-                placeholder="e.g. CCS Enterprise"
-                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
-              />
-            </div>
-            
-            <button 
-              onClick={() => registerCompany(newCompanyName)}
-              disabled={!newCompanyName.trim() || loading}
-              className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
-            >
-              {loading ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                'Create Account'
-              )}
-            </button>
-            
-            <button 
-              onClick={logout}
-              className="w-full text-slate-400 py-2 text-sm font-bold hover:text-slate-600 transition-colors"
-            >
-              Cancel & Sign Out
-            </button>
-          </div>
         </div>
       </div>
     );

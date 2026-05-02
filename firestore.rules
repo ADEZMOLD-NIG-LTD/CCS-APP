@@ -210,10 +210,10 @@ service cloud.firestore {
     }
 
     match /staff/{id} {
-      allow list: if isManager() && sameCompany(resource.data.companyId);
-      allow get: if isManager() && sameCompany(existing().companyId);
+      allow list: if (isManager() && sameCompany(resource.data.companyId)) || (isSignedIn() && resource.data.email.lower() == getEmail());
+      allow get: if (isManager() && sameCompany(existing().companyId)) || (isSignedIn() && existing().email.lower() == getEmail());
       allow create: if isManager() && sameCompany(incoming().companyId);
-      allow update: if isManager() && sameCompany(existing().companyId);
+      allow update: if (isManager() && sameCompany(existing().companyId)) || (isSignedIn() && existing().email.lower() == getEmail() && (incoming().diff(existing()).affectedKeys().hasOnly(['uid'])));
       allow delete: if isManager() && sameCompany(existing().companyId);
     }
 

@@ -319,7 +319,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                       companyId: staffData.companyId,
                       assignedWarehouseId: staffData.assignedWarehouseId,
                       createdAt: new Date().toISOString(),
-                      lastPasswordUpdate: null // Force password change on first login
+                      lastPasswordUpdate: new Date().toISOString()
                     };
                     
                     Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
@@ -330,9 +330,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                       
                       // Speed up UI update by setting state manually before snapshot catches up
                       setProfile(newProfile);
-                      if (!isDemoMode && user.providerData.some(p => p.providerId === 'password')) {
-                        setMustChangePassword(true);
-                      }
                       
                       // Note: the onSnapshot will fire again and sync everything
                     } catch (rulesError: any) {
