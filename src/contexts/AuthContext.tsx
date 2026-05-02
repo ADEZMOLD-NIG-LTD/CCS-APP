@@ -259,6 +259,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               }
 
               setProfile(data);
+              setLoading(false);
+              clearTimeout(loadingTimeout);
 
               // Password Policy Engine
               const providers = user.providerData.map(p => p.providerId);
@@ -298,6 +300,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               // New User / Pre-registered Staff Logic
               if (user.email && !isDemoMode) {
                 console.log('AuthContext: User profile missing, checking staff records for:', user.email);
+                setLoading(true); // Ensure loading is true while checking staff
                 try {
                   const staffQuery = query(
                     collection(db, 'staff'),
@@ -324,6 +327,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     try {
                       await setDoc(userRef, newProfile);
                       console.log('AuthContext: Profile created successfully.');
+                      
+                      // Speed up UI update by setting state manually before snapshot catches up
+                      setProfile(newProfile);
+                      if (!isDemoMode && user.providerData.some(p => p.providerId === 'password')) {
+                        setMustChangePassword(true);
+                      }
+                      
+                      // Note: the onSnapshot will fire again and sync everything
                     } catch (rulesError: any) {
                       console.error('AuthContext: Profile creation REJECTED by rules:', rulesError);
                       setErrorMessage(`Permission Denied: Could not create your login profile. Please contact the administrator to verify your staff record. Details: ${rulesError.message}`);
@@ -343,23 +354,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 } catch (staffFetchError: any) {
                   console.error('AuthContext: Staff record lookup failed:', staffFetchError);
                   setErrorMessage(`Login Error: Failed to verify your staff status. ${staffFetchError.message}`);
+                } finally {
+                  setLoading(false);
                 }
               } else {
                 setProfile(null);
                 setCompany(null);
+                setLoading(false);
               }
             }
-          }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.GET, `users/${user.uid}`)));
+          }, (error) => {
+            setErrorMessage(reportFirestoreError(error, OperationType.GET, `users/${user.uid}`));
+            setLoading(false);
+          });
         } else {
           setIsDemoMode(false);
           setProfile(null);
           setCompany(null);
           if (unsubscribeProfile) unsubscribeProfile();
           if (unsubscribeCompany) unsubscribeCompany();
+          setLoading(false);
+          clearTimeout(loadingTimeout);
         }
       } catch (err) {
         console.error('AuthContext: onAuthStateChanged error:', err);
-      } finally {
         setLoading(false);
         clearTimeout(loadingTimeout);
       }
