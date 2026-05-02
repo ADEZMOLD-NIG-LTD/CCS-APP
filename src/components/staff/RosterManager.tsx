@@ -111,10 +111,10 @@ export default function RosterManager({
                         >
                           <UserMinus size={14} />
                         </button>
-                      ) : staff.status === 'SUSPENDED' ? (
+                      ) : (staff.status === 'SUSPENDED' || staff.status === 'DISMISSED') ? (
                         <button 
                           onClick={() => onUpdateStatus(staff.id, 'ACTIVE')}
-                          title="Recall Staff"
+                          title={staff.status === 'SUSPENDED' ? "Recall Staff" : "Reinstate Staff"}
                           className="text-slate-400 hover:text-emerald-600 transition-colors"
                         >
                           <UserCheck size={14} />
