@@ -10,9 +10,10 @@ import { Buyer } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import ConfirmModal from './ConfirmModal';
 import { cn, formatNumber } from '../lib/utils';
@@ -86,22 +87,41 @@ export default function BuyerModule() {
     setDeleteConfirmId(id);
   };
 
-  const confirmDelete = async () => {
-    if (!deleteConfirmId) return;
+  const confirmDelete = async (reason?: string) => {
+    if (!deleteConfirmId || !profile) return;
     try {
-      await deleteDoc(doc(db, 'buyers', deleteConfirmId));
+      const updateData = {
+        isDeleted: true,
+        deletionReason: reason || 'No reason provided',
+        deletedBy: profile.email,
+        deletedAt: new Date().toISOString()
+      };
+      await updateDoc(doc(db, 'buyers', deleteConfirmId), updateData);
+      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.DELETE,
+        module: 'Buyers',
+        recordId: deleteConfirmId,
+        details: `Deleted (Soft) buyer: ${buyers.find(b => b.id === deleteConfirmId)?.name || deleteConfirmId}. Reason: ${reason}`
+      }).catch(err => console.error('Audit log failed:', err));
+
       setSuccessMessage('Buyer deleted successfully!');
     } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `buyers/${deleteConfirmId}`));
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `buyers/${deleteConfirmId}`));
     } finally {
       setDeleteConfirmId(null);
     }
   };
 
   const filteredBuyers = buyers.filter(b => 
-    b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    b.phone.includes(searchQuery) ||
-    b.location.toLowerCase().includes(searchQuery.toLowerCase())
+    !b.isDeleted && (
+      b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      b.phone.includes(searchQuery) ||
+      b.location.toLowerCase().includes(searchQuery.toLowerCase())
+    )
   );
 
   if (selectedBuyer) {
@@ -130,11 +150,12 @@ export default function BuyerModule() {
       <ConfirmModal
         isOpen={!!deleteConfirmId}
         title="Delete Buyer"
-        message="Are you sure you want to delete this buyer? This action cannot be undone."
+        message="Are you sure you want to delete this buyer? This will hide them from current views but preserve history."
         onConfirm={confirmDelete}
         onCancel={() => setDeleteConfirmId(null)}
         confirmText="Delete"
         type="danger"
+        requireReason={true}
       />
       {/* Header */}
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">

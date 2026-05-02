@@ -31,6 +31,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
+import ConfirmModal from './ConfirmModal';
 import { cn, roundTo, formatNumber, formatCurrency, getWeightInKg } from '../lib/utils';
 import SaleForm from './sales/SaleForm';
 import BuyerForm from './sales/BuyerForm';
@@ -54,6 +55,7 @@ export default function SalesModule() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Default selected warehouse for staff
   useEffect(() => {
@@ -88,8 +90,7 @@ export default function SalesModule() {
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs
-        .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
-        .filter(tx => !tx.isDeleted);
+        .map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
       setTransactions(data);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
@@ -322,13 +323,38 @@ export default function SalesModule() {
 
   const handleDeleteSale = async (txId: string) => {
     if (!isAdmin) return;
-    if (!window.confirm('Are you sure you want to remove this sales record? This action will be logged and cannot be undone.')) return;
+    setDeleteConfirmId(txId);
+  };
 
+  const confirmDeleteSale = async (reason?: string) => {
+    if (!deleteConfirmId || !profile) return;
+    
     try {
-      await updateDoc(doc(db, 'transactions', txId), { isDeleted: true });
+      const updateData = {
+        isDeleted: true,
+        deletionReason: reason || 'No reason provided',
+        deletedBy: profile.email,
+        deletedAt: new Date().toISOString()
+      };
+
+      await updateDoc(doc(db, 'transactions', deleteConfirmId), updateData);
+      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.DELETE,
+        module: 'Sales',
+        recordId: deleteConfirmId,
+        details: `Deleted (Soft) sale transaction. Reason: ${reason}`,
+        newData: updateData
+      }).catch(err => console.error('Audit log failed:', err));
+
       setSuccessMessage('Sales record removed.');
     } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `transactions/${txId}`));
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `transactions/${deleteConfirmId}`));
+    } finally {
+      setDeleteConfirmId(null);
     }
   };
 
@@ -336,7 +362,7 @@ export default function SalesModule() {
     setMoistureBenchmark(BENCHMARKS[commodity]);
   }, [commodity]);
 
-  const filteredSales = transactions.filter(tx => tx.type === 'SALE');
+  const filteredSales = transactions.filter(tx => tx.type === 'SALE' && !tx.isDeleted);
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
@@ -357,6 +383,17 @@ export default function SalesModule() {
           />
         )}
       </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={!!deleteConfirmId}
+        title="Delete Sale Transaction"
+        message="Are you sure you want to delete this sale record? It will be hidden from reports but remain in the logs."
+        onConfirm={confirmDeleteSale}
+        onCancel={() => setDeleteConfirmId(null)}
+        confirmText="Delete"
+        type="danger"
+        requireReason={true}
+      />
 
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">

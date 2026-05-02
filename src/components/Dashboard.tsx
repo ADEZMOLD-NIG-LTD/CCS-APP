@@ -87,17 +87,21 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   }, [profile?.companyId]);
 
   const stats = useMemo(() => {
-    const totalPurchases = transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
-    const totalSales = transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
-    const totalPayments = payments.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
-    const totalInflow = journal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
-    const totalOutflow = journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
+    const activeTransactions = transactions.filter(t => !t.isDeleted);
+    const activePayments = payments.filter(p => !p.isDeleted);
+    const activeJournal = journal.filter(e => !e.isDeleted);
+
+    const totalPurchases = activeTransactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
+    const totalSales = activeTransactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
+    const totalPayments = activePayments.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
+    const totalInflow = activeJournal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
+    const totalOutflow = activeJournal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
 
     // Calculate total supplier balance
     const totalSupplierBalance = suppliers.reduce((sum, s) => {
-      const sTx = transactions.filter(t => t.supplierId === s.id && t.type === 'PURCHASE');
-      const sPay = payments.filter(p => p.supplierId === s.id);
-      const sExp = journal.filter(e => e.supplierId === s.id && e.type === 'OUTFLOW');
+      const sTx = activeTransactions.filter(t => t.supplierId === s.id && t.type === 'PURCHASE');
+      const sPay = activePayments.filter(p => p.supplierId === s.id);
+      const sExp = activeJournal.filter(e => e.supplierId === s.id && e.type === 'OUTFLOW');
       
       const sPurchases = sTx.reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
       const sPayments = sPay.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
@@ -117,8 +121,12 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   }, [transactions, payments, journal, suppliers]);
 
   const recentActivity = useMemo(() => {
+    const activeTransactions = transactions.filter(t => !t.isDeleted);
+    const activePayments = payments.filter(p => !p.isDeleted);
+    const activeJournal = journal.filter(e => !e.isDeleted);
+
     const activities = [
-      ...transactions.map(t => ({
+      ...activeTransactions.map(t => ({
         id: `tx-${t.id}`,
         type: t.type === 'PURCHASE' ? 'PURCHASE' : 'SALE',
         title: `${t.type === 'PURCHASE' ? 'Purchase' : 'Sale'}: ${t.commodity}`,
@@ -128,7 +136,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         color: t.type === 'PURCHASE' ? 'text-emerald-600' : 'text-blue-600',
         bgColor: t.type === 'PURCHASE' ? 'bg-emerald-50' : 'bg-blue-50'
       })),
-      ...payments.map(p => ({
+      ...activePayments.map(p => ({
         id: `pay-${p.id}`,
         type: 'PAYMENT',
         title: `Payment: ${p.method}`,
@@ -138,7 +146,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         color: 'text-amber-600',
         bgColor: 'bg-amber-50'
       })),
-      ...journal.map(e => ({
+      ...activeJournal.map(e => ({
         id: `jr-${e.id}`,
         type: e.type,
         title: `${e.type === 'INFLOW' ? 'Inflow' : 'Outflow'}: ${e.category}`,

@@ -37,7 +37,10 @@
         "warehouseId": { "type": "string" },
         "sourceWarehouseId": { "type": "string" },
         "destinationWarehouseId": { "type": "string" },
-        "isDeleted": { "type": "boolean" }
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "companyId", "date", "type", "customerName", "nominalWeight", "actualWeight", "noOfBags"]
     },
@@ -66,8 +69,13 @@
         "bankName": { "type": "string" },
         "accountNumber": { "type": "string" },
         "accountName": { "type": "string" },
+        "email": { "type": "string" },
         "previousBalance": { "type": "number" },
-        "createdAt": { "type": "string", "format": "date-time" }
+        "createdAt": { "type": "string", "format": "date-time" },
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "companyId", "name"]
     },
@@ -107,7 +115,16 @@
         },
         "referenceId": { "type": "string" },
         "storeRecordId": { "type": "string" },
-        "isDirectDelivery": { "type": "boolean" }
+        "isDirectDelivery": { "type": "boolean" },
+        "truckNo": { "type": "string" },
+        "driverName": { "type": "string" },
+        "driverPhone": { "type": "string" },
+        "staffName": { "type": "string" },
+        "notes": { "type": "string" },
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "companyId", "date", "type", "commodity", "netWeight", "deductions"]
     },
@@ -124,7 +141,11 @@
         "amount": { "type": "number" },
         "method": { "type": "string", "enum": ["CASH", "BANK_TRANSFER", "CHECK"] },
         "reference": { "type": "string" },
-        "description": { "type": "string" }
+        "description": { "type": "string" },
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "companyId", "warehouseId", "date", "supplierId", "amount"]
     },
@@ -214,7 +235,11 @@
         "supplierId": { "type": "string" },
         "buyerId": { "type": "string" },
         "paymentMethod": { "type": "string", "enum": ["CASH", "BANK_TRANSFER"] },
-        "bankName": { "type": "string" }
+        "bankName": { "type": "string" },
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "companyId", "warehouseId", "date", "type", "category", "amount"]
     },
@@ -227,7 +252,11 @@
         "companyId": { "type": "string" },
         "name": { "type": "string" },
         "phone": { "type": "string" },
-        "location": { "type": "string" }
+        "location": { "type": "string" },
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "companyId", "name"]
     },
@@ -244,7 +273,11 @@
         "packagingType": { "type": "string", "enum": ["JUTE_BAG", "NYLON_BAG"] },
         "quantity": { "type": "number" },
         "reference": { "type": "string" },
-        "warehouseId": { "type": "string" }
+        "warehouseId": { "type": "string" },
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "companyId", "date", "type", "packagingType", "quantity", "warehouseId"]
     },

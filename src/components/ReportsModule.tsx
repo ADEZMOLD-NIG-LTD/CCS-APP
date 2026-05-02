@@ -151,25 +151,29 @@ export default function ReportsModule() {
 
   // Supplier Balances Report Logic
   const supplierBalances = useMemo(() => {
+    const activeTransactions = transactions.filter(t => !t.isDeleted);
+    const activePayments = payments.filter(p => !p.isDeleted);
+    const activeJournal = journal.filter(e => !e.isDeleted);
+
     return suppliers.map(s => {
-      const sPurchases = transactions.filter(t => 
+      const sPurchases = activeTransactions.filter(t => 
         t.supplierId === s.id && 
         t.type === 'PURCHASE' && 
         t.date.split('T')[0] <= endDate &&
         (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
       );
-      const sSales = transactions.filter(t => 
+      const sSales = activeTransactions.filter(t => 
         t.supplierId === s.id && 
         t.type === 'SALE' && 
         t.date.split('T')[0] <= endDate &&
         (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
       );
-      const sPay = payments.filter(p => 
+      const sPay = activePayments.filter(p => 
         p.supplierId === s.id && 
         p.date.split('T')[0] <= endDate &&
         (selectedWarehouseId === 'ALL' || p.warehouseId === selectedWarehouseId)
       );
-      const sExp = journal.filter(e => 
+      const sExp = activeJournal.filter(e => 
         e.supplierId === s.id && 
         e.type === 'OUTFLOW' && 
         e.date.split('T')[0] <= endDate &&
@@ -195,14 +199,17 @@ export default function ReportsModule() {
 
   // Buyer Balances Report Logic
   const buyerBalances = useMemo(() => {
+    const activeTransactions = transactions.filter(t => !t.isDeleted);
+    const activeJournal = journal.filter(e => !e.isDeleted);
+
     return buyers.map(b => {
-      const bSales = transactions.filter(t => 
+      const bSales = activeTransactions.filter(t => 
         t.buyerId === b.id && 
         t.type === 'SALE' && 
         t.date.split('T')[0] <= endDate &&
         (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
       );
-      const bPayments = journal.filter(e => 
+      const bPayments = activeJournal.filter(e => 
         e.buyerId === b.id && 
         e.type === 'INFLOW' && 
         e.date.split('T')[0] <= endDate &&
@@ -231,7 +238,7 @@ export default function ReportsModule() {
       'NYLON_BAG': 0
     };
 
-    bagTransactions.forEach(tx => {
+    bagTransactions.filter(tx => !tx.isDeleted).forEach(tx => {
       const date = tx.date.split('T')[0];
       if (date > endDate) return;
 
@@ -252,6 +259,7 @@ export default function ReportsModule() {
   // Operational Reports Logic
   const filteredOperationalTx = useMemo(() => {
     return transactions.filter(t => {
+      if (t.isDeleted) return false;
       const date = new Date(t.date).toISOString().split('T')[0];
       const dateMatch = date >= startDate && date <= endDate;
       const warehouseMatch = selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId;
@@ -263,7 +271,7 @@ export default function ReportsModule() {
 
   const filteredTransfers = useMemo(() => {
     const commodityTransfers = transactions.filter(t => {
-      if (t.type !== 'TRANSFER') return false;
+      if (t.type !== 'TRANSFER' || t.isDeleted) return false;
       const date = new Date(t.date).toISOString().split('T')[0];
       const dateMatch = date >= startDate && date <= endDate;
       const commodityMatch = selectedCommodity === 'ALL' || t.commodity === selectedCommodity;
@@ -277,7 +285,7 @@ export default function ReportsModule() {
     }));
 
     const bagTransfers = bagTransactions.filter(t => {
-      if (t.type !== 'TRANSFER') return false;
+      if (t.type !== 'TRANSFER' || t.isDeleted) return false;
       const date = t.date.split('T')[0];
       const dateMatch = date >= startDate && date <= endDate;
       const warehouseMatch = selectedWarehouseId === 'ALL' || 

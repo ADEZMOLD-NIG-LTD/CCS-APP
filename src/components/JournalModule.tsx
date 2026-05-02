@@ -29,9 +29,10 @@ import { JournalEntry, Supplier, Buyer, Warehouse } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import ConfirmModal from './ConfirmModal';
 import { cn } from '../lib/utils';
@@ -196,13 +197,31 @@ export default function JournalModule() {
     setDeleteConfirmId(id);
   };
 
-  const confirmDelete = async () => {
-    if (!deleteConfirmId) return;
+  const confirmDelete = async (reason?: string) => {
+    if (!deleteConfirmId || !profile) return;
     try {
-      await deleteDoc(doc(db, 'journal', deleteConfirmId));
+      const updateData = {
+        isDeleted: true,
+        deletionReason: reason || 'No reason provided',
+        deletedBy: profile.email,
+        deletedAt: new Date().toISOString()
+      };
+      await updateDoc(doc(db, 'journal', deleteConfirmId), updateData);
+      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.DELETE,
+        module: 'Journal',
+        recordId: deleteConfirmId,
+        details: `Deleted (Soft) journal entry. Reason: ${reason}`,
+        newData: updateData
+      }).catch(err => console.error('Audit log failed:', err));
+
       setSuccessMessage('Journal entry deleted successfully!');
     } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `journal/${deleteConfirmId}`));
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `journal/${deleteConfirmId}`));
     } finally {
       setDeleteConfirmId(null);
     }
@@ -210,6 +229,7 @@ export default function JournalModule() {
 
   const filteredEntries = useMemo(() => {
     return entries.filter(e => {
+      if (e.isDeleted) return false;
       const entryDate = e.date.split('T')[0];
       const matchesDate = entryDate >= dateRange.start && entryDate <= dateRange.end;
       const matchesType = filterType === 'ALL' || e.type === filterType;
@@ -221,7 +241,7 @@ export default function JournalModule() {
 
   // Opening Balance Calculation (All entries before start date)
   const openingBalances = useMemo(() => {
-    const previousEntries = entries.filter(e => e.date.split('T')[0] < dateRange.start);
+    const previousEntries = entries.filter(e => !e.isDeleted && e.date.split('T')[0] < dateRange.start);
     
     const cashIn = previousEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
     const cashOut = previousEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
@@ -279,11 +299,12 @@ export default function JournalModule() {
       <ConfirmModal
         isOpen={!!deleteConfirmId}
         title="Delete Journal Entry"
-        message="Are you sure you want to delete this journal entry? This action cannot be undone."
+        message="Are you sure you want to delete this journal entry? It will be hidden from accounting records but preserved in audit logs."
         onConfirm={confirmDelete}
         onCancel={() => setDeleteConfirmId(null)}
         confirmText="Delete"
         type="danger"
+        requireReason={true}
       />
 
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">

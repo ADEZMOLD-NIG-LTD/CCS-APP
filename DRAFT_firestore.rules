@@ -201,9 +201,5 @@ service cloud.firestore {
     match /test/connection {
       allow read: if isSignedIn();
     }
-
-    match /_health_check_/ping {
-      allow read: if true;
-    }
   }
 }

@@ -22,6 +22,7 @@ import BagTransferForm from './inventory/BagTransferForm';
 import StockTransferForm from './inventory/StockTransferForm';
 import InventoryStats from './inventory/InventoryStats';
 import TransactionList from './inventory/TransactionList';
+import ConfirmModal from './ConfirmModal';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 const PACKAGING: PackagingType[] = ['JUTE_BAG', 'NYLON_BAG'];
@@ -44,6 +45,7 @@ export default function InventoryModule() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
   const [isWalkIn, setIsWalkIn] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Default selected warehouse for staff
   useEffect(() => {
@@ -105,7 +107,9 @@ export default function InventoryModule() {
       orderBy('date', 'desc')
     );
     const unsubscribeBags = onSnapshot(qBags, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction))
+        .filter(tx => !tx.isDeleted);
       setBagTransactions(data);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'bag_transactions')));
 
@@ -472,20 +476,38 @@ export default function InventoryModule() {
 
   const handleDeleteEntry = async (txId: string) => {
     if (!isAdmin) return;
-    if (!window.confirm('Are you sure you want to remove this purchase record? This action will be logged and cannot be undone.')) return;
+    setDeleteConfirmId(txId);
+  };
 
+  const confirmDeletePurchase = async (reason?: string) => {
+    if (!deleteConfirmId || !profile) return;
+    
     try {
-      const writePromise = updateDoc(doc(db, 'transactions', txId), { isDeleted: true });
+      const updateData = {
+        isDeleted: true,
+        deletionReason: reason || 'No reason provided',
+        deletedBy: profile.email,
+        deletedAt: new Date().toISOString()
+      };
+
+      await updateDoc(doc(db, 'transactions', deleteConfirmId), updateData);
       
-      if (!isOnline) {
-        console.log('Working offline, proceeding optimistically');
-      } else {
-        await writePromise;
-      }
-      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.DELETE,
+        module: 'Inventory (Purchase)',
+        recordId: deleteConfirmId,
+        details: `Deleted (Soft) purchase transaction. Reason: ${reason}`,
+        newData: updateData
+      }).catch(err => console.error('Audit log failed:', err));
+
       setSuccessMessage('Purchase record removed.');
     } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `transactions/${txId}`));
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `transactions/${deleteConfirmId}`));
+    } finally {
+      setDeleteConfirmId(null);
     }
   };
 
@@ -509,6 +531,17 @@ export default function InventoryModule() {
           />
         )}
       </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={!!deleteConfirmId}
+        title="Delete Purchase Record"
+        message="Are you sure you want to delete this purchase record? It will be hidden from reports but remain in the logs."
+        onConfirm={confirmDeletePurchase}
+        onCancel={() => setDeleteConfirmId(null)}
+        confirmText="Delete"
+        type="danger"
+        requireReason={true}
+      />
 
       <header className="bg-white border-b border-[var(--border)] px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between gap-4">

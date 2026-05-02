@@ -10,7 +10,7 @@ import { Supplier } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, query, orderBy, where } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
@@ -130,40 +130,41 @@ export default function SupplierModule() {
     setDeleteConfirmId(id);
   };
 
-  const confirmDelete = async () => {
-    if (!deleteConfirmId) return;
+  const confirmDelete = async (reason?: string) => {
+    if (!deleteConfirmId || !profile) return;
     try {
-      const writePromise = deleteDoc(doc(db, 'suppliers', deleteConfirmId));
+      const updateData = {
+        isDeleted: true,
+        deletionReason: reason || 'No reason provided',
+        deletedBy: profile.email,
+        deletedAt: new Date().toISOString()
+      };
+      await updateDoc(doc(db, 'suppliers', deleteConfirmId), updateData);
       
-      if (!isOnline) {
-        console.log('Working offline, proceeding optimistically');
-      } else {
-        await writePromise;
-      }
-      
-      // Record Audit Log (non-blocking for UI)
       recordAuditLog({
-        companyId: profile?.companyId || '',
-        userId: profile?.uid || '',
-        userEmail: profile?.email || '',
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
         action: AuditAction.DELETE,
         module: 'Suppliers',
         recordId: deleteConfirmId,
-        details: `Deleted supplier: ${suppliers.find(s => s.id === deleteConfirmId)?.name || deleteConfirmId}`
+        details: `Deleted (Soft) supplier: ${suppliers.find(s => s.id === deleteConfirmId)?.name || deleteConfirmId}. Reason: ${reason}`
       }).catch(err => console.error('Audit log failed:', err));
 
       setSuccessMessage('Supplier deleted successfully!');
     } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `suppliers/${deleteConfirmId}`));
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `suppliers/${deleteConfirmId}`));
     } finally {
       setDeleteConfirmId(null);
     }
   };
 
   const filteredSuppliers = suppliers.filter(s => 
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.phone.includes(searchQuery) ||
-    s.location.toLowerCase().includes(searchQuery.toLowerCase())
+    !s.isDeleted && (
+      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      s.phone.includes(searchQuery) ||
+      s.location.toLowerCase().includes(searchQuery.toLowerCase())
+    )
   );
 
   if (selectedSupplier) {
@@ -193,11 +194,12 @@ export default function SupplierModule() {
       <ConfirmModal
         isOpen={!!deleteConfirmId}
         title="Delete Supplier"
-        message="Are you sure you want to delete this supplier? This action cannot be undone."
+        message="Are you sure you want to delete this supplier? This will hide them from current views but preserve history."
         onConfirm={confirmDelete}
         onCancel={() => setDeleteConfirmId(null)}
         confirmText="Delete"
         type="danger"
+        requireReason={true}
       />
 
       {/* Header */}

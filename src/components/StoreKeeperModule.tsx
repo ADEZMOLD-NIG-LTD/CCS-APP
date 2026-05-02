@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { reportFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
+import ConfirmModal from './ConfirmModal';
 import { formatNumber } from '../lib/utils';
 
 // Sub-components
@@ -32,6 +33,7 @@ export default function StoreKeeperModule() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState({
     start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
@@ -194,30 +196,36 @@ export default function StoreKeeperModule() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this record?')) return;
+    if (!isAdmin && !isManager) return;
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDeleteRecord = async (reason?: string) => {
+    if (!deleteConfirmId || !profile) return;
     try {
-      const writePromise = updateDoc(doc(db, 'store_records', id), { isDeleted: true });
+      const updateData = {
+        isDeleted: true,
+        deletionReason: reason || 'No reason provided',
+        deletedBy: profile.email,
+        deletedAt: new Date().toISOString()
+      };
+      await updateDoc(doc(db, 'store_records', deleteConfirmId), updateData);
       
-      if (!isOnline) {
-        console.log('Working offline, proceeding optimistically');
-      } else {
-        await writePromise;
-      }
-      
-      // Record Audit Log (non-blocking for UI)
       recordAuditLog({
-        companyId: profile?.companyId || '',
-        userId: profile?.uid || '',
-        userEmail: profile?.email || '',
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
         action: AuditAction.DELETE,
         module: 'Store Keeper',
-        recordId: id,
-        details: `Deleted store record ${id}`
+        recordId: deleteConfirmId,
+        details: `Deleted (Soft) store record. Reason: ${reason}`
       }).catch(err => console.error('Audit log failed:', err));
 
       setSuccessMessage('Record deleted successfully');
     } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, 'store_records'));
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, 'store_records'));
+    } finally {
+      setDeleteConfirmId(null);
     }
   };
 
@@ -348,6 +356,17 @@ export default function StoreKeeperModule() {
           />
         )}
       </AnimatePresence>
+
+      <ConfirmModal
+        isOpen={!!deleteConfirmId}
+        title="Delete Store Record"
+        message="Are you sure you want to delete this store record? This will be hidden from daily logs but preserved in audit history."
+        onConfirm={confirmDeleteRecord}
+        onCancel={() => setDeleteConfirmId(null)}
+        confirmText="Delete"
+        type="danger"
+        requireReason={true}
+      />
 
       {/* Header & Stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

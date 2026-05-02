@@ -34,6 +34,10 @@ export interface Supplier {
   accountName: string;
   previousBalance: number; // Positive for credit, negative for debit
   createdAt: string;
+  isDeleted?: boolean;
+  deletedBy?: string;
+  deletionReason?: string;
+  deletedAt?: string;
 }
 
 export type CommodityType = 'COCOA' | 'CASHEW' | 'PK';
@@ -73,6 +77,10 @@ export interface Payment {
   method: 'CASH' | 'BANK_TRANSFER' | 'CHECK';
   reference: string;
   description: string;
+  isDeleted?: boolean;
+  deletedBy?: string;
+  deletionReason?: string;
+  deletedAt?: string;
 }
 
 export interface BagTransaction {
@@ -87,6 +95,10 @@ export interface BagTransaction {
   warehouseId?: string; // For STOCK_IN, ISSUE, RETURN
   sourceWarehouseId?: string; // For TRANSFER
   destinationWarehouseId?: string; // For TRANSFER
+  isDeleted?: boolean;
+  deletedBy?: string;
+  deletionReason?: string;
+  deletedAt?: string;
 }
 
 export interface PackagingInventory {
@@ -161,6 +173,10 @@ export interface JournalEntry {
   buyerId?: string; // Optional: if received from a buyer (for inflows)
   paymentMethod: 'CASH' | 'BANK_TRANSFER';
   bankName?: string;
+  isDeleted?: boolean;
+  deletedBy?: string;
+  deletionReason?: string;
+  deletedAt?: string;
 }
 
 export interface Buyer {
@@ -171,6 +187,10 @@ export interface Buyer {
   location: string;
   previousBalance: number; // Positive for debit (they owe us), negative for credit (we owe them)
   createdAt: string;
+  isDeleted?: boolean;
+  deletedBy?: string;
+  deletionReason?: string;
+  deletedAt?: string;
 }
 
 export interface Transaction {
@@ -203,6 +223,9 @@ export interface Transaction {
   staffName?: string;
   notes?: string;
   isDeleted?: boolean;
+  deletedBy?: string;
+  deletionReason?: string;
+  deletedAt?: string;
 }
 
 export interface StoreRecord {
@@ -224,6 +247,9 @@ export interface StoreRecord {
   sourceWarehouseId?: string; // For TRANSFER
   destinationWarehouseId?: string; // For TRANSFER
   isDeleted?: boolean;
+  deletedBy?: string;
+  deletionReason?: string;
+  deletedAt?: string;
 }
 
 export interface AuditLog {
