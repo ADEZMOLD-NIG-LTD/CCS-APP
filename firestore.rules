@@ -132,9 +132,10 @@ service cloud.firestore {
       allow create: if isSignedIn() && (request.auth.uid == userId || (userId == 'demo_admin_profile' && isAnonymous()));
       allow update: if isSignedIn() && (
         (request.auth.uid == userId && incoming().role == existing().role) ||
-        (isAdmin() && sameCompany(existing().companyId)) ||
+        (isAdmin() && sameCompany(existing().get('companyId', ''))) ||
         (userId == 'demo_admin_profile' && isAnonymous())
       );
+      allow delete: if isAdmin() && sameCompany(existing().get('companyId', ''));
     }
 
     match /transactions/{id} {

@@ -647,6 +647,7 @@ export default function InventoryModule() {
               key="bag-form"
               suppliers={suppliers}
               warehouses={warehouses}
+              getWarehouseBagStock={getWarehouseBagStock}
               profile={profile}
               submitting={submitting}
               onCancel={() => setIsAddingBag(false)}

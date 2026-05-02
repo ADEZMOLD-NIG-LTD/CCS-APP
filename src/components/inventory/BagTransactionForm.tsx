@@ -20,6 +20,7 @@ interface BagTransactionFormProps {
   onCancel: () => void;
   suppliers: Supplier[];
   warehouses: Warehouse[];
+  getWarehouseBagStock: (warehouseId: string, pkgType: PackagingType) => number;
   profile: UserProfile | null;
   submitting: boolean;
 }
@@ -29,22 +30,32 @@ export default function BagTransactionForm({
   onCancel,
   suppliers,
   warehouses,
+  getWarehouseBagStock,
   profile,
   submitting
 }: BagTransactionFormProps) {
   const [bagOpType, setBagOpType] = useState<'STOCK_IN' | 'ISSUE'>('STOCK_IN');
   const [packagingType, setPackagingType] = useState<PackagingType>('JUTE_BAG');
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>(profile?.assignedWarehouseId || '');
+
+  const availableStock = selectedWarehouseId ? getWarehouseBagStock(selectedWarehouseId, packagingType) : 0;
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const quantity = Number(formData.get('quantity'));
+
+    if (bagOpType === 'ISSUE' && quantity > availableStock) {
+      alert(`Insufficient stock. Only ${availableStock} units available.`);
+      return;
+    }
     
     const data = {
       type: bagOpType,
       packagingType,
-      quantity: Number(formData.get('quantity')),
+      quantity,
       reference: formData.get('reference'),
-      warehouseId: formData.get('warehouseId'),
+      warehouseId: selectedWarehouseId,
       supplierId: formData.get('supplierId')
     };
     
@@ -95,7 +106,8 @@ export default function BagTransactionForm({
             <select 
               name="warehouseId" 
               required 
-              defaultValue={profile?.assignedWarehouseId || ''}
+              value={selectedWarehouseId}
+              onChange={(e) => setSelectedWarehouseId(e.target.value)}
               disabled={!!profile?.assignedWarehouseId && profile?.role === 'STAFF'}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none disabled:opacity-50"
             >
@@ -103,6 +115,14 @@ export default function BagTransactionForm({
               {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>
+          {selectedWarehouseId && (
+            <div className="col-span-2 bg-amber-50 p-3 rounded-xl border border-amber-100 mb-2">
+              <p className="text-[10px] font-bold text-amber-600 uppercase mb-1">Available {packagingType.replace('_', ' ')}</p>
+              <p className="text-lg font-black text-amber-700">
+                {availableStock.toLocaleString()} units
+              </p>
+            </div>
+          )}
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bag Type</label>
             <select 
@@ -115,7 +135,17 @@ export default function BagTransactionForm({
           </div>
           <div className="col-span-2">
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Quantity (Units)</label>
-            <input name="quantity" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
+            <input 
+              name="quantity" 
+              type="number" 
+              required 
+              max={bagOpType === 'ISSUE' ? availableStock : undefined}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
+              placeholder="0" 
+            />
+            {bagOpType === 'ISSUE' && (
+              <p className="text-[10px] text-slate-400 mt-1">Available: {availableStock.toLocaleString()} units</p>
+            )}
           </div>
 
           {bagOpType === 'ISSUE' && (

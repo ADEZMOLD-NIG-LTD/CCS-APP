@@ -32,12 +32,20 @@ export default function BagTransferForm({
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const quantity = Number(formData.get('quantity'));
+    const sourceId = formData.get('sourceWarehouseId') as string;
+
+    const available = getWarehouseBagStock(sourceId, transferBagType);
+    if (quantity > available) {
+      alert(`Insufficient stock. Only ${available} units available in source.`);
+      return;
+    }
     
     const data = {
-      sourceWarehouseId: formData.get('sourceWarehouseId'),
+      sourceWarehouseId: sourceId,
       destinationWarehouseId: formData.get('destinationWarehouseId'),
       packagingType: transferBagType,
-      quantity: Number(formData.get('quantity')),
+      quantity,
       reference: formData.get('reference')
     };
     
@@ -103,7 +111,14 @@ export default function BagTransferForm({
           </div>
           <div className="col-span-2">
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Quantity (Units)</label>
-            <input name="quantity" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
+            <input 
+              name="quantity" 
+              type="number" 
+              required 
+              max={getWarehouseBagStock(transferBagSourceId, transferBagType) || 0}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
+              placeholder="0" 
+            />
           </div>
           <div className="col-span-2">
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference (Optional)</label>
