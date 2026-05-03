@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import ConfirmModal from './ConfirmModal';
 
 export default function SuperAdminModule() {
-  const { approveCompany, disapproveCompany, toggleUserSuspension, deleteUser, isFirestoreConnected } = useAuth();
+  const { user, approveCompany, disapproveCompany, toggleUserSuspension, deleteUser, isFirestoreConnected } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -20,7 +20,7 @@ export default function SuperAdminModule() {
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  useEffect(() => {
+  React.useEffect(() => {
     const q = query(collection(db, 'companies'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Company));
@@ -29,7 +29,7 @@ export default function SuperAdminModule() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (activeTab === 'users') {
       const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -239,7 +239,25 @@ export default function SuperAdminModule() {
                       <div>
                         <h3 className="font-bold text-[var(--text-primary)]">{company.name}</h3>
                         <p className="text-xs text-[var(--text-secondary)]">{company.ownerEmail}</p>
-                        <p className="text-[10px] text-[var(--text-secondary)] mt-1">Registered: {new Date(company.createdAt).toLocaleDateString()}</p>
+                        <div className="flex items-center gap-3 mt-1">
+                          <p className="text-[10px] text-[var(--text-secondary)]">Registered: {new Date(company.createdAt).toLocaleDateString()}</p>
+                          
+                          {/* Onboarding Counter - Restricted Visibility */}
+                          {(user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' || user?.email?.toLowerCase() === 'adezmoldent@gmail.com') && (
+                            <div className="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100">
+                              <Clock size={10} className="shrink-0" />
+                              <span className="text-[10px] font-bold">
+                                {(() => {
+                                  const created = new Date(company.createdAt).getTime();
+                                  const now = new Date().getTime();
+                                  const daysPassed = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+                                  const remaining = Math.max(0, 365 - daysPassed);
+                                  return `${remaining} Days Left`;
+                                })()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                     
