@@ -11,7 +11,8 @@ import {
   Warehouse, 
   Buyer, 
   BagTransaction, 
-  Company 
+  Company,
+  JournalEntry 
 } from '../types';
 import { formatNumber, formatCurrency, getWeightInKg } from '../lib/utils';
 
@@ -38,6 +39,7 @@ interface PDFData {
   filteredOperationalTx: Transaction[];
   filteredTransfers: any[];
   selectedCommodity: string;
+  filteredJournal: JournalEntry[];
 }
 
 export const generatePDF = (data: PDFData) => {
@@ -63,7 +65,8 @@ export const generatePDF = (data: PDFData) => {
     packagingInventory,
     filteredOperationalTx,
     filteredTransfers,
-    selectedCommodity
+    selectedCommodity,
+    filteredJournal
   } = data;
 
   const doc = new jsPDF(activeReport === 'supplier_balances' ? 'p' : 'l');
@@ -91,20 +94,25 @@ export const generatePDF = (data: PDFData) => {
 
   if (activeReport === 'search') {
     title = `Transaction Search Results for: ${searchQuery}`;
-    tableHeaders = ['Date', 'Type', 'Tranx ID', 'Entity', 'Commodity', 'Net Weight', 'Value (NGN)'];
+    tableHeaders = ['Date', 'Type', 'Tranx ID', 'Entity', 'Phone', 'Commodity', 'Net Weight', 'Value (NGN)'];
     tableData = transactions
       .filter(t => t.storeRecordId?.toLowerCase().includes(searchQuery.toLowerCase()))
-      .map(t => [
-        new Date(t.date).toLocaleDateString(),
-        t.type,
-        t.storeRecordId || '-',
-        t.type === 'PURCHASE' 
-          ? (suppliers.find(s => s.id === t.supplierId)?.name || 'Unknown')
-          : (buyers.find(b => b.id === t.buyerId)?.name || t.buyerName || 'Unknown'),
-        t.commodity,
-        `${formatNumber(t.netWeight)}kg`,
-        formatNumber(t.totalValue || 0)
-      ]);
+      .map(t => {
+        const entity = t.type === 'PURCHASE' 
+          ? suppliers.find(s => s.id === t.supplierId)
+          : buyers.find(b => b.id === t.buyerId);
+        
+        return [
+          new Date(t.date).toLocaleDateString(),
+          t.type,
+          t.storeRecordId || '-',
+          entity?.name || (t.type === 'SALE' ? t.buyerName : 'Unknown'),
+          entity?.phone || '-',
+          t.commodity,
+          `${formatNumber(t.netWeight)}kg`,
+          formatNumber(t.totalValue || 0)
+        ];
+      });
   } else if (activeReport === 'supplier_balances') {
     title = `Supplier Balances Report (As at ${endDate})`;
     const warehouseName = selectedWarehouseId === 'ALL' ? 'All Warehouses' : warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Unknown';
@@ -118,14 +126,14 @@ export const generatePDF = (data: PDFData) => {
       
       autoTable(doc, {
         startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
-        head: [['Supplier Name', 'Location', 'Balance (NGN)']],
-        body: creditSuppliers.map(s => [s.name, s.location, formatNumber(s.balance)]),
-        foot: [['TOTAL CREDIT', '', formatNumber(totalCreditBalance)]],
+        head: [['Supplier Name', 'Phone', 'Location', 'Balance (NGN)']],
+        body: creditSuppliers.map(s => [s.name, s.phone || '-', s.location, formatNumber(s.balance)]),
+        foot: [['TOTAL CREDIT', '', '', formatNumber(totalCreditBalance)]],
         theme: 'grid',
         headStyles: { fillColor: [79, 70, 229] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-        styles: { fontSize: 10 },
-        columnStyles: { 2: { halign: 'right' } }
+        styles: { fontSize: 9 },
+        columnStyles: { 3: { halign: 'right' } }
       });
     }
  
@@ -137,14 +145,14 @@ export const generatePDF = (data: PDFData) => {
       
       autoTable(doc, {
         startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
-        head: [['Supplier Name', 'Location', 'Balance (NGN)']],
-        body: debitSuppliers.map(s => [s.name, s.location, formatNumber(Math.abs(s.balance))]),
-        foot: [['TOTAL DEBIT', '', formatNumber(totalDebitBalance)]],
+        head: [['Supplier Name', 'Phone', 'Location', 'Balance (NGN)']],
+        body: debitSuppliers.map(s => [s.name, s.phone || '-', s.location, formatNumber(Math.abs(s.balance))]),
+        foot: [['TOTAL DEBIT', '', '', formatNumber(totalDebitBalance)]],
         theme: 'grid',
         headStyles: { fillColor: [225, 29, 72] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-        styles: { fontSize: 10 },
-        columnStyles: { 2: { halign: 'right' } }
+        styles: { fontSize: 9 },
+        columnStyles: { 3: { halign: 'right' } }
       });
     }
 
@@ -168,14 +176,14 @@ export const generatePDF = (data: PDFData) => {
       
       autoTable(doc, {
         startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
-        head: [['Customer Name', 'Location', 'Balance (NGN)']],
-        body: debitBuyers.map(b => [b.name, b.location, formatNumber(b.balance)]),
-        foot: [['TOTAL DEBIT', '', formatNumber(totalBuyerDebit)]],
+        head: [['Customer Name', 'Phone', 'Location', 'Balance (NGN)']],
+        body: debitBuyers.map(b => [b.name, b.phone || '-', b.location, formatNumber(b.balance)]),
+        foot: [['TOTAL DEBIT', '', '', formatNumber(totalBuyerDebit)]],
         theme: 'grid',
         headStyles: { fillColor: [37, 99, 235] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-        styles: { fontSize: 10 },
-        columnStyles: { 2: { halign: 'right' } }
+        styles: { fontSize: 9 },
+        columnStyles: { 3: { halign: 'right' } }
       });
     }
  
@@ -187,14 +195,14 @@ export const generatePDF = (data: PDFData) => {
       
       autoTable(doc, {
         startY: (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 20 : 58,
-        head: [['Customer Name', 'Location', 'Balance (NGN)']],
-        body: creditBuyers.map(b => [b.name, b.location, formatNumber(Math.abs(b.balance))]),
-        foot: [['TOTAL CREDIT', '', formatNumber(totalBuyerCredit)]],
+        head: [['Customer Name', 'Phone', 'Location', 'Balance (NGN)']],
+        body: creditBuyers.map(b => [b.name, b.phone || '-', b.location, formatNumber(Math.abs(b.balance))]),
+        foot: [['TOTAL CREDIT', '', '', formatNumber(totalBuyerCredit)]],
         theme: 'grid',
         headStyles: { fillColor: [5, 150, 105] },
         footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-        styles: { fontSize: 10 },
-        columnStyles: { 2: { halign: 'right' } }
+        styles: { fontSize: 9 },
+        columnStyles: { 3: { halign: 'right' } }
       });
     }
 
@@ -227,6 +235,24 @@ export const generatePDF = (data: PDFData) => {
         warehouses.find(w => w.id === t.destinationWarehouseId)?.name || 'Unknown',
         t.transferType === 'COMMODITY' ? `${formatNumber((t as Transaction).netWeight)}kg` : `${formatNumber((t as BagTransaction).quantity)} units`
       ]);
+    } else if (activeReport === 'journal') {
+      title = `Financial Journal Report (${startDate} to ${endDate})`;
+      tableHeaders = ['Date', 'Type', 'Category', 'Warehouse', 'Description', 'Inflow (NGN)', 'Outflow (NGN)'];
+      
+      const totalInflow = filteredJournal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + (e.amount || 0), 0);
+      const totalOutflow = filteredJournal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + (e.amount || 0), 0);
+      
+      tableData = filteredJournal.map(e => [
+        new Date(e.date).toLocaleDateString(),
+        e.type,
+        e.category.replace('_', ' '),
+        warehouses.find(w => w.id === e.warehouseId)?.name || '-',
+        e.description,
+        e.type === 'INFLOW' ? formatNumber(e.amount) : '-',
+        e.type === 'OUTFLOW' ? formatNumber(e.amount) : '-'
+      ]);
+
+      // Add footer logic manually since we are using autoTable below
     } else {
       title = activeReport === 'operational_purchases' ? 'Purchases Operational Report' : 'Sales Operational Report';
       tableHeaders = ['Date', 'Ref ID', 'Commodity', 'Warehouse', 'Bags', 'Gross', 'Ded', 'Net', 'Price/kg', 'Value (NGN)'];
@@ -283,19 +309,34 @@ export const generatePDF = (data: PDFData) => {
           '',
           formatNumber(filteredOperationalTx.reduce((sum, t) => sum + (t.totalValue || 0), 0))
         ]
-      ] : undefined,
+      ] : (activeReport === 'journal' ? [
+        ['FINAL BALANCES', '', '', '', '', 
+          formatNumber(filteredJournal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + (e.amount || 0), 0)),
+          formatNumber(filteredJournal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + (e.amount || 0), 0))
+        ]
+      ] : undefined),
       theme: 'grid',
       headStyles: { fillColor: [79, 70, 229] },
       footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
       styles: { fontSize: 9 },
-      columnStyles: {
+      columnStyles: activeReport === 'search' ? {
+        6: { halign: 'right' },
+        7: { halign: 'right' }
+      } : (activeReport === 'packaging_inventory' ? {
+        2: { halign: 'right' }
+      } : (activeReport === 'transfers' ? {
+        5: { halign: 'right' }
+      } : (activeReport === 'journal' ? {
+        5: { halign: 'right' },
+        6: { halign: 'right' }
+      } : {
         4: { halign: 'center' },
         5: { halign: 'right' },
         6: { halign: 'right' },
         7: { halign: 'right' },
         8: { halign: 'right' },
         9: { halign: 'right' }
-      }
+      })))
     });
 
     doc.save(`${activeReport}_${new Date().getTime()}.pdf`);

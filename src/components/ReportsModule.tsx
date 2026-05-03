@@ -25,6 +25,7 @@ import PackagingReport from './reports/PackagingReport';
 import TransfersReport from './reports/TransfersReport';
 import AuditLogsReport from './reports/AuditLogsReport';
 import SearchReport from './reports/SearchReport';
+import JournalReport from './reports/JournalReport';
 import ReportTabs, { ReportType } from './reports/ReportTabs';
 import ReportFilters from './reports/ReportFilters';
 
@@ -302,6 +303,16 @@ export default function ReportsModule() {
     );
   }, [transactions, bagTransactions, startDate, endDate, selectedWarehouseId]);
 
+  const filteredJournal = useMemo(() => {
+    return journal.filter(e => {
+      if (e.isDeleted) return false;
+      const date = e.date.split('T')[0];
+      const dateMatch = date >= startDate && date <= endDate;
+      const warehouseMatch = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
+      return dateMatch && warehouseMatch;
+    });
+  }, [journal, startDate, endDate, selectedWarehouseId]);
+
   const handleExportPDF = () => {
     generatePDF({
       activeReport,
@@ -325,7 +336,8 @@ export default function ReportsModule() {
       packagingInventory,
       filteredOperationalTx,
       filteredTransfers,
-      selectedCommodity
+      selectedCommodity,
+      filteredJournal
     });
   };
 
@@ -416,6 +428,14 @@ export default function ReportsModule() {
             <TransfersReport
               key="transfers-report"
               filteredTransfers={filteredTransfers}
+              warehouses={warehouses}
+              startDate={startDate}
+              endDate={endDate}
+            />
+          ) : activeReport === 'journal' ? (
+            <JournalReport
+              key="journal-report"
+              journal={filteredJournal}
               warehouses={warehouses}
               startDate={startDate}
               endDate={endDate}
