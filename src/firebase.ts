@@ -9,8 +9,13 @@ import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 
 // Use import.meta.glob to optionally load the config file if it exists (AI Studio environment)
 // This prevents build failures in environments like GitHub Actions where the file is missing.
-const configFiles = import.meta.glob('../firebase-applet-config.json', { eager: true });
-const configJson = (configFiles['../firebase-applet-config.json'] as any)?.default || {};
+let configJson: any = {};
+try {
+  const configFiles = import.meta.glob('../firebase-applet-config.json', { eager: true });
+  configJson = (configFiles['../firebase-applet-config.json'] as any)?.default || {};
+} catch (e) {
+  console.warn("Firebase config file not found, relying on environment variables.");
+}
 
 // Helper to sanitize env variables (strip accidental quotes)
 const sanitize = (val: any) => typeof val === 'string' ? val.replace(/['"]/g, '').trim() : val;
@@ -26,17 +31,14 @@ export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } 
   firestoreDatabaseId: sanitize(import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || configJson.firestoreDatabaseId || "(default)")
 };
 
-console.log("Firebase Config initialized from env/json.");
+// CRITICAL: Ensure app doesn't crash on init if keys are missing, 
+// so we can show a helpful UI error instead.
+const isValidConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
 
-// Debugging API key loading
-const apiKeySource = import.meta.env.VITE_FIREBASE_API_KEY ? "env" : (configJson.apiKey ? "json" : "none");
-console.log(`Firebase API Key source: ${apiKeySource}`);
-if (firebaseConfig.apiKey) {
-  console.log(`Firebase API Key loaded (first 5 chars): ${firebaseConfig.apiKey.substring(0, 5)}...`);
-}
-
-if (!firebaseConfig.apiKey) {
-  console.error("CRITICAL: Firebase API Key is missing. Please ensure firebase-applet-config.json exists or VITE_FIREBASE_API_KEY is set.");
+if (!isValidConfig) {
+  console.error("CRITICAL: Firebase configuration is incomplete. Authentication and database features will fail.");
+} else {
+  console.log("Firebase Config loaded successfully from " + (import.meta.env.VITE_FIREBASE_API_KEY ? "environment" : "JSON file") + ".");
 }
 
 const app = initializeApp(firebaseConfig);

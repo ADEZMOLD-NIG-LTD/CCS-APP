@@ -21,6 +21,15 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
     resetPassword, errorMessage, setErrorMessage, successMessage, setSuccessMessage 
   } = useAuth();
   
+  // Check if Firebase is properly configured
+  const isConfigured = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
+
+  useEffect(() => {
+    if (!isConfigured) {
+      setErrorMessage("System Alert: Firebase is not fully configured. Please use 'Demo Mode' or check the application console for setup instructions.");
+    }
+  }, [isConfigured]);
+  
   const [view, setView] = useState<'login' | 'signup' | 'forgot'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -240,13 +249,23 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
               </div>
 
               {view === 'forgot' && (
-                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100 mb-4">
-                  <h4 className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-1 flex items-center gap-1">
-                    <AlertCircle size={10} /> Alternative Method
-                  </h4>
-                  <p className="text-[11px] text-blue-700 leading-normal">
-                    If you do not receive the email, please contact your <b>Warehouse Manager</b> or <b>System Administrator</b>. They can manually trigger a password reset for your account in the Staff module.
-                  </p>
+                <div className="space-y-4 mb-4">
+                  <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
+                    <h4 className="text-[10px] font-black text-blue-900 uppercase tracking-widest mb-1 flex items-center gap-1">
+                      <AlertCircle size={10} /> Alternative Method
+                    </h4>
+                    <p className="text-[11px] text-blue-700 leading-normal">
+                      If you do not receive the email, please contact your <b>Warehouse Manager</b> or <b>System Administrator</b>. They can manually trigger a password reset for your account in the Staff module.
+                    </p>
+                  </div>
+                  <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-100">
+                    <h4 className="text-[10px] font-black text-amber-900 uppercase tracking-widest mb-1 flex items-center gap-1">
+                      <AlertCircle size={10} /> Critical Note
+                    </h4>
+                    <p className="text-[11px] text-amber-700 leading-normal">
+                      Only request <b>once</b> and wait a few minutes. If you request multiple times, the older links will expire immediately. Always use the <b>most recent</b> email received.
+                    </p>
+                  </div>
                 </div>
               )}
 

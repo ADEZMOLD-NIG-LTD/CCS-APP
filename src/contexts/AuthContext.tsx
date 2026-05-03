@@ -149,6 +149,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       try {
         console.log("Testing Firestore connection...");
+        
+        // Configuration integrity check
+        const domain = window.location.hostname;
+        const configAuthDomain = firebaseConfig.authDomain || '';
+        const isRunApp = domain.includes('.run.app');
+        const isMismatchedAuthDomain = configAuthDomain && !configAuthDomain.includes('.firebaseapp.com') && !configAuthDomain.includes('.firebase.google.com');
+
+        if (isRunApp && isMismatchedAuthDomain) {
+          console.warn(`Auth Domain Warning: Your authDomain is set to "${configAuthDomain}". This may cause issues in production. It usually should be your "*.firebaseapp.com" domain.`);
+        }
+
         await Promise.race([
           getDocFromServer(doc(db, 'test', 'connection')),
           timeoutPromise
@@ -514,15 +525,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Configure ActionCodeSettings to handle the redirect back to the app
-      const actionCodeSettings = {
-        // Point back to the current app URL
-        url: window.location.origin,
-        handleCodeInApp: false, // Use the default Firebase handler page
-      };
-
-      await sendPasswordResetEmail(auth, email, actionCodeSettings);
-      setSuccessMessage('Password reset link sent to your email. Please check your inbox and spam folder. If the link shows as "expired", ensure you are clicking the MOST RECENT email sent and that you don\'t have any duplicate requests pending.');
+      // Simplified reset call without action settings to avoid redirect pre-fetch issues
+      await sendPasswordResetEmail(auth, email);
+      
+      setSuccessMessage('Password reset link sent! Please check your inbox (and spam folder). IMPORTANT: Only the LATEST link sent will work. If you requested multiple links, the older ones will show as "expired".');
     } catch (error: any) {
       console.error('Password reset failed:', error);
       
@@ -532,14 +538,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         msg = 'No account found with this email address.';
       } else if (error.code === 'auth/invalid-email') {
         msg = 'The email address is invalid.';
-      } else if (error.code === 'auth/operation-not-allowed') {
-        msg = 'Password reset is currently disabled. Please contact the administrator to enable Email/Password provider in Firebase Console.';
       } else if (error.code === 'auth/too-many-requests') {
-        msg = 'Too many requests. Please try again later. Wait at least 15 minutes before the next attempt.';
+        msg = 'Too many requests. Please wait a few minutes before trying again.';
       } else if (error.code === 'auth/network-request-failed') {
-        msg = 'Network error. Please check your internet connection and try again.';
-      } else if (error.code === 'auth/unauthorized-domain') {
-        msg = 'The current domain is not authorized for password reset. Contact the administrator.';
+        msg = 'Network error. Please check your connection.';
       }
       
       setErrorMessage(msg);
@@ -554,8 +556,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setErrorMessage(null);
       setSuccessMessage(null);
+      // Consistent simplified call
       await sendPasswordResetEmail(auth, email);
-      setSuccessMessage(`Password reset instruction sent to ${email}. They should follow the link in their inbox to set a new password.`);
+      setSuccessMessage(`Password reset instruction sent to ${email}. They must use the link in the MOST RECENT email they receive.`);
     } catch (error: any) {
       console.error('Admin triggered reset failed:', error);
       setErrorMessage(`Failed to send reset email: ${error.message}`);

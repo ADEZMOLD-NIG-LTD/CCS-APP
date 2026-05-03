@@ -27,8 +27,10 @@ import LoginPage from './components/LoginPage';
 import ChangePasswordPage from './components/ChangePasswordPage';
 import Toast from './components/Toast';
 import LegalModal from './components/LegalModal';
+import FirebaseSetupGuide from './components/FirebaseSetupGuide';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { firebaseConfig } from './firebase';
 
 type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin' | 'store' | 'training';
 
@@ -47,6 +49,9 @@ function AppContent() {
 
   console.log('AppContent: State', { loading, user: user?.uid, isDemoMode, showDemoIntro, mustChangePassword });
 
+  // Strict check for Firebase configuration to avoid phantom initialization errors
+  const isConfigured = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
@@ -62,6 +67,10 @@ function AppContent() {
         </div>
       </div>
     );
+  }
+
+  if (!isConfigured) {
+    return <FirebaseSetupGuide />;
   }
 
   if (!user) {
