@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Users, Lock, Clock, XCircle, Briefcase, Phone, Building2, UserMinus, UserCheck, UserX, FileText, Trash2 } from 'lucide-react';
+import { Users, Lock, Clock, XCircle, Briefcase, Phone, Building2, UserMinus, UserCheck, UserX, FileText, Trash2, Mail } from 'lucide-react';
 import { Staff, Roster, Warehouse } from '../../types';
 import { cn, formatCurrency } from '../../lib/utils';
 
@@ -17,6 +17,7 @@ interface RosterManagerProps {
   onUpdateRoster: (staffId: string, shift: 'MORNING' | 'AFTERNOON' | 'NIGHT' | 'OFF') => void;
   onUpdateStatus: (staffId: string, status: 'ACTIVE' | 'SUSPENDED' | 'DISMISSED') => void;
   onResetPassword: (userId: string) => void;
+  onSendResetEmail: (email: string) => void;
   onEdit: (staff: Staff) => void;
   onDelete: (staffId: string) => void;
 }
@@ -30,6 +31,7 @@ export default function RosterManager({
   onUpdateRoster,
   onUpdateStatus,
   onResetPassword,
+  onSendResetEmail,
   onEdit,
   onDelete
 }: RosterManagerProps) {
@@ -124,13 +126,25 @@ export default function RosterManager({
                       <button 
                         onClick={() => onResetPassword(staff.uid || staff.id)}
                         disabled={!staff.email || !staff.uid}
-                        title={staff.uid ? "Force Password Reset (on next login)" : "Cannot reset - User has not signed up yet"}
+                        title={staff.uid ? "Force Login Policy Reset (Reset flag in DB)" : "Cannot reset - User has not signed up yet"}
+                        className={cn(
+                          "transition-colors",
+                          staff.uid ? "text-slate-400 hover:text-amber-600" : "text-slate-200 cursor-not-allowed"
+                        )}
+                      >
+                        <Lock size={14} />
+                      </button>
+
+                      <button 
+                        onClick={() => onSendResetEmail(staff.email!)}
+                        disabled={!staff.email || !staff.uid}
+                        title={staff.uid ? "Send Password Reset Email" : "Cannot send - User has not signed up yet"}
                         className={cn(
                           "transition-colors",
                           staff.uid ? "text-slate-400 hover:text-indigo-600" : "text-slate-200 cursor-not-allowed"
                         )}
                       >
-                        <Lock size={14} />
+                        <Mail size={14} />
                       </button>
                       
                       {staff.status !== 'DISMISSED' && (

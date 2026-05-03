@@ -43,6 +43,7 @@ interface AuthContextType {
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (email: string, pass: string, name: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  sendResetEmailAdmin: (email: string) => Promise<void>;
   manualResetPassword: (userId: string) => Promise<void>;
   changePassword: (currentPass: string, newPass: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -545,9 +546,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const sendResetEmailAdmin = async (email: string) => {
+    if (!isAdmin) {
+      setErrorMessage('Permission Denied: Only company admins can trigger password resets.');
+      return;
+    }
+    try {
+      setErrorMessage(null);
+      setSuccessMessage(null);
+      await sendPasswordResetEmail(auth, email);
+      setSuccessMessage(`Password reset instruction sent to ${email}. They should follow the link in their inbox to set a new password.`);
+    } catch (error: any) {
+      console.error('Admin triggered reset failed:', error);
+      setErrorMessage(`Failed to send reset email: ${error.message}`);
+    }
+  };
+
   const manualResetPassword = async (userId: string) => {
-    if (!isManager && !isAccount) {
-      setErrorMessage('Permission Denied: You do not have the required role to reset passwords.');
+    if (!isAdmin) {
+      setErrorMessage('Permission Denied: Only company admins can manage password policies.');
       return;
     }
     try {
@@ -559,8 +576,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const userSnap = await getDoc(userRef);
       
       if (!userSnap.exists()) {
-        console.warn('AuthContext: User profile does not exist. Cannot reset password for a user who hasn\'t signed up yet.');
-        setErrorMessage('Cannot reset password: This user has not created their account yet (no profile found). They should use the default password "welcome@2025" for their first login.');
+        console.warn('AuthContext: User profile does not exist.');
+        setErrorMessage('Cannot reset policy: This user has not created their profile yet.');
         return;
       }
 
@@ -569,11 +586,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }, { merge: true });
       
       console.log('AuthContext: Password state reset successful in Firestore.');
-      setSuccessMessage('Password state reset for user. They will be forced to change their password on next login.');
+      setSuccessMessage('Password policy reset for user. They will be forced to change their password on next login.');
     } catch (error: any) {
       console.error('Manual reset failed:', error);
-      const details = error.message?.includes('permission') ? 'Insufficient Firestore permissions.' : error.message;
-      setErrorMessage(`Failed to reset password state: ${details} (Target UID: ${userId})`);
+      setErrorMessage(`Failed to reset password state: ${error.message}`);
     }
   };
 
@@ -809,6 +825,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signInWithEmail,
     signUpWithEmail,
     resetPassword,
+    sendResetEmailAdmin,
     manualResetPassword,
     changePassword,
     logout,
