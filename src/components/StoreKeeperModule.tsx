@@ -40,14 +40,14 @@ export default function StoreKeeperModule() {
   });
 
   // Default selected warehouse for staff
-  useEffect(() => {
+  React.useEffect(() => {
     if (profile?.assignedWarehouseId && !isAdmin && !isManager) {
       setSelectedWarehouseId(profile.assignedWarehouseId);
     }
   }, [profile, isAdmin, isManager]);
 
   // Load Data
-  useEffect(() => {
+  React.useEffect(() => {
     if (!profile?.companyId) return;
 
     const qRecords = query(
@@ -95,7 +95,7 @@ export default function StoreKeeperModule() {
     warehouseId: profile?.assignedWarehouseId || ''
   });
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (editingRecord) {
       setFormData(editingRecord);
     }
@@ -230,7 +230,7 @@ export default function StoreKeeperModule() {
   };
 
   // Filtered Records
-  const filteredRecords = useMemo(() => {
+  const filteredRecords = React.useMemo(() => {
     return records.filter(r => {
       const rDate = new Date(r.date).toISOString().split('T')[0];
       const matchesDate = rDate >= dateFilter.start && rDate <= dateFilter.end;
@@ -249,7 +249,7 @@ export default function StoreKeeperModule() {
   }, [records, dateFilter, selectedWarehouseId]);
 
   // Inventory Calculation
-  const inventoryByCommodity = useMemo(() => {
+  const inventoryByCommodity = React.useMemo(() => {
     const inv: Record<string, { quantity: number; bags: number }> = {};
     records.forEach(r => {
       if (r.type === 'TRANSFER') {
@@ -286,7 +286,7 @@ export default function StoreKeeperModule() {
   }, [records, selectedWarehouseId]);
 
   // Totals for filtered view
-  const totals = useMemo(() => {
+  const totals = React.useMemo(() => {
     return filteredRecords.reduce((acc, r) => {
       const commodity = r.commodity;
       

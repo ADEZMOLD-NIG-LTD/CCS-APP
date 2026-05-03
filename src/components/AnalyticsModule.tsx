@@ -55,7 +55,7 @@ export default function AnalyticsModule() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Load Data from Firestore
-  useEffect(() => {
+  React.useEffect(() => {
     if (!profile?.companyId) return;
 
     const qTx = query(
@@ -85,7 +85,7 @@ export default function AnalyticsModule() {
   }, [profile?.companyId]);
 
   // Filtered Data based on timeRange
-  const filteredTx = useMemo(() => {
+  const filteredTx = React.useMemo(() => {
     if (timeRange === 'ALL') return transactions;
     const now = new Date();
     const days = timeRange === '7D' ? 7 : 30;
@@ -93,7 +93,7 @@ export default function AnalyticsModule() {
     return transactions.filter(tx => new Date(tx.date) >= cutoff);
   }, [transactions, timeRange]);
 
-  const filteredJournal = useMemo(() => {
+  const filteredJournal = React.useMemo(() => {
     if (timeRange === 'ALL') return journal;
     const now = new Date();
     const days = timeRange === '7D' ? 7 : 30;
@@ -102,26 +102,26 @@ export default function AnalyticsModule() {
   }, [journal, timeRange]);
 
   // KPI Calculations
-  const totalPurchaseValue = useMemo(() => 
+  const totalPurchaseValue = React.useMemo(() => 
     filteredTx.filter(tx => tx.type === 'PURCHASE').reduce((sum, tx) => sum + roundTo(tx.totalValue || 0, 2), 0), 
   [filteredTx]);
 
-  const totalSalesValue = useMemo(() => 
+  const totalSalesValue = React.useMemo(() => 
     filteredTx.filter(tx => tx.type === 'SALE').reduce((sum, tx) => sum + roundTo(tx.totalValue || 0, 2), 0), 
   [filteredTx]);
 
-  const totalInflowValue = useMemo(() => 
+  const totalInflowValue = React.useMemo(() => 
     filteredJournal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0), 
   [filteredJournal]);
 
-  const totalOutflowValue = useMemo(() => 
+  const totalOutflowValue = React.useMemo(() => 
     filteredJournal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0), 
   [filteredJournal]);
 
   const grossProfit = roundTo((totalSalesValue + totalInflowValue) - (totalPurchaseValue + totalOutflowValue), 2);
 
   // Commodity Distribution (Pie Chart)
-  const commodityData = useMemo(() => {
+  const commodityData = React.useMemo(() => {
     const distribution: Record<string, number> = {};
     filteredTx.filter(tx => tx.type === 'PURCHASE').forEach(tx => {
       const weightKg = getWeightInKg(tx.netWeight || 0);
@@ -131,7 +131,7 @@ export default function AnalyticsModule() {
   }, [filteredTx]);
 
   // Daily Volume (Bar Chart)
-  const dailyVolumeData = useMemo(() => {
+  const dailyVolumeData = React.useMemo(() => {
     const daily: Record<string, { date: string, purchase: number, sale: number }> = {};
     filteredTx.forEach(tx => {
       const date = new Date(tx.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -144,7 +144,7 @@ export default function AnalyticsModule() {
   }, [filteredTx]);
 
   // Outflow Categories (Pie Chart)
-  const outflowCategoryData = useMemo(() => {
+  const outflowCategoryData = React.useMemo(() => {
     const distribution: Record<string, number> = {};
     filteredJournal.filter(e => e.type === 'OUTFLOW').forEach(e => {
       distribution[e.category] = (distribution[e.category] || 0) + e.amount;

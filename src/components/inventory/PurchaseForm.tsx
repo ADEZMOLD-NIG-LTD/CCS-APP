@@ -45,13 +45,13 @@ export default function PurchaseForm({
   const [manualTotalValue, setManualTotalValue] = useState<number | string>(editingTransaction?.totalValue || '');
   const [price, setPrice] = useState<number | string>(editingTransaction?.pricePerKg || 0);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!editingTransaction) {
       setMoistureBenchmark(BENCHMARKS[commodity]);
     }
   }, [commodity, editingTransaction]);
 
-  const moistureLoss = useMemo(() => {
+  const moistureLoss = React.useMemo(() => {
     const actual = Number(moistureActual) || 0;
     const benchmark = Number(moistureBenchmark) || 0;
     const gross = Number(grossWeight) || 0;
@@ -60,13 +60,13 @@ export default function PurchaseForm({
 
   const totalDeductions = roundTo(moistureLoss + Number(tareWeight) + Number(moldWeight) + Number(otherDeduction), 2);
   
-  const calculatedNetWeight = useMemo(() => {
+  const calculatedNetWeight = React.useMemo(() => {
     const gross = Number(grossWeight) || 0;
     return Math.max(0, roundTo(gross - totalDeductions, 2));
   }, [grossWeight, totalDeductions]);
 
   // Sync manual values with calculated values if not manually changed
-  useEffect(() => {
+  React.useEffect(() => {
     if (calculationMethod === 'DIRECT') {
       setManualNetWeight(calculatedNetWeight);
       setManualTotalValue(roundTo(calculatedNetWeight * Number(price), 2));

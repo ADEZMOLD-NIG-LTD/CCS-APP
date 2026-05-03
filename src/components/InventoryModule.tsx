@@ -48,14 +48,14 @@ export default function InventoryModule() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Default selected warehouse for staff
-  useEffect(() => {
+  React.useEffect(() => {
     if (profile?.assignedWarehouseId && !isAdmin) {
       setSelectedWarehouseId(profile.assignedWarehouseId);
     }
   }, [profile, isAdmin]);
 
   // Success message auto-hide
-  useEffect(() => {
+  React.useEffect(() => {
     if (successMessage) {
       const timer = setTimeout(() => setSuccessMessage(null), 3000);
       return () => clearTimeout(timer);
@@ -65,7 +65,7 @@ export default function InventoryModule() {
   // Form State - Moved to sub-components or handled via direct data
 
   // Load Data from Firestore
-  useEffect(() => {
+  React.useEffect(() => {
     if (!profile?.companyId) return;
 
     const qTx = query(
@@ -125,7 +125,7 @@ export default function InventoryModule() {
 
   // Inventory Summary (Calculated from all transactions)
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
-  useEffect(() => {
+  React.useEffect(() => {
     if (!profile?.companyId) return;
 
     const qAll = query(
@@ -141,7 +141,7 @@ export default function InventoryModule() {
     return () => unsubscribe();
   }, [profile?.companyId]);
 
-  const inventory = useMemo(() => {
+  const inventory = React.useMemo(() => {
     const summary: Record<CommodityType, number> = { COCOA: 0, CASHEW: 0, PK: 0 };
     allTransactions.forEach(tx => {
       const weightKg = getWeightInKg(tx.netWeight);
@@ -161,7 +161,7 @@ export default function InventoryModule() {
     return summary;
   }, [allTransactions, selectedWarehouseId]);
 
-  const packagingInventory = useMemo(() => {
+  const packagingInventory = React.useMemo(() => {
     const summary: Record<PackagingType, number> = { JUTE_BAG: 0, NYLON_BAG: 0 };
     bagTransactions.forEach(tx => {
       if (tx.type === 'TRANSFER') {

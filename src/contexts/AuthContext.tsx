@@ -141,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   console.log('AuthProvider: State', { loading, user: user?.uid, isDemoMode, isFirestoreConnected });
 
-  useEffect(() => {
+  React.useEffect(() => {
     async function testConnection() {
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Connection test timeout')), 20000)
@@ -228,7 +228,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isStoreKeeper = useMemo(() => profile?.role === 'STORE_KEEPER' || isAdmin, [profile?.role, isAdmin]);
   const isStaff = useMemo(() => profile?.role === 'STAFF' || isAccount || isAuditor || isStoreKeeper, [profile?.role, isAccount, isAuditor, isStoreKeeper]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
     let unsubscribeCompany: (() => void) | null = null;
 

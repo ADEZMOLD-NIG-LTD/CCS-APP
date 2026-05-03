@@ -15,7 +15,7 @@ interface ToastProps {
 }
 
 export default function Toast({ message, type = 'info', onClose, duration = 5000 }: ToastProps) {
-  useEffect(() => {
+  React.useEffect(() => {
     const timer = setTimeout(() => {
       onClose();
     }, duration);

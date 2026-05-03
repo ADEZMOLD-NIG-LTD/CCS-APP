@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LogIn, LayoutDashboard, Package, Shield, BarChart3, Users, Building2, ArrowRight, AlertCircle, CheckCircle2, WifiOff, Mail, Lock, User, Eye, EyeOff, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -24,7 +24,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
   // Check if Firebase is properly configured
   const isConfigured = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!isConfigured) {
       setErrorMessage("System Alert: Firebase is not fully configured. Please use 'Demo Mode' or check the application console for setup instructions.");
     }

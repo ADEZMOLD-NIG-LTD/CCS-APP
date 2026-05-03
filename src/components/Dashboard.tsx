@@ -37,7 +37,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!profile?.companyId || (company && !company.isApproved && !isSuperAdmin)) return;
 
     const qTx = query(
@@ -86,7 +86,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     };
   }, [profile?.companyId]);
 
-  const stats = useMemo(() => {
+  const stats = React.useMemo(() => {
     const activeTransactions = transactions.filter(t => !t.isDeleted);
     const activePayments = payments.filter(p => !p.isDeleted);
     const activeJournal = journal.filter(e => !e.isDeleted);
@@ -120,7 +120,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     };
   }, [transactions, payments, journal, suppliers]);
 
-  const recentActivity = useMemo(() => {
+  const recentActivity = React.useMemo(() => {
     const activeTransactions = transactions.filter(t => !t.isDeleted);
     const activePayments = payments.filter(p => !p.isDeleted);
     const activeJournal = journal.filter(e => !e.isDeleted);
