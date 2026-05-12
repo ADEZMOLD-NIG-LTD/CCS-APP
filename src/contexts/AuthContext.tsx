@@ -111,29 +111,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isDemoMode) return true; // Demo mode has all permissions
     if (!profile) return false;
 
-    const role = profile.role;
-
     switch (action) {
       case 'manage_users':
-        return role === 'ADMIN';
+        return isAdmin;
       case 'manage_companies':
-        return false; // Only super admin via direct DB or special UI
+        return false; // Only super admin
       case 'manage_suppliers':
       case 'manage_buyers':
       case 'manage_inventory':
-        return ['ADMIN', 'MANAGER', 'STAFF'].includes(role);
+        return isStaff; // Staff, Account, Manager, Admin all have this
       case 'manage_staff':
-        return ['ADMIN', 'MANAGER'].includes(role);
+        return isAdmin || isManager;
       case 'manage_payroll':
       case 'manage_journal':
-        return ['ADMIN', 'ACCOUNT'].includes(role);
+        return isAdmin || isAccount; // Account, Manager, Admin all have this
       case 'view_reports':
       case 'view_analytics':
-        return ['ADMIN', 'MANAGER', 'ACCOUNT', 'AUDITOR'].includes(role);
+        return isAdmin || isManager || isAccount || isAuditor;
       case 'manage_warehouses':
-        return ['ADMIN', 'MANAGER'].includes(role);
+        return isAdmin || isManager;
       case 'manage_store_records':
-        return ['ADMIN', 'MANAGER', 'STORE_KEEPER'].includes(role);
+        return isAdmin || isManager || isStoreKeeper;
       default:
         return false;
     }

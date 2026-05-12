@@ -360,6 +360,14 @@ export default function StaffModule() {
     try {
       const writePromise = setDoc(doc(db, 'staff', editingStaff.id), updatedStaff);
       
+      // If staff is linked to a user account, update the account role too
+      if (editingStaff.uid) {
+        await setDoc(doc(db, 'users', editingStaff.uid), {
+          role: updatedStaff.role,
+          assignedWarehouseId: updatedStaff.assignedWarehouseId
+        }, { merge: true });
+      }
+
       if (!isOnline) {
         console.log('Working offline, proceeding optimistically');
       } else {

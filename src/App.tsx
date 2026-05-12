@@ -61,6 +61,7 @@ function AppContent() {
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">System Diagnostics</p>
           <div className="space-y-1">
             <p className="text-[10px] text-slate-500 font-mono">Project: <span className="text-indigo-600 font-bold">{import.meta.env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0555602350"}</span></p>
+            <p className="text-[10px] text-slate-500 font-mono">Environment: <span className="text-indigo-600 font-bold uppercase">{import.meta.env.VITE_APP_ENV || "development"}</span></p>
             <p className="text-[10px] text-slate-500 font-mono">Database: <span className="text-indigo-600 font-bold">{import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || "ai-studio-086bebaa-d248-491f-a312-4b87527790a1"}</span></p>
             <p className="text-[10px] text-slate-500 font-mono">Mode: <span className="text-slate-900 font-bold">{import.meta.env.MODE}</span></p>
           </div>
@@ -264,6 +265,17 @@ function AppContent() {
                 <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase tracking-widest">
                   {isDemoMode ? 'Training Mode' : 'Live System'}
                 </p>
+                {isSuperAdmin && (
+                  <div className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${
+                    (import.meta.env.VITE_APP_ENV || 'development') === 'production' 
+                      ? 'bg-rose-100 text-rose-600 border border-rose-200' 
+                      : (import.meta.env.VITE_APP_ENV || 'development') === 'staging'
+                      ? 'bg-amber-100 text-amber-600 border border-amber-200'
+                      : 'bg-indigo-100 text-indigo-600 border border-indigo-200'
+                  }`}>
+                    {import.meta.env.VITE_APP_ENV || 'development'}
+                  </div>
+                )}
                 {!isOnline && (
                   <div className="flex items-center gap-1 ml-2 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-100">
                     <WifiOff size={10} className="text-rose-500" />

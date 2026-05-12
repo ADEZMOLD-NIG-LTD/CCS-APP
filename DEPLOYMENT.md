@@ -97,6 +97,40 @@ Follow this guide to move your application from the AI Studio environment to you
 
 ---
 
+## 8. CI/CD & Environment Isolation
+The application is configured with a multi-environment CI/CD pipeline using GitHub Actions.
+
+### Branch Mapping
+- **`main`**: Deploys to **Production**.
+- **`staging`**: Deploys to **Staging**.
+- **`develop`**: Deploys to **Development**.
+
+### Setup Environment Secrets
+In your GitHub Repository, go to **Settings > Secrets and variables > Actions** and add the following secrets for each environment (using GitHub Environments is recommended):
+- `FIREBASE_API_KEY`
+- `FIREBASE_AUTH_DOMAIN`
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_STORAGE_BUCKET`
+- `FIREBASE_MESSAGING_SENDER_ID`
+- `FIREBASE_APP_ID`
+- `FIREBASE_FIRESTORE_DATABASE_ID`
+- `FIREBASE_SERVICE_ACCOUNT` (JSON from Google Cloud Console Service Account)
+- `GEMINI_API_KEY`
+
+### Multi-Project Configuration
+If you use separate Firebase projects for each environment, update `.firebaserc`:
+```json
+{
+  "projects": {
+    "production": "commodity-prod-123",
+    "staging": "commodity-staging-456",
+    "development": "commodity-dev-789"
+  }
+}
+```
+
+---
+
 ## 🛠 Troubleshooting
 - **"Missing or insufficient permissions"**: Check if your `firestore.rules` were deployed correctly.
 - **"Firebase Config Error"**: Double-check `firebase-applet-config.json` for typos.

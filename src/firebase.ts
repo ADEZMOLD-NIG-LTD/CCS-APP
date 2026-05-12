@@ -34,11 +34,12 @@ export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } 
 // CRITICAL: Ensure app doesn't crash on init if keys are missing, 
 // so we can show a helpful UI error instead.
 const isValidConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
+const appEnv = sanitize(import.meta.env.VITE_APP_ENV || 'development');
 
 if (!isValidConfig) {
-  console.error("CRITICAL: Firebase configuration is incomplete. Authentication and database features will fail.");
+  console.error(`CRITICAL: Firebase configuration is incomplete [Env: ${appEnv}]. Authentication and database features will fail.`);
 } else {
-  console.log("Firebase Config loaded successfully from " + (import.meta.env.VITE_FIREBASE_API_KEY ? "environment" : "JSON file") + ".");
+  console.log(`Firebase Config loaded successfully for [${appEnv}] from ` + (import.meta.env.VITE_FIREBASE_API_KEY ? "environment" : "JSON file") + ".");
 }
 
 const app = initializeApp(firebaseConfig);
