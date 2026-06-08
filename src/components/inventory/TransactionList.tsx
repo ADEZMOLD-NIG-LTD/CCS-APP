@@ -57,15 +57,15 @@ export default function TransactionList({
                       <h3 className="font-bold text-[var(--text-primary)]">
                         {suppliers.find(s => s.id === tx.supplierId)?.name || 'Unknown Supplier'}
                       </h3>
-                      {isAdmin && (
-                        <div className="flex items-center gap-1">
-                          <button 
-                            onClick={() => onEdit(tx)}
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={() => onEdit(tx)}
                             className="p-1 text-slate-400 hover:text-[var(--accent)] transition-colors"
-                            title="Adjust Purchase"
-                          >
-                            <Edit size={14} />
-                          </button>
+                          title="Adjust Purchase"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        {isAdmin && (
                           <button 
                             onClick={() => onDelete(tx.id)}
                             className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
@@ -73,8 +73,8 @@ export default function TransactionList({
                           >
                             <Trash2 size={14} />
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="text-right">

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Truck, Calculator, Users } from 'lucide-react';
-import { CommodityType, Warehouse, Supplier, Buyer, UserProfile, CalculationMethod } from '../../types';
+import { CommodityType, Warehouse, Supplier, Buyer, UserProfile, CalculationMethod, Transaction } from '../../types';
 import { cn, formatNumber, formatCurrency } from '../../lib/utils';
 
 interface SaleFormProps {
@@ -46,6 +46,7 @@ interface SaleFormProps {
   submitting: boolean;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
+  editingTransaction?: Transaction | null;
 }
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
@@ -87,12 +88,13 @@ export default function SaleForm({
   onSubmit,
   onCancel,
   calculationMethod,
-  setCalculationMethod
+  setCalculationMethod,
+  editingTransaction
 }: SaleFormProps) {
   return (
     <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-bold">Record New Sale</h2>
+        <h2 className="text-lg font-bold">{editingTransaction ? 'Adjust Sale Entry' : 'Record New Sale'}</h2>
         <button onClick={onCancel} className="text-slate-400">Cancel</button>
       </div>
 
@@ -165,7 +167,7 @@ export default function SaleForm({
           {isDirectDelivery && (
             <div className="col-span-2">
               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier (Direct Delivery From)</label>
-              <select name="supplierId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
+              <select name="supplierId" defaultValue={editingTransaction?.supplierId || ''} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="">Select Supplier</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
@@ -176,12 +178,12 @@ export default function SaleForm({
               {isSupplierBuyer ? 'Supplier (Buying From Company)' : 'Buyer'}
             </label>
             {isSupplierBuyer ? (
-              <select name="supplierId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
+              <select name="supplierId" defaultValue={editingTransaction?.supplierId || ''} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="">Select Supplier</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             ) : (
-              <select name="buyerId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
+              <select name="buyerId" defaultValue={editingTransaction?.buyerId || ''} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="">Select Buyer</option>
                 {buyers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
@@ -192,6 +194,7 @@ export default function SaleForm({
             <input 
               name="storeRecordId" 
               type="text" 
+              defaultValue={editingTransaction?.storeRecordId || ''}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
               placeholder="Quote Tranx ID from Store Keeper" 
             />
@@ -206,22 +209,20 @@ export default function SaleForm({
               {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          {commodity === 'COCOA' && (
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calculation Method</label>
-              <select 
-                value={calculationMethod} 
-                onChange={(e) => setCalculationMethod(e.target.value as CalculationMethod)}
-                className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold rounded-xl outline-none"
-              >
-                <option value="DIRECT">Direct (Auto)</option>
-                <option value="MANUAL">Manual (Custom)</option>
-              </select>
-            </div>
-          )}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calculation Method</label>
+            <select 
+              value={calculationMethod} 
+              onChange={(e) => setCalculationMethod(e.target.value as CalculationMethod)}
+              className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold rounded-xl outline-none"
+            >
+              <option value="DIRECT">Direct (Auto)</option>
+              <option value="MANUAL">Manual (Custom)</option>
+            </select>
+          </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">No of Bags</label>
-            <input name="bags" type="number" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
+            <input name="bags" defaultValue={editingTransaction?.noOfBags || editingTransaction?.bags || ''} type="number" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
           </div>
         </div>
 
@@ -256,28 +257,28 @@ export default function SaleForm({
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Truck No</label>
-            <input name="truckNo" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="ABC-123" />
+            <input name="truckNo" defaultValue={editingTransaction?.truckNo || ''} type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="ABC-123" />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Staff Name</label>
-            <input name="staffName" type="text" defaultValue={profile?.displayName} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Staff Name" />
+            <input name="staffName" type="text" defaultValue={editingTransaction?.staffName || profile?.displayName} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Staff Name" />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Driver's Name</label>
-            <input name="driverName" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="John Doe" />
+            <input name="driverName" defaultValue={editingTransaction?.driverName || ''} type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="John Doe" />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Driver's Phone</label>
-            <input name="driverPhone" type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="080..." />
+            <input name="driverPhone" defaultValue={editingTransaction?.driverPhone || ''} type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="080..." />
           </div>
         </div>
 
         <div>
           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Notes</label>
-          <textarea name="notes" rows={2} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none" placeholder="Additional details..."></textarea>
+          <textarea name="notes" defaultValue={editingTransaction?.notes || ''} rows={2} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none" placeholder="Additional details..."></textarea>
         </div>
 
         <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 space-y-4">

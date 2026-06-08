@@ -176,19 +176,17 @@ export default function PurchaseForm({
               {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-          {commodity === 'COCOA' && (
-            <div>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calculation Method</label>
-              <select 
-                value={calculationMethod} 
-                onChange={(e) => setCalculationMethod(e.target.value as CalculationMethod)}
-                className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold rounded-xl outline-none"
-              >
-                <option value="DIRECT">Direct (Auto)</option>
-                <option value="MANUAL">Manual (Custom)</option>
-              </select>
-            </div>
-          )}
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calculation Method</label>
+            <select 
+              value={calculationMethod} 
+              onChange={(e) => setCalculationMethod(e.target.value as CalculationMethod)}
+              className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold rounded-xl outline-none"
+            >
+              <option value="DIRECT">Direct (Auto)</option>
+              <option value="MANUAL">Manual (Custom)</option>
+            </select>
+          </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">No of Bags</label>
             <input name="bags" type="number" defaultValue={editingTransaction?.bags || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />

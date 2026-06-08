@@ -22,7 +22,6 @@ import StoreKeeperModule from './components/StoreKeeperModule';
 import AnalyticsModule from './components/AnalyticsModule';
 import ReportsModule from './components/ReportsModule';
 import SuperAdminModule from './components/SuperAdminModule';
-import TrainingModule from './components/TrainingModule';
 import LoginPage from './components/LoginPage';
 import ChangePasswordPage from './components/ChangePasswordPage';
 import Toast from './components/Toast';
@@ -32,7 +31,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { firebaseConfig } from './firebase';
 
-type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin' | 'store' | 'training';
+type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin' | 'store';
 
 function AppContent() {
   const { 
@@ -51,19 +50,48 @@ function AppContent() {
 
   // Strict check for Firebase configuration to avoid phantom initialization errors
   const isConfigured = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
+  const bootError = (window as any).FIREBASE_CONFIG_ERROR || (window as any).FIREBASE_INIT_ERROR;
 
-  if (loading) {
+  // Render a safety screen if we've been loading too long or have a fatal boot error
+  if (loading || bootError) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-6 text-center">
         <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-2">Connecting to secure database...</p>
-        <div className="mt-8 p-4 bg-slate-100 rounded-2xl border border-slate-200 text-center max-w-xs">
+        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-2">
+          {bootError ? "System Configuration Error" : "Connecting to secure database..."}
+        </p>
+        
+        {bootError && (
+          <div className="mt-4 p-6 bg-rose-50 rounded-2xl border border-rose-200 text-left max-w-md shadow-sm">
+            <h2 className="text-rose-800 font-bold text-sm mb-2 flex items-center gap-2">
+              <WifiOff size={16} /> Boot sequence interrupted
+            </h2>
+            <p className="text-rose-600 text-xs font-mono leading-relaxed bg-white/50 p-3 rounded-lg border border-rose-100">
+              {bootError}
+            </p>
+            <div className="mt-4 space-y-2">
+              <p className="text-[10px] text-rose-500">
+                1. Ensure GitHub Secrets (VITE_FIREBASE_*) are set in your repository.<br/>
+                2. Check if the latest CI/CD pipeline run succeeded.<br/>
+                3. Verify your Firebase project is active and Firestore is enabled.
+              </p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="w-full mt-2 bg-rose-600 text-white text-[10px] font-bold py-2 rounded-xl hover:bg-rose-700 transition-colors"
+              >
+                RETRY BOOT
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-8 p-4 bg-slate-100 rounded-2xl border border-slate-200 text-center w-full max-w-xs shadow-inner">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">System Diagnostics</p>
           <div className="space-y-1">
-            <p className="text-[10px] text-slate-500 font-mono">Project: <span className="text-indigo-600 font-bold">{import.meta.env.VITE_FIREBASE_PROJECT_ID || "gen-lang-client-0555602350"}</span></p>
-            <p className="text-[10px] text-slate-500 font-mono">Environment: <span className="text-indigo-600 font-bold uppercase">{import.meta.env.VITE_APP_ENV || "development"}</span></p>
-            <p className="text-[10px] text-slate-500 font-mono">Database: <span className="text-indigo-600 font-bold">{import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || "ai-studio-086bebaa-d248-491f-a312-4b87527790a1"}</span></p>
-            <p className="text-[10px] text-slate-500 font-mono">Mode: <span className="text-slate-900 font-bold">{import.meta.env.MODE}</span></p>
+            <p className="text-[10px] text-slate-500 font-mono">Project: <span className="text-indigo-600 font-bold truncate block">{import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || "not set"}</span></p>
+            <p className="text-[10px] text-slate-500 font-mono">Environment: <span className="text-indigo-600 font-bold uppercase">{import.meta.env.VITE_APP_ENV || (import.meta.env.PROD ? "production" : "development")}</span></p>
+            <p className="text-[10px] text-slate-500 font-mono">DB Ver: <span className="text-indigo-600 font-bold">1.2.0-secure</span></p>
+            <p className="text-[10px] text-slate-500 font-mono">Status: <span className={bootError ? "text-rose-600 font-bold" : "text-emerald-600 font-bold"}>{bootError ? "ERROR" : "INITIALIZING"}</span></p>
           </div>
         </div>
       </div>
@@ -141,7 +169,6 @@ function AppContent() {
     { id: 'staff', icon: Users, label: 'Staff', hidden: !can('manage_staff') },
     { id: 'analytics', icon: BarChart3, label: 'Data', hidden: !can('view_analytics') },
     { id: 'reports', icon: FileText, label: 'Docs', hidden: !can('view_reports') },
-    { id: 'training', icon: BookOpen, label: 'Training' },
     { id: 'superadmin', icon: Settings, label: 'Admin', hidden: !isSuperAdmin },
   ].filter(item => !item.hidden);
 
@@ -389,7 +416,6 @@ function AppContent() {
             {activeModule === 'store' && <StoreKeeperModule />}
             {activeModule === 'analytics' && <AnalyticsModule />}
             {activeModule === 'reports' && <ReportsModule />}
-            {activeModule === 'training' && <TrainingModule />}
             {activeModule === 'superadmin' && <SuperAdminModule />}
             {activeModule === 'settings' && (
               <div className="flex flex-col items-center justify-center h-full p-8 text-center">

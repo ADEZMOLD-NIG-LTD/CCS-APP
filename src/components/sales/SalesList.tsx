@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { History, TrendingUp, Trash2, Truck } from 'lucide-react';
+import { History, TrendingUp, Trash2, Truck, Edit } from 'lucide-react';
 import { Transaction, Buyer, Warehouse, Supplier } from '../../types';
 import { formatNumber, formatCurrency } from '../../lib/utils';
 
@@ -15,6 +15,7 @@ interface SalesListProps {
   warehouses: Warehouse[];
   isAdmin: boolean;
   onDeleteSale: (id: string) => void;
+  onEditSale: (tx: Transaction) => void;
 }
 
 export default function SalesList({
@@ -23,7 +24,8 @@ export default function SalesList({
   suppliers,
   warehouses,
   isAdmin,
-  onDeleteSale
+  onDeleteSale,
+  onEditSale
 }: SalesListProps) {
   return (
     <section className="space-y-3">
@@ -60,15 +62,24 @@ export default function SalesList({
                     <h3 className="font-bold text-slate-900">
                       {buyers.find(b => b.id === tx.buyerId)?.name || 'Unknown Buyer'}
                     </h3>
-                    {isAdmin && (
+                    <div className="flex items-center gap-1">
                       <button 
-                        onClick={() => onDeleteSale(tx.id)}
-                        className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
-                        title="Remove Sale"
+                        onClick={() => onEditSale(tx)}
+                        className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                        title="Adjust Sale"
                       >
-                        <Trash2 size={14} />
+                        <Edit size={14} />
                       </button>
-                    )}
+                      {isAdmin && (
+                        <button 
+                          onClick={() => onDeleteSale(tx.id)}
+                          className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                          title="Remove Sale"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {tx.isDirectDelivery && tx.supplierId && (
                     <p className="text-[10px] text-slate-500 font-medium">

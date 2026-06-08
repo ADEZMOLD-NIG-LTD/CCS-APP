@@ -65,6 +65,7 @@ export default function SalesModule() {
   }, [profile, isAdmin, profile?.assignedWarehouseId]);
 
   // Form State for Sale
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [calculationMethod, setCalculationMethod] = useState<CalculationMethod>('DIRECT');
   const [commodity, setCommodity] = useState<CommodityType>('COCOA');
   const [grossWeight, setGrossWeight] = useState<number | string>('');
@@ -77,6 +78,24 @@ export default function SalesModule() {
 
   const [manualNetWeight, setManualNetWeight] = useState<number | string>('');
   const [manualTotalValue, setManualTotalValue] = useState<number | string>('');
+
+  const handleEditSaleClick = (tx: Transaction) => {
+    setEditingTransaction(tx);
+    setCommodity(tx.commodity);
+    setCalculationMethod(tx.calculationMethod || 'DIRECT');
+    setGrossWeight(tx.grossWeight ?? '');
+    setMoistureActual(tx.deductions?.moistureActual ?? 8);
+    setMoistureBenchmark(tx.deductions?.moistureBenchmark ?? 10);
+    setTareWeight(tx.deductions?.tareWeight ?? '');
+    setMoldWeight(tx.deductions?.moldWeight ?? '');
+    setOtherDeduction(tx.deductions?.otherDeduction ?? '');
+    setPrice(tx.pricePerKg ?? '');
+    setIsDirectDelivery(tx.isDirectDelivery || false);
+    setIsSupplierBuyer(!!tx.supplierId && !tx.isDirectDelivery && !tx.buyerId);
+    setManualNetWeight(tx.netWeight ?? '');
+    setManualTotalValue(tx.totalValue ?? '');
+    setIsAddingSale(true);
+  };
 
   // Load Data from Firestore
   useEffect(() => {
@@ -227,7 +246,7 @@ export default function SalesModule() {
     }
 
     // Check inventory availability (Skip for direct delivery)
-    const availableStock = inventory[commodity];
+    const availableStock = inventory[commodity] + (editingTransaction && editingTransaction.commodity === commodity ? editingTransaction.netWeight : 0);
     const finalNetWeight = calculationMethod === 'MANUAL' ? Number(manualNetWeight) : calculatedNetWeight;
     const finalTotalValue = calculationMethod === 'MANUAL' ? Number(manualTotalValue) : roundTo(finalNetWeight * Number(price), 2);
 
@@ -238,12 +257,12 @@ export default function SalesModule() {
 
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
-    const id = crypto.randomUUID();
+    const id = editingTransaction?.id || crypto.randomUUID();
     
     const newTx: any = {
       id,
       companyId: profile.companyId,
-      date: new Date().toISOString(),
+      date: editingTransaction?.date || new Date().toISOString(),
       type: 'SALE',
       commodity,
       buyerId: isSupplierBuyer ? undefined : (formData.get('buyerId') as string),
@@ -257,7 +276,7 @@ export default function SalesModule() {
       noOfBags: Number(formData.get('bags')) || 0,
       pricePerKg: Number(price) || 0,
       totalValue: finalTotalValue,
-      referenceId: `SL-${Date.now().toString().slice(-6)}`,
+      referenceId: editingTransaction?.referenceId || `SL-${Date.now().toString().slice(-6)}`,
       truckNo: formData.get('truckNo') as string,
       driverName: formData.get('driverName') as string,
       driverPhone: formData.get('driverPhone') as string,
@@ -293,24 +312,26 @@ export default function SalesModule() {
         companyId: profile.companyId,
         userId: profile.uid,
         userEmail: profile.email,
-        action: AuditAction.CREATE,
+        action: editingTransaction ? AuditAction.UPDATE : AuditAction.CREATE,
         module: 'Sales',
         recordId: id,
-        details: `Created sale transaction for ${newTx.commodity} (${newTx.netWeight}kg)`,
-        newData: newTx
+        details: `${editingTransaction ? 'Updated' : 'Created'} sale transaction for ${newTx.commodity} (${newTx.netWeight}kg)`,
+        newData: newTx,
+        previousData: editingTransaction || undefined
       }).catch(err => console.error('Audit log failed:', err));
 
       setIsAddingSale(false);
       resetForm();
-      setSuccessMessage('Sale record successfully recorded!');
+      setSuccessMessage(editingTransaction ? 'Sale record successfully updated!' : 'Sale record successfully recorded!');
     } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `transactions/${id}`));
+      setErrorMessage(reportFirestoreError(error, editingTransaction ? OperationType.UPDATE : OperationType.CREATE, `transactions/${id}`));
     } finally {
       setSubmitting(false);
     }
   };
 
   const resetForm = () => {
+    setEditingTransaction(null);
     setCalculationMethod('DIRECT');
     setGrossWeight('');
     setMoistureActual(8);
@@ -319,6 +340,10 @@ export default function SalesModule() {
     setMoldWeight('');
     setOtherDeduction('');
     setIsDirectDelivery(false);
+    setIsSupplierBuyer(false);
+    setPrice('');
+    setManualNetWeight('');
+    setManualTotalValue('');
   };
 
   const handleDeleteSale = async (txId: string) => {
@@ -466,7 +491,8 @@ export default function SalesModule() {
                 setManualTotalValue={setManualTotalValue}
                 submitting={submitting}
                 onSubmit={handleAddSale}
-                onCancel={() => setIsAddingSale(false)}
+                onCancel={() => { setIsAddingSale(false); resetForm(); }}
+                editingTransaction={editingTransaction}
               />
             </motion.div>
           ) : isAddingBuyer ? (
@@ -491,6 +517,7 @@ export default function SalesModule() {
                 warehouses={warehouses}
                 isAdmin={isAdmin}
                 onDeleteSale={handleDeleteSale}
+                onEditSale={handleEditSaleClick}
               />
             </div>
           )}

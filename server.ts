@@ -16,6 +16,20 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Diagnostic Endpoint
+  app.get("/api/diagnostics", (req, res) => {
+    res.json({
+      status: "ok",
+      env: process.env.NODE_ENV || "development",
+      appEnv: process.env.VITE_APP_ENV || "not set",
+      hasFirebaseKey: !!process.env.VITE_FIREBASE_API_KEY,
+      hasFirebaseProjectId: !!process.env.VITE_FIREBASE_PROJECT_ID,
+      hasSmtpUser: !!process.env.SMTP_USER,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString()
+    });
+  });
+
   // Email API Endpoint
   app.post("/api/send-onboarding-email", async (req, res) => {
     const { email, name, password, companyName } = req.body;

@@ -10,6 +10,7 @@ on:
     branches:
       - main
       - staging
+  workflow_dispatch: # Allows manual trigger from Actions tab
 
 jobs:
   build_and_deploy:
@@ -43,13 +44,16 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.FIREBASE_MEASUREMENT_ID }}
           VITE_FIREBASE_FIRESTORE_DATABASE_ID: ${{ secrets.FIREBASE_FIRESTORE_DATABASE_ID }}
+          VITE_APP_URL: ${{ secrets.APP_URL || secrets.VITE_APP_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
-        if: github.event_name == 'push'
+        if: |
+          github.event_name == 'push' && 
+          (secrets.FIREBASE_SERVICE_ACCOUNT != null || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM != null)
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM }}'
           channelId: ${{ github.ref_name == 'main' && 'live' || github.ref_name }}
           projectId: ${{ secrets.FIREBASE_PROJECT_ID }}

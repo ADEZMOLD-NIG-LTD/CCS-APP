@@ -5,16 +5,22 @@
 
 import { initializeApp, FirebaseOptions } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 
 // Use import.meta.glob to optionally load the config file if it exists (AI Studio environment)
 // This prevents build failures in environments like GitHub Actions where the file is missing.
 let configJson: any = {};
 try {
+  // In production builds, we expect environment variables.
+  // We use the 'import.meta.glob' to check for the local config file purely for developer convenience 
+  // in the AI Studio preview environment.
   const configFiles = import.meta.glob('../firebase-applet-config.json', { eager: true });
-  configJson = (configFiles['../firebase-applet-config.json'] as any)?.default || {};
+  const configKey = '../firebase-applet-config.json';
+  if (configFiles && configFiles[configKey]) {
+    configJson = (configFiles[configKey] as any).default || {};
+  }
 } catch (e) {
-  console.warn("Firebase config file not found, relying on environment variables.");
+  // Silence error if file is missing in prod build
 }
 
 // Helper to sanitize env variables (strip accidental quotes)
@@ -37,31 +43,62 @@ const isValidConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
 const appEnv = sanitize(import.meta.env.VITE_APP_ENV || 'development');
 
 if (!isValidConfig) {
-  console.error(`CRITICAL: Firebase configuration is incomplete [Env: ${appEnv}]. Authentication and database features will fail.`);
+  const errorMsg = `CRITICAL: Firebase configuration is incomplete for environment: ${appEnv}. 
+  If this is Production, please ensure your GitHub Secrets or environment variables (VITE_FIREBASE_*) are configured.`;
+  console.error(errorMsg);
+  // Add to window for easier debugging
+  (window as any).FIREBASE_CONFIG_ERROR = errorMsg;
 } else {
-  console.log(`Firebase Config loaded successfully for [${appEnv}] from ` + (import.meta.env.VITE_FIREBASE_API_KEY ? "environment" : "JSON file") + ".");
+  console.log(`Firebase Config loaded successfully for [${appEnv}] from ` + 
+    (import.meta.env.VITE_FIREBASE_API_KEY ? "environment variables" : "local JSON file") + ".");
 }
 
-const app = initializeApp(firebaseConfig);
+// Log diagnostic masked config (don't log secrets!)
+console.log("Firebase Diagnostic Check:", {
+  env: appEnv,
+  hasApiKey: !!firebaseConfig.apiKey,
+  apiKeyPrefix: firebaseConfig.apiKey ? (firebaseConfig.apiKey as string).substring(0, 5) + "..." : "missing",
+  projectId: firebaseConfig.projectId || "missing",
+  authDomain: firebaseConfig.authDomain || "missing",
+  databaseId: firebaseConfig.firestoreDatabaseId || "(default)"
+});
 
-// Use initializeFirestore with robust settings for the iframe/mobile environment
-const urlParams = new URLSearchParams(window.location.search);
-const forceDefaultDb = urlParams.get('forceDefaultDb') === 'true';
-const databaseId = forceDefaultDb ? "(default)" : (firebaseConfig.firestoreDatabaseId || "(default)");
+let app: any;
+let auth: any;
+let db: any;
 
-console.log("Initializing Firestore with Database ID:", databaseId);
-export const db = initializeFirestore(app, {
-  host: "firestore.googleapis.com",
-  ssl: true,
-}, databaseId);
+try {
+  if (isValidConfig) {
+    app = initializeApp(firebaseConfig);
+    
+    // Use getFirestore(app, databaseId) for multiple database support
+    const urlParams = new URLSearchParams(window.location.search);
+    const forceDefaultDb = urlParams.get('forceDefaultDb') === 'true';
+    const databaseId = forceDefaultDb ? "(default)" : (firebaseConfig.firestoreDatabaseId || "(default)");
+    
+    console.log("Initializing Firestore with Database ID:", databaseId);
+    db = getFirestore(app, databaseId);
+    
+    auth = getAuth(app);
+    console.log("Firebase initialized.");
+  } else {
+    console.warn("Firebase app initialization skipped due to invalid config.");
+  }
+} catch (error: any) {
+  console.error("FAILED to initialize Firebase:", error);
+  (window as any).FIREBASE_INIT_ERROR = error.message;
+}
 
-export const auth = getAuth(app);
-console.log("Firebase initialized.");
+export { app, auth, db };
 
 // Test connection to Firestore with retries
 async function testConnection(retries = 5) {
   for (let i = 0; i < retries; i++) {
     try {
+      if (!db) {
+        console.warn("Firestore connection test skipped: No database instance.");
+        return;
+      }
       console.log(`Testing Firestore connection (attempt ${i + 1})...`);
       // Use a simple collection reference for the test
       const testDoc = doc(db, '_health_check_', 'ping');

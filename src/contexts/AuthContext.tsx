@@ -238,6 +238,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }, 10000);
 
+    if (!auth || !db) {
+      console.error('AuthContext: Firebase services not available. Skipping initialization.');
+      setLoading(false);
+      return;
+    }
+
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       console.log('AuthContext: onAuthStateChanged trigger:', user?.uid || 'no user');
       setUser(user);
