@@ -238,10 +238,15 @@ export default function InventoryModule() {
 
     const supplierId = data.isWalkIn ? walkInId : data.supplierId;
 
+    const transactionDateIso = data.date 
+      ? new Date(data.date + 'T12:00:00').toISOString() 
+      : (editingTransaction?.date || new Date().toISOString());
+
     const newTx: any = {
       id: editingTransaction?.id || id,
       companyId: profile.companyId,
-      date: editingTransaction?.date || new Date().toISOString(),
+      date: transactionDateIso,
+      postingDate: editingTransaction?.postingDate || new Date().toISOString(),
       type: 'PURCHASE',
       commodity: data.commodity,
       calculationMethod: data.calculationMethod,

@@ -105,19 +105,37 @@ export default function JournalForm({
           </motion.div>
         )}
 
-        <div>
-          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-          <select 
-            name="warehouseId" 
-            required 
-            defaultValue={profile?.assignedWarehouseId || ''}
-            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
-          >
-            <option value="" disabled>Select Warehouse</option>
-            {warehouses.map(w => (
-              <option key={w.id} value={w.id}>{w.name}</option>
-            ))}
-          </select>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+            <select 
+              name="warehouseId" 
+              required 
+              defaultValue={profile?.assignedWarehouseId || ''}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm"
+            >
+              <option value="" disabled>Select Warehouse</option>
+              {warehouses.map(w => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Transaction Date</label>
+            <input
+              name="transactionDate"
+              type="date"
+              required
+              defaultValue={(() => {
+                const d = new Date();
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+              })()}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium"
+            />
+          </div>
         </div>
 
         <div>

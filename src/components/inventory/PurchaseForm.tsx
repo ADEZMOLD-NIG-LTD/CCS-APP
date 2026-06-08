@@ -45,6 +45,23 @@ export default function PurchaseForm({
   const [manualTotalValue, setManualTotalValue] = useState<number | string>(editingTransaction?.totalValue || '');
   const [price, setPrice] = useState<number | string>(editingTransaction?.pricePerKg || 0);
 
+  const [transactionDate, setTransactionDate] = useState<string>(() => {
+    if (editingTransaction?.date) {
+      return editingTransaction.date.substring(0, 10);
+    }
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
+
+  React.useEffect(() => {
+    if (editingTransaction?.date) {
+      setTransactionDate(editingTransaction.date.substring(0, 10));
+    }
+  }, [editingTransaction]);
+
   React.useEffect(() => {
     if (!editingTransaction) {
       setMoistureBenchmark(BENCHMARKS[commodity]);
@@ -83,6 +100,7 @@ export default function PurchaseForm({
     const data = {
       commodity,
       calculationMethod,
+      date: transactionDate,
       grossWeight: Number(grossWeight),
       netWeight: finalNetWeight,
       totalValue: finalTotalValue,
@@ -119,18 +137,29 @@ export default function PurchaseForm({
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Basic Info */}
         <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
+          <div className="col-span-1">
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
             <select 
               name="warehouseId" 
               required 
               defaultValue={editingTransaction?.warehouseId || profile?.assignedWarehouseId || ''}
               disabled={!!profile?.assignedWarehouseId && profile?.role === 'STAFF'}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50 text-sm"
             >
               <option value="" disabled>Select Warehouse</option>
               {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
+          </div>
+          <div className="col-span-1">
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Transaction Date</label>
+            <input 
+              name="transactionDate"
+              type="date"
+              required
+              value={transactionDate}
+              onChange={(e) => setTransactionDate(e.target.value)}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium"
+            />
           </div>
           <div className="col-span-2">
             <div className="flex justify-between items-center mb-1">

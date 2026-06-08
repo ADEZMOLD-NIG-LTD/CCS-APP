@@ -222,12 +222,17 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const id = crypto.randomUUID();
     const isAdvance = formData.get('isAdvance') === 'on';
     const description = formData.get('description') as string;
+    const selectedDate = formData.get('transactionDate') as string;
+    const transactionDateIso = selectedDate 
+      ? new Date(selectedDate + 'T12:00:00').toISOString() 
+      : new Date().toISOString();
     
     const newPayment: any = {
       id,
       companyId: profile.companyId,
       warehouseId: formData.get('warehouseId') as string,
-      date: new Date().toISOString(),
+      date: transactionDateIso,
+      postingDate: new Date().toISOString(),
       supplierId: supplier.id,
       amount: Number(formData.get('amount')),
       method: formData.get('method') as any,
@@ -750,11 +755,29 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
             >
               <h2 className="text-xl font-bold mb-6">Record Payment</h2>
               <form onSubmit={handleAddPayment} className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-                  <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
-                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-                  </select>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                    <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Transaction Date</label>
+                    <input 
+                      name="transactionDate" 
+                      type="date" 
+                      required 
+                      defaultValue={(() => {
+                        const d = new Date();
+                        const year = d.getFullYear();
+                        const month = String(d.getMonth() + 1).padStart(2, '0');
+                        const day = String(d.getDate()).padStart(2, '0');
+                        return `${year}-${month}-${day}`;
+                      })()}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>

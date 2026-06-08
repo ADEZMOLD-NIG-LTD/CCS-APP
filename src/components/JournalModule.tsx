@@ -153,12 +153,17 @@ export default function JournalModule() {
     const supplierId = formData.get('supplierId') as string;
     const buyerId = formData.get('buyerId') as string;
     const warehouseId = formData.get('warehouseId') as string;
+    const selectedDate = formData.get('transactionDate') as string;
+    const transactionDateIso = selectedDate 
+      ? new Date(selectedDate + 'T12:00:00').toISOString() 
+      : new Date().toISOString();
     
     const newEntry: any = {
       id,
       companyId: profile.companyId,
       warehouseId: warehouseId || profile.assignedWarehouseId || '',
-      date: new Date().toISOString(),
+      date: transactionDateIso,
+      postingDate: new Date().toISOString(),
       type: entryType,
       category: formData.get('category') as string,
       amount: Number(formData.get('amount')),

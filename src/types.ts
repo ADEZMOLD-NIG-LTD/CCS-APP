@@ -71,7 +71,8 @@ export interface Payment {
   id: string;
   companyId: string;
   warehouseId: string;
-  date: string;
+  date: string; // The selected transaction date
+  postingDate?: string; // The actual software entry/posting timestamp
   supplierId: string;
   amount: number;
   method: 'CASH' | 'BANK_TRANSFER' | 'CHECK';
@@ -164,7 +165,8 @@ export interface JournalEntry {
   id: string;
   companyId: string;
   warehouseId: string;
-  date: string;
+  date: string; // The selected transaction date
+  postingDate?: string; // The actual software entry/posting timestamp
   type: 'INFLOW' | 'OUTFLOW';
   category: string;
   amount: number;
@@ -196,7 +198,8 @@ export interface Buyer {
 export interface Transaction {
   id: string;
   companyId: string;
-  date: string;
+  date: string; // The selected transaction date
+  postingDate?: string; // The actual software entry/posting timestamp
   type: 'PURCHASE' | 'SALE' | 'TRANSFER';
   commodity: CommodityType;
   supplierId?: string;
