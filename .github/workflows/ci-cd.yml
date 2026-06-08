@@ -18,7 +18,7 @@ jobs:
     name: Build and Deploy
     runs-on: ubuntu-latest
     environment:
-      name: ${{ (github.ref_name == 'main' || github.ref_name == 'master') && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
+      name: ${{ (github.ref_name == 'main' || github.ref_name == 'master') && 'production' || (github.ref_name == 'staging' && 'staging' || 'development') }}
     
     steps:
       - name: Checkout Repository
@@ -36,7 +36,7 @@ jobs:
       - name: Build Application
         run: npm run build
         env:
-          VITE_APP_ENV: ${{ (github.ref_name == 'main' || github.ref_name == 'master') && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
+          VITE_APP_ENV: ${{ (github.ref_name == 'main' || github.ref_name == 'master') && 'production' || (github.ref_name == 'staging' && 'staging' || 'development') }}
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || secrets.FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN || secrets.FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || secrets.FIREBASE_PROJECT_ID }}
@@ -50,9 +50,7 @@ jobs:
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
-        if: |
-          github.event_name == 'push' && 
-          (secrets.FIREBASE_SERVICE_ACCOUNT != null || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM != null)
+        if: ${{ github.event_name == 'push' && (secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM) }}
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM }}'
