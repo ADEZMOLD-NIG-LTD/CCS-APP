@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ github.ref_name == 'main' && 'production' || github.ref_name == 'master' && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM }}
     
     steps:
       - name: Checkout Repository
@@ -50,11 +52,9 @@ jobs:
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
-        if: |
-          github.event_name == 'push' && 
-          (secrets.FIREBASE_SERVICE_ACCOUNT != null || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM != null)
+        if: ${{ github.event_name == 'push' && env.FIREBASE_SERVICE_ACCOUNT != '' }}
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM }}'
+          firebaseServiceAccount: '${{ env.FIREBASE_SERVICE_ACCOUNT }}'
           channelId: ${{ github.ref_name == 'main' && 'live' || github.ref_name == 'master' && 'live' || github.ref_name }}
           projectId: ${{ secrets.VITE_FIREBASE_PROJECT_ID || secrets.FIREBASE_PROJECT_ID }}
