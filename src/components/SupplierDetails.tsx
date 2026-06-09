@@ -342,24 +342,24 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     doc.text(`Period: ${startDate ? new Date(startDate).toLocaleDateString() : 'N/A'} to ${endDate ? new Date(endDate).toLocaleDateString() : 'N/A'}`, 148, 38, { align: 'center' });
     
     doc.setDrawColor(200);
-    doc.line(20, 45, 277, 45);
+    doc.line(15, 45, 282, 45);
 
     // Supplier Info
     doc.setFontSize(12);
     doc.setTextColor(0);
-    doc.text(`Supplier: ${supplier.name || 'UNKNOWN'}`, 20, 55);
+    doc.text(`Supplier: ${supplier.name || 'UNKNOWN'}`, 15, 55);
     doc.setFontSize(10);
-    doc.text(`Phone: ${supplier.phone || 'N/A'}`, 20, 62);
-    doc.text(`Location: ${supplier.location || 'N/A'}`, 20, 69);
+    doc.text(`Phone: ${supplier.phone || 'N/A'}`, 15, 62);
+    doc.text(`Location: ${supplier.location || 'N/A'}`, 15, 69);
 
-    // Summary Box
+    // Summary Box - shifted right to align with the margin at x=282
     doc.setFillColor(248, 250, 252); // Slate-50
-    doc.rect(217, 50, 60, 25, 'F');
+    doc.rect(222, 50, 60, 25, 'F');
     doc.setFontSize(8);
-    doc.text('CURRENT BALANCE', 222, 58);
+    doc.text('CURRENT BALANCE', 227, 58);
     doc.setFontSize(12);
     doc.setTextColor(16, 185, 129);
-    doc.text(`${formatCurrency(currentBalance)}`, 222, 68);
+    doc.text(`${formatCurrency(currentBalance)}`, 227, 68);
 
     const tableData = [
       ['Date', 'Description', 'Bags', 'Gross', 'Ded.', 'Net', 'Price', 'Credit (+)', 'Debit (-)', 'Balance'],
@@ -405,26 +405,28 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
 
     autoTable(doc, {
       startY: 85,
+      margin: { left: 15, right: 15 },
       head: [tableData[0]],
       body: tableData.slice(1),
       foot: [
         ['TOTAL', '', '', '', '', '', '', `${formatCurrency(totalCredit)}`, `${formatCurrency(totalDebit)}`, `${formatCurrency(runningBalance)}`]
       ],
       theme: 'grid',
-      headStyles: { fillColor: [16, 185, 129], textColor: 255 },
-      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-      styles: { fontSize: 7, cellPadding: 2 },
+      headStyles: { fillColor: [16, 185, 129], textColor: 255, fontSize: 8.5, fontStyle: 'bold' },
+      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontSize: 8.5, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 8 },
+      styles: { cellPadding: 2, overflow: 'linebreak' },
       columnStyles: {
-        0: { cellWidth: 25 },
+        0: { cellWidth: 20 },
         1: { cellWidth: 'auto' },
-        2: { cellWidth: 15, halign: 'center' },
-        3: { cellWidth: 20, halign: 'right' },
-        4: { cellWidth: 20, halign: 'right' },
-        5: { cellWidth: 20, halign: 'right' },
-        6: { cellWidth: 25, halign: 'right' },
-        7: { cellWidth: 30, halign: 'right' },
-        8: { cellWidth: 30, halign: 'right' },
-        9: { cellWidth: 35, halign: 'right', fontStyle: 'bold' }
+        2: { cellWidth: 12, halign: 'center' },
+        3: { cellWidth: 18, halign: 'right' },
+        4: { cellWidth: 18, halign: 'right' },
+        5: { cellWidth: 18, halign: 'right' },
+        6: { cellWidth: 24, halign: 'right' },
+        7: { cellWidth: 34, halign: 'right' },
+        8: { cellWidth: 34, halign: 'right' },
+        9: { cellWidth: 38, halign: 'right', fontStyle: 'bold' }
       }
     });
 
