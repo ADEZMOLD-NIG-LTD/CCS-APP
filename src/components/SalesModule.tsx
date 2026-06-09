@@ -104,43 +104,43 @@ export default function SalesModule() {
     const qTx = query(
       collection(db, 'transactions'), 
       where('companyId', '==', profile.companyId),
-      where('type', '==', 'SALE'), 
-      orderBy('date', 'desc')
+      where('type', '==', 'SALE')
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs
         .map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
-      setTransactions(data);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setTransactions(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
     const qBuyers = query(
       collection(db, 'buyers'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('name', 'asc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeBuyers = onSnapshot(qBuyers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Buyer));
-      setBuyers(data);
+      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
+      setBuyers(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyers')));
 
     const qWarehouses = query(
       collection(db, 'warehouses'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('name', 'asc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
-      setWarehouses(data);
+      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
+      setWarehouses(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     const qSuppliers = query(
       collection(db, 'suppliers'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('name', 'asc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
-      setSuppliers(data);
+      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
+      setSuppliers(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers')));
 
     const qAll = query(

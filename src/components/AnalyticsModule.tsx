@@ -60,22 +60,22 @@ export default function AnalyticsModule() {
 
     const qTx = query(
       collection(db, 'transactions'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('date', 'desc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as Transaction);
-      setTransactions(data);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setTransactions(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
     const qJournal = query(
       collection(db, 'journal'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('date', 'desc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       const data = snapshot.docs.map(doc => doc.data() as JournalEntry);
-      setJournal(data);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setJournal(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
     return () => {

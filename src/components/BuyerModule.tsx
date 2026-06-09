@@ -36,12 +36,12 @@ export default function BuyerModule() {
 
     const q = query(
       collection(db, 'buyers'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('name', 'asc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Buyer));
-      setBuyers(data);
+      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
+      setBuyers(sorted);
     }, (error) => {
       setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyers'));
     });

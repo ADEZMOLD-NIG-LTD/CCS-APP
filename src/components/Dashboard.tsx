@@ -42,32 +42,32 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
     const qTx = query(
       collection(db, 'transactions'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('date', 'desc'), 
-      limit(50)
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
-      setTransactions(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction)));
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setTransactions(sorted.slice(0, 50));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
 
     const qPayments = query(
       collection(db, 'payments'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('date', 'desc'), 
-      limit(50)
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
-      setPayments(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment)));
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setPayments(sorted.slice(0, 50));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'payments'));
 
     const qJournal = query(
       collection(db, 'journal'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('date', 'desc'), 
-      limit(50)
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
-      setJournal(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry)));
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setJournal(sorted.slice(0, 50));
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'journal'));
 
     const qSuppliers = query(

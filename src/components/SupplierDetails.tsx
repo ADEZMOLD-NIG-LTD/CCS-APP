@@ -68,55 +68,55 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     const qTx = query(
       collection(db, 'transactions'), 
       where('companyId', '==', profile.companyId),
-      where('supplierId', '==', supplier.id), 
-      orderBy('date', 'desc')
+      where('supplierId', '==', supplier.id)
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
-      setTransactions(data);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setTransactions(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
     const qPayments = query(
       collection(db, 'payments'), 
       where('companyId', '==', profile.companyId),
-      where('supplierId', '==', supplier.id), 
-      orderBy('date', 'desc')
+      where('supplierId', '==', supplier.id)
     );
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
-      setPayments(data);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setPayments(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'payments')));
 
     const qBagTx = query(
       collection(db, 'bag_transactions'), 
       where('companyId', '==', profile.companyId),
-      where('supplierId', '==', supplier.id), 
-      orderBy('date', 'desc')
+      where('supplierId', '==', supplier.id)
     );
     const unsubscribeBagTx = onSnapshot(qBagTx, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction));
-      setBagTransactions(data);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setBagTransactions(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'bag_transactions')));
 
     const qJournal = query(
       collection(db, 'journal'), 
       where('companyId', '==', profile.companyId),
-      where('supplierId', '==', supplier.id), 
-      orderBy('date', 'desc')
+      where('supplierId', '==', supplier.id)
     );
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
-      setJournal(data);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setJournal(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
     const qWarehouses = query(
       collection(db, 'warehouses'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('name', 'asc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
-      setWarehouses(data);
+      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
+      setWarehouses(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     return () => {

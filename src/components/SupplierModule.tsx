@@ -47,12 +47,12 @@ export default function SupplierModule() {
 
     const q = query(
       collection(db, 'suppliers'), 
-      where('companyId', '==', profile.companyId),
-      orderBy('createdAt', 'desc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
-      setSuppliers(data);
+      const sorted = data.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setSuppliers(sorted);
     }, (error) => {
       setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers'));
     });

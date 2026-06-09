@@ -52,24 +52,24 @@ export default function StoreKeeperModule() {
 
     const qRecords = query(
       collection(db, 'store_records'),
-      where('companyId', '==', profile.companyId),
-      orderBy('date', 'desc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeRecords = onSnapshot(qRecords, (snapshot) => {
       const data = snapshot.docs
         .map(doc => ({ ...doc.data(), id: doc.id } as StoreRecord))
         .filter(r => !r.isDeleted);
-      setRecords(data);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setRecords(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'store_records')));
 
     const qWarehouses = query(
       collection(db, 'warehouses'),
-      where('companyId', '==', profile.companyId),
-      orderBy('name', 'asc')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
-      setWarehouses(data);
+      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
+      setWarehouses(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
 
     return () => {
