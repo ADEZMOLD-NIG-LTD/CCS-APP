@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, MapPin, Phone, Landmark, Trash2, Edit2, ChevronRight, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Supplier } from '../types';
+import { Supplier, Transaction, Payment, JournalEntry } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
@@ -23,6 +23,9 @@ import SupplierDetails from './SupplierDetails';
 export default function SupplierModule() {
   const { profile, company, isStaff, isAccount, isAdmin, isOnline } = useAuth();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -59,6 +62,63 @@ export default function SupplierModule() {
 
     return () => unsubscribe();
   }, [profile?.companyId]);
+
+  // Load transactions, payments, journal to compute live balances
+  useEffect(() => {
+    if (!profile?.companyId) return;
+
+    const qTx = query(
+      collection(db, 'transactions'), 
+      where('companyId', '==', profile.companyId)
+    );
+    const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
+        .filter(tx => !tx.isDeleted);
+      setTransactions(data);
+    }, (error) => console.error('Failed to load transactions for balances:', error));
+
+    const qPayments = query(
+      collection(db, 'payments'), 
+      where('companyId', '==', profile.companyId)
+    );
+    const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Payment))
+        .filter(p => !p.isDeleted);
+      setPayments(data);
+    }, (error) => console.error('Failed to load payments for balances:', error));
+
+    const qJournal = query(
+      collection(db, 'journal'), 
+      where('companyId', '==', profile.companyId)
+    );
+    const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry))
+        .filter(j => !j.isDeleted);
+      setJournal(data);
+    }, (error) => console.error('Failed to load journal for balances:', error));
+
+    return () => {
+      unsubscribeTx();
+      unsubscribePayments();
+      unsubscribeJournal();
+    };
+  }, [profile?.companyId]);
+
+  const getSupplierBalance = (sId: string, previousBalance: number) => {
+    const sTx = transactions.filter(t => t.supplierId === sId);
+    const sPay = payments.filter(p => p.supplierId === sId);
+    const sExp = journal.filter(e => e.supplierId === sId && e.type === 'OUTFLOW');
+
+    const sPurchases = sTx.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + (t.totalValue || 0), 0);
+    const sSales = sTx.filter(t => t.type === 'SALE').reduce((sum, t) => sum + (t.totalValue || 0), 0);
+    const sPayments = sPay.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const sCharges = sExp.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+    return (previousBalance || 0) + sPurchases - sSales - sPayments - sCharges;
+  };
 
   const handleAddSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -381,9 +441,9 @@ export default function SupplierModule() {
                       <div className="text-right">
                         <span className={cn(
                            "text-sm font-bold",
-                           supplier.previousBalance >= 0 ? "text-emerald-600" : "text-rose-600"
+                           getSupplierBalance(supplier.id, supplier.previousBalance) >= 0 ? "text-emerald-600" : "text-rose-600"
                         )}>
-                          {supplier.previousBalance >= 0 ? '+' : ''}{formatNumber(supplier.previousBalance || 0)}
+                          {getSupplierBalance(supplier.id, supplier.previousBalance) >= 0 ? '+' : ''}{formatNumber(getSupplierBalance(supplier.id, supplier.previousBalance))}
                         </span>
                         <p className="text-[10px] text-[var(--text-secondary)] uppercase tracking-tighter">Balance</p>
                       </div>

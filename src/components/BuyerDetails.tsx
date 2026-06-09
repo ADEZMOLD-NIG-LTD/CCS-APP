@@ -60,7 +60,9 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       where('buyerId', '==', buyer.id)
     );
     const unsubscribeSales = onSnapshot(qSales, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
+        .filter(t => !t.isDeleted);
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
       setSales(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
@@ -73,7 +75,9 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       where('buyerId', '==', buyer.id)
     );
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry))
+        .filter(e => !e.isDeleted);
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
       setPayments(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));

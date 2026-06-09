@@ -46,8 +46,19 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [activeTab, setActiveTab] = useState<'ledger' | 'bags' | 'payments'>('ledger');
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}-01`;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
   const [isAddingPayment, setIsAddingPayment] = useState(false);
   const [isAddingBagTx, setIsAddingBagTx] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -71,7 +82,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       where('supplierId', '==', supplier.id)
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
+        .filter(t => !t.isDeleted);
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
       setTransactions(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
@@ -82,7 +95,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       where('supplierId', '==', supplier.id)
     );
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Payment))
+        .filter(p => !p.isDeleted);
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
       setPayments(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'payments')));
@@ -93,7 +108,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       where('supplierId', '==', supplier.id)
     );
     const unsubscribeBagTx = onSnapshot(qBagTx, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction))
+        .filter(b => !b.isDeleted);
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
       setBagTransactions(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'bag_transactions')));
@@ -104,7 +121,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       where('supplierId', '==', supplier.id)
     );
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry))
+        .filter(j => !j.isDeleted);
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
       setJournal(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));

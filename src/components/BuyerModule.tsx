@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, MapPin, Phone, Trash2, Edit2, ArrowLeft, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Buyer } from '../types';
+import { Buyer, Transaction, JournalEntry } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
@@ -22,6 +22,8 @@ import BuyerDetails from './BuyerDetails';
 export default function BuyerModule() {
   const { profile, isStaff, isAdmin } = useAuth();
   const [buyers, setBuyers] = useState<Buyer[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingBuyer, setEditingBuyer] = useState<Buyer | null>(null);
@@ -48,6 +50,50 @@ export default function BuyerModule() {
 
     return () => unsubscribe();
   }, [profile?.companyId]);
+
+  // Load transactions and journal to calculate real-time live buyer balance
+  useEffect(() => {
+    if (!profile?.companyId) return;
+
+    const qTx = query(
+      collection(db, 'transactions'),
+      where('companyId', '==', profile.companyId),
+      where('type', '==', 'SALE')
+    );
+    const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
+        .filter(t => !t.isDeleted);
+      setTransactions(data);
+    }, (error) => console.error('Failed to load sales for buyer balance:', error));
+
+    const qJournal = query(
+      collection(db, 'journal'),
+      where('companyId', '==', profile.companyId),
+      where('type', '==', 'INFLOW')
+    );
+    const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry))
+        .filter(j => !j.isDeleted);
+      setJournal(data);
+    }, (error) => console.error('Failed to load journal payments for buyer balance:', error));
+
+    return () => {
+      unsubscribeTx();
+      unsubscribeJournal();
+    };
+  }, [profile?.companyId]);
+
+  const getBuyerBalance = (bId: string, previousBalance: number) => {
+    const bSales = transactions.filter(t => t.buyerId === bId);
+    const bPay = journal.filter(j => j.buyerId === bId);
+
+    const totalSales = bSales.reduce((sum, s) => sum + (s.totalValue || 0), 0);
+    const totalPayments = bPay.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    return (previousBalance || 0) + totalSales - totalPayments;
+  };
 
   const handleAddBuyer = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -308,9 +354,9 @@ export default function BuyerModule() {
                       <div className="text-right">
                         <span className={cn(
                           "text-sm font-bold",
-                          buyer.previousBalance >= 0 ? "text-blue-600" : "text-rose-600"
+                          getBuyerBalance(buyer.id, buyer.previousBalance) >= 0 ? "text-blue-600" : "text-rose-600"
                         )}>
-                          {buyer.previousBalance >= 0 ? '+' : ''}{formatNumber(buyer.previousBalance || 0)}
+                          {getBuyerBalance(buyer.id, buyer.previousBalance) >= 0 ? '+' : ''}{formatNumber(getBuyerBalance(buyer.id, buyer.previousBalance))}
                         </span>
                         <p className="text-[10px] text-slate-400 uppercase tracking-tighter">Balance</p>
                       </div>
