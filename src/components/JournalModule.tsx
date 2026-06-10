@@ -74,14 +74,7 @@ export default function JournalModule() {
   const [entryType, setEntryType] = useState<'INFLOW' | 'OUTFLOW'>('OUTFLOW');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
-  
-  // Date Range State
-  const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
-    start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
-    end: new Date().toISOString().split('T')[0]
-  });
 
-  const [filterType, setFilterType] = useState<'ALL' | 'INFLOW' | 'OUTFLOW'>('ALL');
   const [filterMethod, setFilterMethod] = useState<'ALL' | 'CASH' | 'BANK_TRANSFER'>('ALL');
 
   // Load Data from Firestore
@@ -235,51 +228,40 @@ export default function JournalModule() {
   const filteredEntries = useMemo(() => {
     return entries.filter(e => {
       if (e.isDeleted) return false;
-      const entryDate = e.date.split('T')[0];
-      const matchesDate = entryDate >= dateRange.start && entryDate <= dateRange.end;
-      const matchesType = filterType === 'ALL' || e.type === filterType;
       const matchesMethod = filterMethod === 'ALL' || e.paymentMethod === filterMethod;
       const matchesWarehouse = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
-      return matchesDate && matchesType && matchesMethod && matchesWarehouse;
+      return matchesMethod && matchesWarehouse;
     });
-  }, [entries, dateRange, filterType, filterMethod, selectedWarehouseId]);
+  }, [entries, filterMethod, selectedWarehouseId]);
 
-  // Opening Balance Calculation (All entries before start date)
-  const openingBalances = useMemo(() => {
-    const previousEntries = entries.filter(e => !e.isDeleted && e.date.split('T')[0] < dateRange.start);
+  // Financial Positions (Lifetime, filtered only by warehouse if applicable)
+  const financialPositions = useMemo(() => {
+    // Only filter by warehouse if selected and not 'ALL'
+    const warehouseEntries = entries.filter(e => 
+      !e.isDeleted && (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
+    );
+
+    const cashIn = warehouseEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
+    const cashOut = warehouseEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
     
-    const cashIn = previousEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
-    const cashOut = previousEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
-    
-    const bankIn = previousEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
-    const bankOut = previousEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
+    const bankIn = warehouseEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
+    const bankOut = warehouseEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
 
     return {
       cash: cashIn - cashOut,
-      bank: bankIn - bankOut
+      bank: bankIn - bankOut,
+      totalInflow: cashIn + bankIn,
+      totalOutflow: cashOut + bankOut
     };
-  }, [entries, dateRange.start]);
-
-  // Period Totals
-  const periodTotals = useMemo(() => {
-    const cashIn = filteredEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
-    const cashOut = filteredEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);
-    
-    const bankIn = filteredEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
-    const bankOut = filteredEntries.filter(e => e.type === 'OUTFLOW' && e.paymentMethod === 'BANK_TRANSFER').reduce((sum, e) => sum + e.amount, 0);
-
-    return {
-      cashIn, cashOut, bankIn, bankOut
-    };
-  }, [filteredEntries]);
+  }, [entries, selectedWarehouseId]);
 
   const closingBalances = {
-    cash: openingBalances.cash + (periodTotals.cashIn - periodTotals.cashOut),
-    bank: openingBalances.bank + (periodTotals.bankIn - periodTotals.bankOut)
+    cash: financialPositions.cash,
+    bank: financialPositions.bank
   };
 
-  const totalInflow = periodTotals.cashIn + periodTotals.bankIn;
-  const totalOutflow = periodTotals.cashOut + periodTotals.bankOut;
+  const totalInflow = financialPositions.totalInflow;
+  const totalOutflow = financialPositions.totalOutflow;
   const netCash = totalInflow - totalOutflow;
 
   return (
@@ -313,9 +295,11 @@ export default function JournalModule() {
       />
 
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold text-slate-900">General Journal</h1>
-          {isStaff && (
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-xl font-bold text-slate-900">
+            {isAdding ? 'New Journal Entry' : 'General Journal'}
+          </h1>
+          {isStaff && !isAdding && (
             <button
               onClick={() => setIsAdding(true)}
               className="bg-indigo-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all"
@@ -323,76 +307,50 @@ export default function JournalModule() {
               <Plus size={18} /> Record Entry
             </button>
           )}
-        </div>
-
-        <div className="flex gap-2">
-          {['ALL', 'INFLOW', 'OUTFLOW'].map(type => (
+          {isAdding && (
             <button
-              key={type}
-              onClick={() => setFilterType(type as any)}
-              className={cn(
-                "flex-1 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all",
-                filterType === type 
-                  ? "bg-slate-900 text-white shadow-md" 
-                  : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-              )}
+              onClick={() => setIsAdding(false)}
+              className="text-sm font-bold text-slate-500 hover:text-slate-700 flex items-center gap-1 active:scale-95 transition-all"
             >
-              {type}
+              <ArrowLeft size={16} /> Back to List
             </button>
-          ))}
+          )}
         </div>
 
-        <div className="flex gap-2 mt-2">
-          {['ALL', 'CASH', 'BANK_TRANSFER'].map(method => (
-            <button
-              key={method}
-              onClick={() => setFilterMethod(method as any)}
-              className={cn(
-                "flex-1 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all border",
-                filterMethod === method 
-                  ? "bg-indigo-600 border-indigo-600 text-white shadow-sm" 
-                  : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
-              )}
-            >
-              {method === 'BANK_TRANSFER' ? 'BANK' : method}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1 ml-1">From</label>
-            <input 
-              type="date" 
-              value={dateRange.start}
-              onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div>
-            <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1 ml-1">To</label>
-            <input 
-              type="date" 
-              value={dateRange.end}
-              onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-        </div>
-
-        {isAdmin && (
-          <div className="mt-4">
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Warehouse Filter (Harmonize)</label>
-            <select 
-              value={selectedWarehouseId}
-              onChange={(e) => setSelectedWarehouseId(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none"
-            >
-              <option value="ALL">ALL WAREHOUSES (HARMONIZED)</option>
-              {warehouses.map(w => (
-                <option key={w.id} value={w.id}>{w.name}</option>
+        {!isAdding && (
+          <div className="space-y-3 mt-2">
+            <div className="flex gap-2">
+              {['ALL', 'CASH', 'BANK_TRANSFER'].map(method => (
+                <button
+                  key={method}
+                  onClick={() => setFilterMethod(method as any)}
+                  className={cn(
+                    "flex-1 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all border",
+                    filterMethod === method 
+                      ? "bg-indigo-600 border-indigo-600 text-white shadow-sm" 
+                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  {method === 'BANK_TRANSFER' ? 'BANK' : method}
+                </button>
               ))}
-            </select>
+            </div>
+
+            {isAdmin && (
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Warehouse Filter (Harmonize)</label>
+                <select 
+                  value={selectedWarehouseId}
+                  onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none"
+                >
+                  <option value="ALL">ALL WAREHOUSES (HARMONIZED)</option>
+                  {warehouses.map(w => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         )}
       </header>
@@ -425,7 +383,6 @@ export default function JournalModule() {
           ) : (
             <div className="space-y-6">
               <JournalSummary
-                openingBalances={openingBalances}
                 closingBalances={closingBalances}
                 totalInflow={totalInflow}
                 totalOutflow={totalOutflow}
