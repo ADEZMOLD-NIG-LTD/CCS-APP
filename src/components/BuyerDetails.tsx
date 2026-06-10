@@ -194,8 +194,8 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         0: { cellWidth: 22 },
         1: { cellWidth: 'auto' },
         2: { cellWidth: 35 },
-        3: { cellWidth: 42, halign: 'right' },
-        4: { cellWidth: 42, halign: 'right' },
+        3: { cellWidth: 42, halign: 'left' },
+        4: { cellWidth: 42, halign: 'left' },
       }
     });
 

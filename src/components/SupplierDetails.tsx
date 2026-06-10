@@ -439,13 +439,13 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         0: { cellWidth: 18 },
         1: { cellWidth: 'auto' },
         2: { cellWidth: 10, halign: 'center' },
-        3: { cellWidth: 16, halign: 'right' },
-        4: { cellWidth: 16, halign: 'right' },
-        5: { cellWidth: 16, halign: 'right' },
-        6: { cellWidth: 20, halign: 'right' },
-        7: { cellWidth: 35, halign: 'right' },
-        8: { cellWidth: 35, halign: 'right' },
-        9: { cellWidth: 38, halign: 'right', fontStyle: 'bold' }
+        3: { cellWidth: 16, halign: 'left' },
+        4: { cellWidth: 16, halign: 'left' },
+        5: { cellWidth: 16, halign: 'left' },
+        6: { cellWidth: 20, halign: 'left' },
+        7: { cellWidth: 35, halign: 'left' },
+        8: { cellWidth: 35, halign: 'left' },
+        9: { cellWidth: 38, halign: 'left', fontStyle: 'bold' }
       }
     });
 
