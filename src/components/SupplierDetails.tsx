@@ -431,20 +431,20 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         ['TOTAL', '', '', '', '', '', '', `${formatCurrency(totalCredit)}`, `${formatCurrency(totalDebit)}`, `${formatCurrency(runningBalance)}`]
       ],
       theme: 'grid',
-      headStyles: { fillColor: [16, 185, 129], textColor: 255, fontSize: 8.5, fontStyle: 'bold' },
-      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontSize: 8.5, fontStyle: 'bold' },
-      bodyStyles: { fontSize: 8 },
-      styles: { cellPadding: 2, overflow: 'linebreak' },
+      headStyles: { fillColor: [16, 185, 129], textColor: 255, fontSize: 7.5, fontStyle: 'bold' },
+      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontSize: 7.5, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7 },
+      styles: { cellPadding: 1.2, overflow: 'linebreak' },
       columnStyles: {
-        0: { cellWidth: 20 },
+        0: { cellWidth: 18 },
         1: { cellWidth: 'auto' },
-        2: { cellWidth: 12, halign: 'center' },
-        3: { cellWidth: 18, halign: 'right' },
-        4: { cellWidth: 18, halign: 'right' },
-        5: { cellWidth: 18, halign: 'right' },
-        6: { cellWidth: 24, halign: 'right' },
-        7: { cellWidth: 34, halign: 'right' },
-        8: { cellWidth: 34, halign: 'right' },
+        2: { cellWidth: 10, halign: 'center' },
+        3: { cellWidth: 16, halign: 'right' },
+        4: { cellWidth: 16, halign: 'right' },
+        5: { cellWidth: 16, halign: 'right' },
+        6: { cellWidth: 20, halign: 'right' },
+        7: { cellWidth: 35, halign: 'right' },
+        8: { cellWidth: 35, halign: 'right' },
         9: { cellWidth: 38, halign: 'right', fontStyle: 'bold' }
       }
     });

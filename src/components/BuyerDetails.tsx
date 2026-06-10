@@ -186,15 +186,16 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         ['TOTAL', '', '', `${formatCurrency(stats.totalSales || 0)}`, `${formatCurrency(stats.totalPayments || 0)}`]
       ],
       theme: 'striped',
-      headStyles: { fillColor: [15, 23, 42], textColor: 255, fontSize: 9 },
-      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontStyle: 'bold' },
-      bodyStyles: { fontSize: 8 },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255, fontSize: 8 },
+      footStyles: { fillColor: [243, 244, 246], textColor: [31, 41, 55], fontSize: 8, fontStyle: 'bold' },
+      bodyStyles: { fontSize: 7.5 },
+      styles: { cellPadding: 1.5, overflow: 'linebreak' },
       columnStyles: {
-        0: { cellWidth: 30 },
+        0: { cellWidth: 22 },
         1: { cellWidth: 'auto' },
-        2: { cellWidth: 40 },
-        3: { cellWidth: 40, halign: 'right' },
-        4: { cellWidth: 40, halign: 'right' },
+        2: { cellWidth: 35 },
+        3: { cellWidth: 42, halign: 'right' },
+        4: { cellWidth: 42, halign: 'right' },
       }
     });
 
