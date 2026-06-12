@@ -17,7 +17,8 @@ import {
   Calendar,
   ChevronRight,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Edit2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Supplier, Transaction, Payment, BagTransaction, JournalEntry, Warehouse, PackagingType } from '../types';
@@ -60,6 +61,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     return `${year}-${month}-${day}`;
   });
   const [isAddingPayment, setIsAddingPayment] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<{
+    id: string;
+    entryType: 'TRANSACTION' | 'PAYMENT' | 'JOURNAL';
+    originalDoc: any;
+  } | null>(null);
   const [isAddingBagTx, setIsAddingBagTx] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -151,6 +157,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   const ledgerEntries = useMemo(() => {
     const allEntries = [
       ...transactions.map(t => ({
+        id: t.id,
+        entryType: 'TRANSACTION' as const,
+        originalDoc: t,
         date: t.date,
         description: t.type === 'SALE' 
           ? (t.isDirectDelivery ? `Direct Delivery Sale: ${t.commodity}` : `Sale: ${t.commodity} (${formatNumber(t.netWeight || 0)}kg)`)
@@ -166,6 +175,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         bags: t.noOfBags || t.bags || 0
       })),
       ...payments.map(p => ({
+        id: p.id,
+        entryType: 'PAYMENT' as const,
+        originalDoc: p,
         date: p.date,
         description: `Payment: ${p.method} - ${p.description}`,
         credit: 0,
@@ -179,6 +191,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         bags: 0
       })),
       ...journal.filter(e => e.type === 'OUTFLOW').map(e => ({
+        id: e.id,
+        entryType: 'JOURNAL' as const,
+        originalDoc: e,
         date: e.date,
         description: `Charge: ${e.category} - ${e.description}`,
         credit: 0,
@@ -452,6 +467,148 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     doc.save(`${supplier.name}_Ledger_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
+  const handleAdjustSave = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!isAdmin || !editingEntry || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const updatedDate = formData.get('date') as string;
+    const dateIso = updatedDate ? new Date(updatedDate + 'T12:00:00').toISOString() : editingEntry.originalDoc.date;
+
+    try {
+      if (editingEntry.entryType === 'TRANSACTION') {
+        const docRef = doc(db, 'transactions', editingEntry.id);
+        const grossVal = Number(formData.get('grossWeight') || 0);
+        const bagsVal = Number(formData.get('bags') || 0);
+        const priceVal = Number(formData.get('pricePerKg') || 0);
+        
+        // Compute moisture benchmark for commodity
+        const benchmarkVal = editingEntry.originalDoc.commodity === 'CASHEW' ? 10 : 8;
+        const moistureAct = Number(formData.get('moistureActual') || benchmarkVal);
+        const tare = Number(formData.get('tareWeight') || 0);
+        const mold = Number(formData.get('moldWeight') || 0);
+        const other = Number(formData.get('otherDeduction') || 0);
+        
+        // If manual calculation, use the input netWeight value; if direct, perform calculation
+        let calculatedNet = editingEntry.originalDoc.calculationMethod === 'MANUAL' 
+          ? Number(formData.get('netWeight') || 0)
+          : 0;
+
+        if (editingEntry.originalDoc.calculationMethod !== 'MANUAL') {
+          const moistureLoss = moistureAct > benchmarkVal 
+            ? roundTo(((moistureAct - benchmarkVal) * grossVal) / 100, 2) 
+            : 0;
+          calculatedNet = roundTo(grossVal - moistureLoss - tare - mold - other, 2);
+        }
+        
+        const calculatedTotal = roundTo(calculatedNet * priceVal, 2);
+
+        const updatedTx: any = {
+          ...editingEntry.originalDoc,
+          date: dateIso,
+          grossWeight: grossVal,
+          netWeight: calculatedNet,
+          bags: bagsVal,
+          noOfBags: bagsVal,
+          pricePerKg: priceVal,
+          totalValue: calculatedTotal,
+          notes: formData.get('notes') as string,
+          deductions: {
+            moistureActual: moistureAct,
+            moistureBenchmark: benchmarkVal,
+            tareWeight: tare,
+            moldWeight: mold,
+            otherDeduction: other
+          }
+        };
+
+        await setDoc(docRef, updatedTx);
+
+        // Record Audit Log
+        await recordAuditLog({
+          companyId: profile.companyId,
+          userId: profile.uid,
+          userEmail: profile.email,
+          action: AuditAction.UPDATE,
+          module: 'Transactions',
+          recordId: editingEntry.id,
+          details: `Adjusted transaction ${editingEntry.originalDoc.referenceId}: set gross weight to ${grossVal}kg, net to ${calculatedNet}kg, price to ₦${priceVal}/kg, total value to ₦${calculatedTotal}`,
+          previousData: editingEntry.originalDoc,
+          newData: updatedTx
+        }).catch(err => console.error('Failed to log audit:', err));
+
+      } else if (editingEntry.entryType === 'PAYMENT') {
+        const docRef = doc(db, 'payments', editingEntry.id);
+        const amountVal = Number(formData.get('amount') || 0);
+        const methodVal = formData.get('method') as string;
+        const refVal = formData.get('reference') as string;
+        const descVal = formData.get('description') as string;
+        const isAdvance = formData.get('isAdvance') === 'on';
+
+        const updatedPayment = {
+          ...editingEntry.originalDoc,
+          date: dateIso,
+          amount: amountVal,
+          method: methodVal,
+          reference: refVal,
+          description: isAdvance ? `[ADVANCE] ${descVal}` : descVal
+        };
+
+        await setDoc(docRef, updatedPayment);
+
+        // Record Audit Log
+        await recordAuditLog({
+          companyId: profile.companyId,
+          userId: profile.uid,
+          userEmail: profile.email,
+          action: AuditAction.UPDATE,
+          module: 'Payments',
+          recordId: editingEntry.id,
+          details: `Adjusted payment of ₦${amountVal} (Ref: ${refVal}) for supplier: ${supplier.name}`,
+          previousData: editingEntry.originalDoc,
+          newData: updatedPayment
+        }).catch(err => console.error('Failed to log audit:', err));
+
+      } else if (editingEntry.entryType === 'JOURNAL') {
+        const docRef = doc(db, 'journal', editingEntry.id);
+        const amountVal = Number(formData.get('amount') || 0);
+        const categoryVal = formData.get('category') as string;
+        const descVal = formData.get('description') as string;
+
+        const updatedJournal = {
+          ...editingEntry.originalDoc,
+          date: dateIso,
+          amount: amountVal,
+          category: categoryVal,
+          description: descVal
+        };
+
+        await setDoc(docRef, updatedJournal);
+
+        // Record Audit Log
+        await recordAuditLog({
+          companyId: profile.companyId,
+          userId: profile.uid,
+          userEmail: profile.email,
+          action: AuditAction.UPDATE,
+          module: 'Journal',
+          recordId: editingEntry.id,
+          details: `Adjusted journal outflow of ₦${amountVal} charged to supplier: ${supplier.name}`,
+          previousData: editingEntry.originalDoc,
+          newData: updatedJournal
+        }).catch(err => console.error('Failed to log audit:', err));
+      }
+
+      setEditingEntry(null);
+      setSuccessMessage('Entry successfully updated!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `${editingEntry.entryType.toLowerCase()}/${editingEntry.id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-slate-50">
       {/* Success Toast */}
@@ -672,6 +829,19 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                             <p className="text-[7px] text-slate-400 uppercase font-bold">Balance</p>
                             <p className="text-[10px] font-black text-slate-600">{formatCurrency(entry.runningBalance || 0)}</p>
                           </div>
+                          {isAdmin && (
+                            <button
+                              onClick={() => setEditingEntry({
+                                id: entry.id,
+                                entryType: entry.entryType,
+                                originalDoc: entry.originalDoc
+                              })}
+                              className="mt-2 text-[10px] text-emerald-600 font-black hover:text-emerald-700 hover:underline flex items-center gap-1 justify-end ml-auto"
+                              title="Adjust Entry"
+                            >
+                              <Edit2 size={10} /> Adjust
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -883,6 +1053,161 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                     className="flex-2 bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {submitting ? 'Confirming...' : 'Confirm'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {editingEntry && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl my-auto"
+            >
+              <h2 className="text-xl font-bold mb-6">Adjust Entry ({editingEntry.entryType})</h2>
+              <form onSubmit={handleAdjustSave} className="space-y-4">
+                {/* Date is common to all */}
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                  <input 
+                    name="date" 
+                    type="date" 
+                    required 
+                    defaultValue={editingEntry.originalDoc.date?.substring(0, 10)} 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                  />
+                </div>
+
+                {editingEntry.entryType === 'TRANSACTION' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross Weight (kg)</label>
+                        <input name="grossWeight" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.grossWeight} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags</label>
+                        <input name="bags" type="number" required defaultValue={editingEntry.originalDoc.noOfBags || editingEntry.originalDoc.bags || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price Per Kg (₦)</label>
+                        <input name="pricePerKg" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.pricePerKg} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                      </div>
+                      {editingEntry.originalDoc.calculationMethod === 'MANUAL' && (
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Net Weight (kg)</label>
+                          <input name="netWeight" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.netWeight} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                        </div>
+                      )}
+                    </div>
+
+                    {editingEntry.originalDoc.calculationMethod !== 'MANUAL' && (
+                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-3">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">Deduction Inputs (Calculated Net Weight)</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase">Moisture Actual (%)</label>
+                            <input name="moistureActual" type="number" step="0.1" defaultValue={editingEntry.originalDoc.deductions?.moistureActual || 8} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs" />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase">Tare Weight (kg)</label>
+                            <input name="tareWeight" type="number" step="0.1" defaultValue={editingEntry.originalDoc.deductions?.tareWeight || 0} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs" />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase">Mold Weight (kg)</label>
+                            <input name="moldWeight" type="number" step="0.1" defaultValue={editingEntry.originalDoc.deductions?.moldWeight || 0} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs" />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase">Other Ded. (kg)</label>
+                            <input name="otherDeduction" type="number" step="0.1" defaultValue={editingEntry.originalDoc.deductions?.otherDeduction || 0} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Notes / Remarks</label>
+                      <input name="notes" defaultValue={editingEntry.originalDoc.notes || ''} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm" placeholder="Reason for adjusting..." />
+                    </div>
+                  </>
+                )}
+
+                {editingEntry.entryType === 'PAYMENT' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
+                        <input name="amount" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.amount} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Method</label>
+                        <select name="method" required defaultValue={editingEntry.originalDoc.method} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium">
+                          <option value="CASH">Cash</option>
+                          <option value="BANK_TRANSFER">Bank Transfer</option>
+                          <option value="CHECK">Check</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference ID</label>
+                      <input name="reference" defaultValue={editingEntry.originalDoc.reference || ''} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Description / Notes</label>
+                      <input 
+                        name="description" 
+                        required 
+                        defaultValue={editingEntry.originalDoc.description ? editingEntry.originalDoc.description.replace('[ADVANCE] ', '') : ''} 
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 bg-emerald-50 p-3 rounded-xl border border-emerald-100">
+                      <input 
+                        type="checkbox" 
+                        name="isAdvance" 
+                        id="isAdvance" 
+                        defaultChecked={editingEntry.originalDoc.description?.startsWith('[ADVANCE]')} 
+                        className="w-4 h-4 accent-emerald-600" 
+                      />
+                      <label htmlFor="isAdvance" className="text-xs font-bold text-emerald-700">Mark as Advance Payment</label>
+                    </div>
+                  </>
+                )}
+
+                {editingEntry.entryType === 'JOURNAL' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
+                        <input name="amount" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.amount} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Category</label>
+                        <input name="category" required defaultValue={editingEntry.originalDoc.category} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Description</label>
+                      <input name="description" required defaultValue={editingEntry.originalDoc.description} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                    </div>
+                  </>
+                )}
+
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setEditingEntry(null)} className="flex-1 py-4 text-slate-500 font-bold">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
+                  >
+                    {submitting ? 'Saving Changes...' : 'Save Adjustments'}
                   </button>
                 </div>
               </form>
