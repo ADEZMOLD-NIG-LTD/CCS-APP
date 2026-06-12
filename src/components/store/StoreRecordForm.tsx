@@ -8,6 +8,7 @@ import { StoreRecord, Warehouse, CommodityType } from '../../types';
 import { X } from 'lucide-react';
 import { motion } from 'motion/react';
 import { formatNumber } from '../../lib/utils';
+import { DigitFormattedInput } from '../DigitFormattedInput';
 
 interface StoreRecordFormProps {
   formData: Partial<StoreRecord>;
@@ -176,34 +177,34 @@ export default function StoreRecordForm({
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nominal Weight (kg)</label>
-              <input
-                type="number"
-                value={formData.nominalWeight}
-                onChange={(e) => setFormData({ ...formData, nominalWeight: Number(e.target.value) })}
+              <DigitFormattedInput
+                value={formData.nominalWeight ?? ''}
+                onChange={(val) => setFormData({ ...formData, nominalWeight: Number(val) })}
                 className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
                 required
+                suffix="kg"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Actual Weight (kg)</label>
-              <input
-                type="number"
-                value={formData.actualWeight}
-                onChange={(e) => setFormData({ ...formData, actualWeight: Number(e.target.value) })}
+              <DigitFormattedInput
+                value={formData.actualWeight ?? ''}
+                onChange={(val) => setFormData({ ...formData, actualWeight: Number(val) })}
                 className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
                 required
+                suffix="kg"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">No of Bags</label>
-              <input
-                type="number"
-                value={formData.noOfBags}
-                onChange={(e) => setFormData({ ...formData, noOfBags: Number(e.target.value) })}
+              <DigitFormattedInput
+                value={formData.noOfBags ?? ''}
+                onChange={(val) => setFormData({ ...formData, noOfBags: Number(val) })}
                 className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
                 required
+                suffix="bags"
               />
             </div>
 

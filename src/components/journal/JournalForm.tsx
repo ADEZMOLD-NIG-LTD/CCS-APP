@@ -3,6 +3,7 @@ import { Building2, Users } from 'lucide-react';
 import { motion } from 'motion/react';
 import { cn } from '../../lib/utils';
 import { Supplier, Buyer, Warehouse, UserProfile } from '../../types';
+import { DigitFormattedInput } from '../DigitFormattedInput';
 
 interface JournalFormProps {
   profile: UserProfile | null;
@@ -140,7 +141,13 @@ export default function JournalForm({
 
         <div>
           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
-          <input name="amount" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" placeholder="0.00" />
+          <DigitFormattedInput 
+            name="amount" 
+            required 
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" 
+            placeholder="0.00" 
+            prefix="₦"
+          />
         </div>
 
         <div>

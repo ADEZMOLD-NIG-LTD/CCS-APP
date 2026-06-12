@@ -7,6 +7,7 @@ import React from 'react';
 import { Truck, Calculator, Users } from 'lucide-react';
 import { CommodityType, Warehouse, Supplier, Buyer, UserProfile, CalculationMethod, Transaction } from '../../types';
 import { cn, formatNumber, formatCurrency } from '../../lib/utils';
+import { DigitFormattedInput } from '../DigitFormattedInput';
 
 interface SaleFormProps {
   profile: UserProfile | null;
@@ -222,34 +223,38 @@ export default function SaleForm({
           </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">No of Bags</label>
-            <input name="bags" defaultValue={editingTransaction?.noOfBags || editingTransaction?.bags || ''} type="number" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
+            <DigitFormattedInput 
+              name="bags" 
+              defaultValue={editingTransaction?.noOfBags || editingTransaction?.bags || ''} 
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+              placeholder="0" 
+              suffix="bags"
+            />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross Weight (kg)</label>
-            <input 
-              type="number" 
-              step="0.01" 
-              required 
+            <DigitFormattedInput 
               value={grossWeight} 
-              onChange={(e) => setGrossWeight(e.target.value)}
+              onChange={setGrossWeight}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" 
               placeholder="0.00" 
+              suffix="kg"
+              required
             />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Selling Price per kg (₦)</label>
-            <input 
+            <DigitFormattedInput 
               name="price" 
-              type="number" 
-              step="0.01" 
-              required 
               value={price}
-              onChange={(e) => setPrice(e.target.value)}
+              onChange={setPrice}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" 
               placeholder="0.00" 
+              prefix="₦"
+              required
             />
           </div>
         </div>
@@ -330,13 +335,12 @@ export default function SaleForm({
             <div>
               <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Final Net Weight (kg)</p>
               {calculationMethod === 'MANUAL' ? (
-                <input 
-                  type="number" 
-                  step="0.01"
+                <DigitFormattedInput 
                   value={manualNetWeight}
-                  onChange={(e) => setManualNetWeight(e.target.value)}
-                  className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xl font-black outline-none placeholder:text-white/40"
+                  onChange={setManualNetWeight}
+                  className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xl font-black outline-none placeholder:text-white/40 text-white"
                   placeholder="0.00"
+                  suffix="kg"
                 />
               ) : (
                 <p className="text-3xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal text-white/70">kg</span></p>
@@ -366,17 +370,13 @@ export default function SaleForm({
             <div className="col-span-2 pt-4 border-t border-white/20">
               <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Total Amount (Final Figure)</p>
               {calculationMethod === 'MANUAL' ? (
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xl font-bold text-white/50">₦</span>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    value={manualTotalValue}
-                    onChange={(e) => setManualTotalValue(e.target.value)}
-                    className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-4 py-3 text-2xl font-black outline-none placeholder:text-white/40"
-                    placeholder="0.00"
-                  />
-                </div>
+                <DigitFormattedInput 
+                  value={manualTotalValue}
+                  onChange={setManualTotalValue}
+                  className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-4 py-3 text-2xl font-black outline-none placeholder:text-white/40 text-white"
+                  placeholder="0.00"
+                  prefix="₦"
+                />
               ) : (
                 <p className="text-3xl font-black">{formatCurrency(netWeight * Number(price))}</p>
               )}

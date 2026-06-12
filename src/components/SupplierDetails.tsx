@@ -33,6 +33,7 @@ import { handleFirestoreError, reportFirestoreError, OperationType } from '../li
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import { cn, roundTo, formatNumber, formatCurrency } from '../lib/utils';
+import { DigitFormattedInput } from './DigitFormattedInput';
 
 interface Props {
   supplier: Supplier;
@@ -972,7 +973,13 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
-                  <input name="amount" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0.00" />
+                  <DigitFormattedInput 
+                    name="amount" 
+                    required 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
+                    placeholder="0.00" 
+                    prefix="₦"
+                  />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Method</label>
@@ -1039,7 +1046,13 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Quantity (Bags)</label>
-                  <input name="quantity" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="0" />
+                  <DigitFormattedInput 
+                    name="quantity" 
+                    required 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
+                    placeholder="0" 
+                    suffix="bags"
+                  />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference</label>
@@ -1087,23 +1100,23 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross Weight (kg)</label>
-                        <input name="grossWeight" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.grossWeight} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                        <DigitFormattedInput name="grossWeight" required defaultValue={editingEntry.originalDoc.grossWeight} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="kg" />
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags</label>
-                        <input name="bags" type="number" required defaultValue={editingEntry.originalDoc.noOfBags || editingEntry.originalDoc.bags || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                        <DigitFormattedInput name="bags" required defaultValue={editingEntry.originalDoc.noOfBags || editingEntry.originalDoc.bags || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="bags" />
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price Per Kg (₦)</label>
-                        <input name="pricePerKg" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.pricePerKg} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                        <DigitFormattedInput name="pricePerKg" required defaultValue={editingEntry.originalDoc.pricePerKg} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" prefix="₦" />
                       </div>
                       {editingEntry.originalDoc.calculationMethod === 'MANUAL' && (
                         <div>
                           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Net Weight (kg)</label>
-                          <input name="netWeight" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.netWeight} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                          <DigitFormattedInput name="netWeight" required defaultValue={editingEntry.originalDoc.netWeight} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="kg" />
                         </div>
                       )}
                     </div>
@@ -1144,7 +1157,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
-                        <input name="amount" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.amount} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                        <DigitFormattedInput name="amount" required defaultValue={editingEntry.originalDoc.amount} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" prefix="₦" />
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Method</label>
@@ -1186,7 +1199,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
-                        <input name="amount" type="number" step="0.01" required defaultValue={editingEntry.originalDoc.amount} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                        <DigitFormattedInput name="amount" required defaultValue={editingEntry.originalDoc.amount} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" prefix="₦" />
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Category</label>
