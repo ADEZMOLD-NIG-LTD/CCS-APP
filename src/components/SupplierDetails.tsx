@@ -190,14 +190,16 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         pricePerKg: 0,
         bags: 0
       })),
-      ...journal.filter(e => e.type === 'OUTFLOW').map(e => ({
+      ...journal.map(e => ({
         id: e.id,
         entryType: 'JOURNAL' as const,
         originalDoc: e,
         date: e.date,
-        description: `Charge: ${e.category} - ${e.description}`,
-        credit: 0,
-        debit: roundTo(e.amount || 0, 2),
+        description: e.type === 'INFLOW' 
+          ? `Credit/Reversal: ${e.category} - ${e.description}`
+          : `Charge: ${e.category} - ${e.description}`,
+        credit: e.type === 'INFLOW' ? roundTo(e.amount || 0, 2) : 0,
+        debit: e.type === 'OUTFLOW' ? roundTo(e.amount || 0, 2) : 0,
         ref: 'JOURNAL',
         grossWeight: 0,
         netWeight: 0,
@@ -237,7 +239,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   const totalPurchases = useMemo(() => transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
   const totalSales = useMemo(() => transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
   const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + roundTo(Number(p.amount) || 0, 2), 0), [payments]);
-  const totalCharges = useMemo(() => journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(Number(e.amount) || 0, 2), 0), [journal]);
+  const totalCharges = useMemo(() => journal.reduce((sum, e) => sum + roundTo(e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0, 2), 0), [journal]);
   const currentBalance = roundTo((Number(supplier.previousBalance) || 0) + totalPurchases - totalSales - totalPayments - totalCharges, 2);
 
   const bagBalance = useMemo(() => {
@@ -594,7 +596,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
           action: AuditAction.UPDATE,
           module: 'Journal',
           recordId: editingEntry.id,
-          details: `Adjusted journal outflow of ₦${amountVal} charged to supplier: ${supplier.name}`,
+          details: `Adjusted journal ${editingEntry.originalDoc.type?.toLowerCase() || 'entry'} of ₦${amountVal} linked to supplier: ${supplier.name}`,
           previousData: editingEntry.originalDoc,
           newData: updatedJournal
         }).catch(err => console.error('Failed to log audit:', err));

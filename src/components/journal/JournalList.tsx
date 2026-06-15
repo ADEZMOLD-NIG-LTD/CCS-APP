@@ -88,9 +88,9 @@ export default function JournalList({
             </div>
             {entry.supplierId && (
               <div className="mt-3 pt-3 border-t border-slate-50 flex items-center gap-2">
-                <AlertCircle size={12} className="text-rose-500" />
-                <p className="text-[10px] font-bold text-rose-600 uppercase">
-                  Charged to: {suppliers.find(s => s.id === entry.supplierId)?.name}
+                <AlertCircle size={12} className={entry.type === 'INFLOW' ? "text-emerald-500" : "text-rose-500"} />
+                <p className={cn("text-[10px] font-bold uppercase", entry.type === 'INFLOW' ? "text-emerald-600" : "text-rose-600")}>
+                  {entry.type === 'INFLOW' ? 'Refunded/Reversed from' : 'Charged to'}: {suppliers.find(s => s.id === entry.supplierId)?.name}
                 </p>
               </div>
             )}

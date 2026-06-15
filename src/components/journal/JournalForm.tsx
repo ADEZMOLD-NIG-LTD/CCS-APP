@@ -171,17 +171,32 @@ export default function JournalForm({
         )}
 
         {entryType === 'INFLOW' && (
-          <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
-            <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-2 flex items-center gap-2">
-              <Users size={12} /> Link to Buyer/Customer? (Optional)
-            </label>
-            <select name="buyerId" className="w-full px-4 py-2 bg-white border border-emerald-200 rounded-lg outline-none text-sm">
-              <option value="">No - General Income</option>
-              {buyers.map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
-            </select>
-            <p className="text-[9px] text-emerald-400 mt-2 italic">
-              * If selected, this amount will be credited to the customer's ledger balance.
-            </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+              <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-2 flex items-center gap-2">
+                <Users size={12} /> Link to Buyer/Customer? (Optional)
+              </label>
+              <select name="buyerId" className="w-full px-4 py-2 bg-white border border-emerald-200 rounded-lg outline-none text-sm">
+                <option value="">No - General Income</option>
+                {buyers.map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
+              </select>
+              <p className="text-[9px] text-emerald-400 mt-2 italic">
+                * If selected, this amount will be credited to the customer's ledger balance.
+              </p>
+            </div>
+
+            <div className="bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+              <label className="block text-[10px] font-bold text-emerald-600 uppercase mb-2 flex items-center gap-2">
+                <Users size={12} /> Reversal/Refund from Supplier? (Optional)
+              </label>
+              <select name="supplierId" className="w-full px-4 py-2 bg-white border border-emerald-200 rounded-lg outline-none text-sm">
+                <option value="">No - General Income</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.location})</option>)}
+              </select>
+              <p className="text-[9px] text-emerald-400 mt-2 italic">
+                * If selected, this amount will be credited back/refunded to the supplier's ledger balance.
+              </p>
+            </div>
           </div>
         )}
 
