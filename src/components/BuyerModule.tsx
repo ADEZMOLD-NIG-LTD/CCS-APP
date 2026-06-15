@@ -17,6 +17,7 @@ import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import ConfirmModal from './ConfirmModal';
 import { cn, formatNumber } from '../lib/utils';
+import { DigitFormattedInput } from './DigitFormattedInput';
 import BuyerDetails from './BuyerDetails';
 
 export default function BuyerModule() {
@@ -292,13 +293,12 @@ export default function BuyerModule() {
 
                 <div>
                   <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Previous Balance (₦)</label>
-                  <input
+                  <DigitFormattedInput
                     name="previousBalance"
-                    type="number"
-                    step="0.01"
                     defaultValue={editingBuyer?.previousBalance}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                     placeholder="0.00"
+                    prefix="₦"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">Positive for Debit (they owe us), Negative for Credit (we owe them)</p>
                 </div>

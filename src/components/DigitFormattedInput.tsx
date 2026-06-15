@@ -84,15 +84,30 @@ export function DigitFormattedInput({
   }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawVal = parseValue(e.target.value);
+    const inputElement = e.target;
+    const originalPos = inputElement.selectionStart || 0;
+    const valueBefore = inputElement.value;
+
+    const rawVal = parseValue(valueBefore);
     const formatted = formatValue(rawVal);
-    
+
+    // Calculate cursor shift due to added/removed commas
+    const commasBefore = (valueBefore.substring(0, originalPos).match(/,/g) || []).length;
+    const commasAfter = (formatted.substring(0, originalPos).match(/,/g) || []).length;
+    const shift = commasAfter - commasBefore;
+
     setDisplayValue(formatted);
     setRawValue(rawVal);
     
     if (onChange) {
       onChange(rawVal);
     }
+
+    // Restore cursor position in next tick after React render
+    requestAnimationFrame(() => {
+      const newPos = Math.max(0, originalPos + shift);
+      inputElement.setSelectionRange(newPos, newPos);
+    });
   };
 
   return (

@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { CommodityType, Warehouse } from '../../types';
 import { formatNumber } from '../../lib/utils';
+import { DigitFormattedInput } from '../DigitFormattedInput';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
 
@@ -99,11 +100,11 @@ export default function StockTransferForm({
           )}
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Weight (kg)</label>
-            <input name="weight" type="number" step="0.01" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0.00" />
+            <DigitFormattedInput name="weight" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0.00" suffix="kg" />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags Count</label>
-            <input name="bags" type="number" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" />
+            <DigitFormattedInput name="bags" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" suffix="bags" />
           </div>
         </div>
 

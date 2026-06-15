@@ -17,6 +17,7 @@ import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import ConfirmModal from './ConfirmModal';
 import { cn, formatNumber, formatCurrency } from '../lib/utils';
+import { DigitFormattedInput } from './DigitFormattedInput';
 
 import SupplierDetails from './SupplierDetails';
 
@@ -112,12 +113,12 @@ export default function SupplierModule() {
     const sPay = payments.filter(p => p.supplierId === sId);
     const sExp = journal.filter(e => e.supplierId === sId && e.type === 'OUTFLOW');
 
-    const sPurchases = sTx.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + (t.totalValue || 0), 0);
-    const sSales = sTx.filter(t => t.type === 'SALE').reduce((sum, t) => sum + (t.totalValue || 0), 0);
-    const sPayments = sPay.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const sCharges = sExp.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const sPurchases = sTx.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
+    const sSales = sTx.filter(t => t.type === 'SALE').reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
+    const sPayments = sPay.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const sCharges = sExp.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
-    return (previousBalance || 0) + sPurchases - sSales - sPayments - sCharges;
+    return (Number(previousBalance) || 0) + sPurchases - sSales - sPayments - sCharges;
   };
 
   const handleAddSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -378,13 +379,12 @@ export default function SupplierModule() {
 
                 <div>
                   <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Previous Balance (Stock/Cash)</label>
-                  <input
+                  <DigitFormattedInput
                     name="previousBalance"
-                    type="number"
-                    step="0.01"
                     defaultValue={editingSupplier?.previousBalance}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
                     placeholder="0.00"
+                    prefix="₦"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">Positive for Credit (we owe), Negative for Debit (they owe)</p>
                 </div>

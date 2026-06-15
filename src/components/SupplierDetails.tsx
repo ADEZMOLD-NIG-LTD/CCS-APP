@@ -51,8 +51,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    return `${year}-${month}-01`;
+    return `${year}-01-01`;
   });
   const [endDate, setEndDate] = useState(() => {
     const d = new Date();
@@ -235,11 +234,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     };
   }, [transactions, payments, journal, supplier.previousBalance, startDate, endDate, supplier.id]);
 
-  const totalPurchases = useMemo(() => transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0), [transactions]);
-  const totalSales = useMemo(() => transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0), [transactions]);
-  const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0), [payments]);
-  const totalCharges = useMemo(() => journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0), [journal]);
-  const currentBalance = roundTo((supplier.previousBalance || 0) + totalPurchases - totalSales - totalPayments - totalCharges, 2);
+  const totalPurchases = useMemo(() => transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
+  const totalSales = useMemo(() => transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
+  const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + roundTo(Number(p.amount) || 0, 2), 0), [payments]);
+  const totalCharges = useMemo(() => journal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(Number(e.amount) || 0, 2), 0), [journal]);
+  const currentBalance = roundTo((Number(supplier.previousBalance) || 0) + totalPurchases - totalSales - totalPayments - totalCharges, 2);
 
   const bagBalance = useMemo(() => {
     return bagTransactions.reduce((sum, b) => {
@@ -250,7 +249,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   // Handlers
   const handleAddPayment = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!isStaff || submitting || !profile?.companyId) return;
+    if (!(isAccount || isAdmin) || submitting || !profile?.companyId) return;
 
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
@@ -899,7 +898,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
             <motion.div key="payments" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Direct Payments</h2>
-                {isStaff && (
+                {(isAccount || isAdmin) && (
                   <button 
                     onClick={() => setIsAddingPayment(true)}
                     className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg"
