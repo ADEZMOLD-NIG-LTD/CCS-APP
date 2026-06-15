@@ -166,12 +166,12 @@ export default function InventoryModule() {
     bagTransactions.forEach(tx => {
       if (tx.type === 'TRANSFER') {
         if (selectedWarehouseId === 'ALL') return;
-        if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.packagingType] -= tx.quantity;
-        if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.packagingType] += tx.quantity;
+        if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.packagingType] -= Number(tx.quantity) || 0;
+        if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.packagingType] += Number(tx.quantity) || 0;
       } else {
         if (selectedWarehouseId !== 'ALL' && tx.warehouseId !== selectedWarehouseId) return;
-        if (tx.type === 'STOCK_IN' || tx.type === 'RETURN') summary[tx.packagingType] += tx.quantity;
-        if (tx.type === 'ISSUE') summary[tx.packagingType] -= tx.quantity;
+        if (tx.type === 'STOCK_IN' || tx.type === 'RETURN') summary[tx.packagingType] += Number(tx.quantity) || 0;
+        if (tx.type === 'ISSUE') summary[tx.packagingType] -= Number(tx.quantity) || 0;
       }
     });
     return summary;
@@ -195,12 +195,12 @@ export default function InventoryModule() {
     return bagTransactions.reduce((sum, tx) => {
       if (tx.packagingType !== pkgType) return sum;
       if (tx.type === 'TRANSFER') {
-        if (tx.sourceWarehouseId === warehouseId) return sum - tx.quantity;
-        if (tx.destinationWarehouseId === warehouseId) return sum + tx.quantity;
+        if (tx.sourceWarehouseId === warehouseId) return sum - (Number(tx.quantity) || 0);
+        if (tx.destinationWarehouseId === warehouseId) return sum + (Number(tx.quantity) || 0);
       } else {
         if (tx.warehouseId !== warehouseId) return sum;
-        if (tx.type === 'STOCK_IN' || tx.type === 'RETURN') return sum + tx.quantity;
-        if (tx.type === 'ISSUE') return sum - tx.quantity;
+        if (tx.type === 'STOCK_IN' || tx.type === 'RETURN') return sum + (Number(tx.quantity) || 0);
+        if (tx.type === 'ISSUE') return sum - (Number(tx.quantity) || 0);
       }
       return sum;
     }, 0);

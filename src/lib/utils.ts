@@ -31,8 +31,8 @@ export function formatCurrency(value: number): string {
 }
 
 /**
- * Returns the actual weight in KG. Since we now store all netWeights in KG, this just returns the value.
+ * Returns the actual weight in KG. Since we now store all netWeights in KG, this handles casting.
  */
-export function getWeightInKg(netWeight: number): number {
-  return netWeight;
+export function getWeightInKg(netWeight: any): number {
+  return Number(netWeight) || 0;
 }
