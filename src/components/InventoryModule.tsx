@@ -207,7 +207,7 @@ export default function InventoryModule() {
   };
 
   const handleAddEntryDirect = async (data: any) => {
-    if (submitting || !profile?.companyId) return;
+    if (!canPostTransactions || submitting || !profile?.companyId) return;
 
     setSubmitting(true);
     const id = crypto.randomUUID();
