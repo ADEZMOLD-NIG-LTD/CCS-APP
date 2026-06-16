@@ -362,10 +362,11 @@ export default function StaffModule() {
       
       // If staff is linked to a user account, update the account role too
       if (editingStaff.uid) {
-        await setDoc(doc(db, 'users', editingStaff.uid), {
+        const userUpdateData: any = {
           role: updatedStaff.role,
-          assignedWarehouseId: updatedStaff.assignedWarehouseId
-        }, { merge: true });
+          assignedWarehouseId: updatedStaff.assignedWarehouseId !== undefined ? updatedStaff.assignedWarehouseId : null
+        };
+        await setDoc(doc(db, 'users', editingStaff.uid), userUpdateData, { merge: true });
       }
 
       if (!isOnline) {
