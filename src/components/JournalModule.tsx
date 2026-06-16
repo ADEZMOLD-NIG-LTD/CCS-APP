@@ -228,6 +228,7 @@ export default function JournalModule() {
   const filteredEntries = useMemo(() => {
     return entries.filter(e => {
       if (e.isDeleted) return false;
+      if ((e as any).excludeFromJournal) return false;
       const matchesMethod = filterMethod === 'ALL' || e.paymentMethod === filterMethod;
       const matchesWarehouse = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
       return matchesMethod && matchesWarehouse;
@@ -238,7 +239,7 @@ export default function JournalModule() {
   const financialPositions = useMemo(() => {
     // Only filter by warehouse if selected and not 'ALL'
     const warehouseEntries = entries.filter(e => 
-      !e.isDeleted && (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
+      !e.isDeleted && !((e as any).excludeFromJournal) && (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
     );
 
     const cashIn = warehouseEntries.filter(e => e.type === 'INFLOW' && e.paymentMethod === 'CASH').reduce((sum, e) => sum + e.amount, 0);

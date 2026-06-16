@@ -18,16 +18,20 @@ import {
   MapPin,
   Package,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  Plus,
+  Edit2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Buyer, Transaction, JournalEntry } from '../types';
+import { Buyer, Transaction, JournalEntry, Warehouse, CommodityType } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
-import { collection, onSnapshot, query, where, orderBy } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, orderBy, doc, setDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { reportFirestoreError, OperationType } from '../lib/firestore';
+import { recordAuditLog, AuditAction } from '../lib/audit';
+import { DigitFormattedInput } from './DigitFormattedInput';
 import Toast from './Toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -43,35 +47,49 @@ interface BuyerDetailsProps {
 }
 
 export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
-  const { profile, errorMessage, setErrorMessage } = useAuth();
+  const { profile, isStaff, isAccount, isAdmin, isOnline, canPostTransactions, errorMessage, setErrorMessage } = useAuth();
   const [sales, setSales] = useState<Transaction[]>([]);
   const [payments, setPayments] = useState<JournalEntry[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH'>('ALL');
+
+  const [isAddingSalesReturn, setIsAddingSalesReturn] = useState(false);
+  const [isAddingCustomerCharge, setIsAddingCustomerCharge] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [returnNetWeight, setReturnNetWeight] = useState<string>('');
+  const [returnPricePerKg, setReturnPricePerKg] = useState<string>('');
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Success message auto-hide
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
 
   useEffect(() => {
     if (!profile?.companyId || !buyer.id) return;
 
-    // Load Sales
+    // Load Sales & Sales Returns
     const qSales = query(
       collection(db, 'transactions'),
       where('companyId', '==', profile.companyId),
-      where('type', '==', 'SALE'),
       where('buyerId', '==', buyer.id)
     );
     const unsubscribeSales = onSnapshot(qSales, (snapshot) => {
       const data = snapshot.docs
         .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
-        .filter(t => !t.isDeleted);
+        .filter(t => !t.isDeleted && (t.type === 'SALE' || (t.type as string) === 'SALES_RETURN'));
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
       setSales(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
 
-    // Load Payments (Inflows linked to this buyer)
+    // Load Payments and Charges (Journal entries linked to this buyer)
     const qPayments = query(
       collection(db, 'journal'),
       where('companyId', '==', profile.companyId),
-      where('type', '==', 'INFLOW'),
       where('buyerId', '==', buyer.id)
     );
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
@@ -82,32 +100,169 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       setPayments(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
+    // Load Warehouses
+    const qWarehouses = query(
+      collection(db, 'warehouses'),
+      where('companyId', '==', profile.companyId)
+    );
+    const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
+      setWarehouses(data);
+    });
+
     return () => {
       unsubscribeSales();
       unsubscribePayments();
+      unsubscribeWarehouses();
     };
   }, [profile?.companyId, buyer.id]);
+
+  const handleAddSalesReturn = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!canPostTransactions || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const id = crypto.randomUUID();
+    const selectedDate = formData.get('date') as string;
+    const transactionDateIso = selectedDate 
+      ? new Date(selectedDate + 'T12:00:00').toISOString() 
+      : new Date().toISOString();
+
+    const newTx: any = {
+      id,
+      companyId: profile.companyId,
+      date: transactionDateIso,
+      postingDate: new Date().toISOString(),
+      type: 'SALES_RETURN',
+      commodity: formData.get('commodity') as CommodityType,
+      buyerId: buyer.id,
+      warehouseId: formData.get('warehouseId') as string,
+      grossWeight: Number(formData.get('grossWeight') || 0),
+      netWeight: Number(formData.get('netWeight') || 0),
+      bags: Number(formData.get('bags') || 0),
+      pricePerKg: Number(formData.get('pricePerKg') || 0),
+      totalValue: Number(formData.get('totalValue') || 0),
+      referenceId: formData.get('referenceId') as string || `RET-${Date.now().toString().slice(-6)}`,
+      notes: formData.get('notes') as string || '',
+      deductions: {
+        moistureActual: 8,
+        moistureBenchmark: 8,
+        tareWeight: 0,
+        moldWeight: 0,
+        otherDeduction: 0
+      }
+    };
+
+    try {
+      const writePromise = setDoc(doc(db, 'transactions', id), newTx);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Sales Returns',
+        recordId: id,
+        details: `Recorded sales return of ${newTx.commodity} (${formatNumber(newTx.netWeight)}kg) valued at ${formatCurrency(newTx.totalValue)} for customer ${buyer.name}`,
+        newData: newTx
+      }).catch(err => console.error('Audit log failed:', err));
+
+      setIsAddingSalesReturn(false);
+      setSuccessMessage('Sales return successfully recorded!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `transactions/${id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddCustomerCharge = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!(isAccount || isAdmin) || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const id = crypto.randomUUID();
+    const selectedDate = formData.get('date') as string;
+    const transactionDateIso = selectedDate 
+      ? new Date(selectedDate + 'T12:00:00').toISOString() 
+      : new Date().toISOString();
+
+    const newEntry: any = {
+      id,
+      companyId: profile.companyId,
+      warehouseId: formData.get('warehouseId') as string,
+      date: transactionDateIso,
+      postingDate: new Date().toISOString(),
+      type: 'OUTFLOW',
+      category: 'CUSTOMER_CHARGE',
+      amount: Number(formData.get('amount')),
+      description: formData.get('description') as string,
+      buyerId: buyer.id,
+      paymentMethod: formData.get('paymentMethod') as any,
+      excludeFromJournal: true
+    };
+
+    try {
+      const writePromise = setDoc(doc(db, 'journal', id), newEntry);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Customer Charges',
+        recordId: id,
+        details: `Recorded customer charge: ${newEntry.description} of amount ${formatCurrency(newEntry.amount)} for customer ${buyer.name}`,
+        newData: newEntry
+      }).catch(err => console.error('Audit log failed:', err));
+
+      setIsAddingCustomerCharge(false);
+      setSuccessMessage('Customer charge successfully recorded!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `journal/${id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const ledgerEntries = useMemo(() => {
     const entries = [
       ...sales.map(s => ({
         id: s.id,
         date: s.date,
-        type: 'SALE' as const,
-        description: s.isDirectDelivery 
-          ? `Direct Delivery: ${s.commodity} (${formatNumber(s.netWeight || 0)}kg @ ${formatCurrency(s.pricePerKg || 0)})`
-          : `${s.commodity} Sale (${formatNumber(s.netWeight || 0)}kg @ ${formatCurrency(s.pricePerKg || 0)})`,
-        debit: roundTo(s.totalValue || 0, 2),
-        credit: 0,
+        type: s.type,
+        description: (s.type as string) === 'SALES_RETURN'
+          ? `Sales Return: ${s.commodity} (${formatNumber(s.netWeight || 0)}kg)`
+          : (s.isDirectDelivery 
+            ? `Direct Delivery: ${s.commodity} (${formatNumber(s.netWeight || 0)}kg @ ${formatCurrency(s.pricePerKg || 0)})`
+            : `${s.commodity} Sale (${formatNumber(s.netWeight || 0)}kg @ ${formatCurrency(s.pricePerKg || 0)})`),
+        debit: s.type === 'SALE' ? roundTo(s.totalValue || 0, 2) : 0,
+        credit: (s.type as string) === 'SALES_RETURN' ? roundTo(s.totalValue || 0, 2) : 0,
         reference: s.referenceId
       })),
       ...payments.map(p => ({
         id: p.id,
         date: p.date,
         type: 'PAYMENT' as const,
-        description: p.description || 'Cash Payment',
-        debit: 0,
-        credit: roundTo(p.amount || 0, 2),
+        description: p.type === 'OUTFLOW' 
+          ? `Customer Charge: ${p.category} ${p.description ? '- ' + p.description : ''}`
+          : (p.description || 'Cash Payment'),
+        debit: p.type === 'OUTFLOW' ? roundTo(p.amount || 0, 2) : 0,
+        credit: p.type === 'INFLOW' ? roundTo(p.amount || 0, 2) : 0,
         reference: p.category
       }))
     ];
@@ -116,11 +271,13 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
   }, [sales, payments]);
 
   const stats = useMemo(() => {
-    const totalSales = sales.reduce((sum, s) => sum + roundTo(s.totalValue || 0, 2), 0);
-    const totalPayments = payments.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
-    const currentBalance = roundTo((buyer.previousBalance || 0) + totalSales - totalPayments, 2);
+    const totalSales = sales.filter(s => s.type === 'SALE').reduce((sum, s) => sum + roundTo(s.totalValue || 0, 2), 0);
+    const totalReturns = sales.filter(s => (s.type as string) === 'SALES_RETURN').reduce((sum, s) => sum + roundTo(s.totalValue || 0, 2), 0);
+    const totalPayments = payments.filter(p => p.type === 'INFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
+    const totalCharges = payments.filter(p => p.type === 'OUTFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
+    const currentBalance = roundTo((buyer.previousBalance || 0) + totalSales - totalReturns + totalCharges - totalPayments, 2);
 
-    return { totalSales, totalPayments, currentBalance };
+    return { totalSales, totalPayments, currentBalance, totalReturns, totalCharges };
   }, [sales, payments, buyer.previousBalance]);
 
   const exportPDF = () => {
@@ -212,6 +369,13 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
             onClose={() => setErrorMessage(null)} 
           />
         )}
+        {successMessage && (
+          <Toast 
+            message={successMessage} 
+            type="success" 
+            onClose={() => setSuccessMessage(null)} 
+          />
+        )}
       </AnimatePresence>
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
@@ -268,6 +432,26 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
           </div>
         </div>
 
+        {/* Quick Actions */}
+        <div className="flex gap-2">
+          {canPostTransactions && (
+            <button
+              onClick={() => setIsAddingSalesReturn(true)}
+              className="flex-1 bg-rose-50 text-rose-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-rose-100"
+            >
+              <Plus size={16} /> Sales Return
+            </button>
+          )}
+          {(isAccount || isAdmin) && (
+            <button
+              onClick={() => setIsAddingCustomerCharge(true)}
+              className="flex-1 bg-amber-50 text-amber-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-amber-100"
+            >
+              <Plus size={16} /> Charge Customer
+            </button>
+          )}
+        </div>
+
         {/* Ledger List */}
         <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
@@ -312,9 +496,12 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
                       <div className="flex items-center gap-3">
                         <div className={cn(
                           "w-8 h-8 rounded-lg flex items-center justify-center",
-                          entry.type === 'SALE' ? "bg-blue-50 text-blue-600" : "bg-emerald-50 text-emerald-600"
+                          entry.type === 'SALE' ? "bg-blue-50 text-blue-600" :
+                          (entry.type as string) === 'SALES_RETURN' ? "bg-rose-50 text-rose-600" :
+                          entry.debit > 0 ? "bg-amber-50 text-amber-600" :
+                          "bg-emerald-50 text-emerald-600"
                         )}>
-                          {entry.type === 'SALE' ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                          {entry.type === 'SALE' || entry.debit > 0 ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
                         </div>
                         <div>
                           <p className="text-xs font-bold text-slate-900">{entry.description}</p>
@@ -328,13 +515,13 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
                       </div>
                       <div className="text-right">
                         {(entry.debit || 0) > 0 && (
-                          <p className="text-sm font-black text-blue-600">+{formatCurrency(entry.debit)}</p>
+                          <p className="text-sm font-black text-rose-600">+{formatCurrency(entry.debit)}</p>
                         )}
                         {(entry.credit || 0) > 0 && (
                           <p className="text-sm font-black text-emerald-600">-{formatCurrency(entry.credit)}</p>
                         )}
                         <p className="text-[9px] text-slate-400 uppercase font-bold">
-                          {entry.type === 'SALE' ? 'Debit' : 'Credit'}
+                          {(entry.debit || 0) > 0 ? 'Debit (Owed to Us)' : 'Credit'}
                         </p>
                       </div>
                     </div>
@@ -345,6 +532,174 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
           </div>
         </div>
       </main>
+
+      {/* Modals */}
+      <AnimatePresence>
+        {isAddingSalesReturn && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl my-auto"
+            >
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-rose-600">
+                <Plus className="rotate-45" size={24} /> New Sales Return
+              </h2>
+              <form onSubmit={handleAddSalesReturn} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                  <input 
+                    name="date" 
+                    type="date" 
+                    required 
+                    defaultValue={new Date().toISOString().substring(0, 10)} 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                  <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="">Select Warehouse</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
+                  <select name="commodity" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="COCOA">Cocoa</option>
+                    <option value="CASHEW">Cashew</option>
+                    <option value="PK">Palm Kernel (PK)</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags</label>
+                    <DigitFormattedInput name="bags" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="bags" placeholder="0" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross Weight (kg)</label>
+                    <DigitFormattedInput name="grossWeight" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="kg" placeholder="0" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Net Weight (kg)</label>
+                    <DigitFormattedInput 
+                      name="netWeight" 
+                      required 
+                      value={returnNetWeight}
+                      onChange={(e: any) => setReturnNetWeight(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                      suffix="kg" 
+                      placeholder="0" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price Per Kg (₦)</label>
+                    <DigitFormattedInput 
+                      name="pricePerKg" 
+                      required 
+                      value={returnPricePerKg}
+                      onChange={(e: any) => setReturnPricePerKg(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                      prefix="₦" 
+                      placeholder="0" 
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Total Return Value (₦)</label>
+                  <DigitFormattedInput 
+                    name="totalValue" 
+                    required 
+                    value={String(roundTo((Number(returnNetWeight.replace(/,/g, '')) || 0) * (Number(returnPricePerKg.replace(/,/g, '')) || 0), 2))}
+                    className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl outline-none text-sm font-black text-rose-700" 
+                    prefix="₦" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference ID (Optional)</label>
+                  <input name="referenceId" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" placeholder="e.g. RET-001" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Notes / Reason</label>
+                  <input name="notes" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" placeholder="Reason for return..." />
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setIsAddingSalesReturn(false)} className="flex-1 py-4 text-slate-500 font-bold text-sm">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-rose-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {submitting ? 'Recording...' : 'Record Return'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {isAddingCustomerCharge && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl my-auto"
+            >
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-amber-600">
+                <Plus className="rotate-45" size={24} /> New Customer Charge
+              </h2>
+              <form onSubmit={handleAddCustomerCharge} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                  <input 
+                    name="date" 
+                    type="date" 
+                    required 
+                    defaultValue={new Date().toISOString().substring(0, 10)} 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                  <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="">Select Warehouse</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
+                  <DigitFormattedInput name="amount" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" prefix="₦" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Payment Method</label>
+                  <select name="paymentMethod" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="CASH">Cash</option>
+                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Description / Notes</label>
+                  <input name="description" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" placeholder="Describe the charge..." />
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setIsAddingCustomerCharge(false)} className="flex-1 py-4 text-slate-500 font-bold text-sm">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-amber-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {submitting ? 'Recording...' : 'Record Charge'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

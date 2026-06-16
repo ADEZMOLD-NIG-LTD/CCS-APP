@@ -179,6 +179,7 @@ export interface JournalEntry {
   deletedBy?: string;
   deletionReason?: string;
   deletedAt?: string;
+  excludeFromJournal?: boolean;
 }
 
 export interface Buyer {
@@ -200,7 +201,7 @@ export interface Transaction {
   companyId: string;
   date: string; // The selected transaction date
   postingDate?: string; // The actual software entry/posting timestamp
-  type: 'PURCHASE' | 'SALE' | 'TRANSFER';
+  type: 'PURCHASE' | 'SALE' | 'TRANSFER' | 'PURCHASE_RETURN' | 'SALES_RETURN';
   commodity: CommodityType;
   supplierId?: string;
   buyerId?: string;

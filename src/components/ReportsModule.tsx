@@ -163,6 +163,12 @@ export default function ReportsModule() {
         t.date.split('T')[0] <= endDate &&
         (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
       );
+      const sReturns = activeTransactions.filter(t => 
+        t.supplierId === s.id && 
+        (t.type as string) === 'PURCHASE_RETURN' && 
+        t.date.split('T')[0] <= endDate &&
+        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
+      );
       const sSales = activeTransactions.filter(t => 
         t.supplierId === s.id && 
         t.type === 'SALE' && 
@@ -181,12 +187,13 @@ export default function ReportsModule() {
       );
       
       const totalPurchases = sPurchases.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
+      const totalReturns = sReturns.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
       const totalSales = sSales.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
       const totalPayments = sPay.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
       const totalCharges = sExp.reduce((sum, e) => sum + (e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0), 0);
       
       const baseBalance = selectedWarehouseId === 'ALL' ? (Number(s.previousBalance) || 0) : 0;
-      const balance = baseBalance + totalPurchases - totalSales - totalPayments - totalCharges;
+      const balance = baseBalance + totalPurchases - totalReturns - totalSales - totalPayments - totalCharges;
       return { ...s, balance };
     }).filter(s => s.balance !== 0);
   }, [suppliers, transactions, payments, journal, endDate, selectedWarehouseId]);
@@ -209,18 +216,32 @@ export default function ReportsModule() {
         t.date.split('T')[0] <= endDate &&
         (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
       );
+      const bReturns = activeTransactions.filter(t => 
+        t.buyerId === b.id && 
+        (t.type as string) === 'SALES_RETURN' && 
+        t.date.split('T')[0] <= endDate &&
+        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
+      );
       const bPayments = activeJournal.filter(e => 
         e.buyerId === b.id && 
         e.type === 'INFLOW' && 
         e.date.split('T')[0] <= endDate &&
         (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
       );
+      const bCharges = activeJournal.filter(e => 
+        e.buyerId === b.id && 
+        e.type === 'OUTFLOW' && 
+        e.date.split('T')[0] <= endDate &&
+        (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
+      );
       
       const totalSales = bSales.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
+      const totalReturns = bReturns.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
       const totalPayments = bPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      const totalCharges = bCharges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
       
       const baseBalance = selectedWarehouseId === 'ALL' ? (Number(b.previousBalance) || 0) : 0;
-      const balance = baseBalance + totalSales - totalPayments;
+      const balance = baseBalance + totalSales - totalReturns + totalCharges - totalPayments;
       return { ...b, balance };
     }).filter(b => b.balance !== 0);
   }, [buyers, transactions, journal, endDate, selectedWarehouseId]);
@@ -305,6 +326,7 @@ export default function ReportsModule() {
   const filteredJournal = useMemo(() => {
     return journal.filter(e => {
       if (e.isDeleted) return false;
+      if ((e as any).excludeFromJournal) return false;
       const date = e.date.split('T')[0];
       const dateMatch = date >= startDate && date <= endDate;
       const warehouseMatch = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;

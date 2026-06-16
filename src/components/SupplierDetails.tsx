@@ -21,7 +21,7 @@ import {
   Edit2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Supplier, Transaction, Payment, BagTransaction, JournalEntry, Warehouse, PackagingType } from '../types';
+import { Supplier, Transaction, Payment, BagTransaction, JournalEntry, Warehouse, PackagingType, CommodityType } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { clsx, type ClassValue } from 'clsx';
@@ -41,7 +41,7 @@ interface Props {
 }
 
 export default function SupplierDetails({ supplier, onBack }: Props) {
-  const { profile, company, isStaff, isAccount, isAdmin, isOnline, errorMessage, setErrorMessage } = useAuth();
+  const { profile, company, isStaff, isAccount, isAdmin, isOnline, canPostTransactions, errorMessage, setErrorMessage } = useAuth();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
@@ -61,6 +61,8 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     return `${year}-${month}-${day}`;
   });
   const [isAddingPayment, setIsAddingPayment] = useState(false);
+  const [isAddingPurchaseReturn, setIsAddingPurchaseReturn] = useState(false);
+  const [isAddingSupplierCharge, setIsAddingSupplierCharge] = useState(false);
   const [editingEntry, setEditingEntry] = useState<{
     id: string;
     entryType: 'TRANSACTION' | 'PAYMENT' | 'JOURNAL';
@@ -68,6 +70,8 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   } | null>(null);
   const [isAddingBagTx, setIsAddingBagTx] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [returnNetWeight, setReturnNetWeight] = useState<string>('');
+  const [returnPricePerKg, setReturnPricePerKg] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Success message auto-hide
@@ -163,9 +167,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         date: t.date,
         description: t.type === 'SALE' 
           ? (t.isDirectDelivery ? `Direct Delivery Sale: ${t.commodity}` : `Sale: ${t.commodity} (${formatNumber(t.netWeight || 0)}kg)`)
-          : `Purchase: ${t.commodity} (${formatNumber(t.netWeight || 0)}kg)`,
+          : (t.type as string) === 'PURCHASE_RETURN'
+            ? `Purchase Return: ${t.commodity} (${formatNumber(t.netWeight || 0)}kg)`
+            : `Purchase: ${t.commodity} (${formatNumber(t.netWeight || 0)}kg)`,
         credit: t.type === 'PURCHASE' ? roundTo(t.totalValue || 0, 2) : 0,
-        debit: t.type === 'SALE' ? roundTo(t.totalValue || 0, 2) : 0,
+        debit: (t.type === 'SALE' || (t.type as string) === 'PURCHASE_RETURN') ? roundTo(t.totalValue || 0, 2) : 0,
         ref: t.referenceId,
         grossWeight: t.grossWeight || 0,
         netWeight: t.netWeight || 0,
@@ -237,10 +243,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   }, [transactions, payments, journal, supplier.previousBalance, startDate, endDate, supplier.id]);
 
   const totalPurchases = useMemo(() => transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
+  const totalReturns = useMemo(() => transactions.filter(t => (t.type as string) === 'PURCHASE_RETURN').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
   const totalSales = useMemo(() => transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
   const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + roundTo(Number(p.amount) || 0, 2), 0), [payments]);
   const totalCharges = useMemo(() => journal.reduce((sum, e) => sum + roundTo(e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0, 2), 0), [journal]);
-  const currentBalance = roundTo((Number(supplier.previousBalance) || 0) + totalPurchases - totalSales - totalPayments - totalCharges, 2);
+  const currentBalance = roundTo((Number(supplier.previousBalance) || 0) + totalPurchases - totalReturns - totalSales - totalPayments - totalCharges, 2);
 
   const bagBalance = useMemo(() => {
     return bagTransactions.reduce((sum, b) => {
@@ -356,6 +363,128 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       setSuccessMessage('Bag transaction successfully recorded!');
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `bag_transactions/${id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddPurchaseReturn = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!canPostTransactions || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const id = crypto.randomUUID();
+    const selectedDate = formData.get('date') as string;
+    const transactionDateIso = selectedDate 
+      ? new Date(selectedDate + 'T12:00:00').toISOString() 
+      : new Date().toISOString();
+
+    const newTx: any = {
+      id,
+      companyId: profile.companyId,
+      date: transactionDateIso,
+      postingDate: new Date().toISOString(),
+      type: 'PURCHASE_RETURN',
+      commodity: formData.get('commodity') as CommodityType,
+      supplierId: supplier.id,
+      warehouseId: formData.get('warehouseId') as string,
+      grossWeight: Number(formData.get('grossWeight') || 0),
+      netWeight: Number(formData.get('netWeight') || 0),
+      bags: Number(formData.get('bags') || 0),
+      pricePerKg: Number(formData.get('pricePerKg') || 0),
+      totalValue: Number(formData.get('totalValue') || 0),
+      referenceId: formData.get('referenceId') as string || `RET-${Date.now().toString().slice(-6)}`,
+      notes: formData.get('notes') as string || '',
+      deductions: {
+        moistureActual: 8,
+        moistureBenchmark: 8,
+        tareWeight: 0,
+        moldWeight: 0,
+        otherDeduction: 0
+      }
+    };
+
+    try {
+      const writePromise = setDoc(doc(db, 'transactions', id), newTx);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Purchase Returns',
+        recordId: id,
+        details: `Recorded purchase return of ${newTx.commodity} (${formatNumber(newTx.netWeight)}kg) valued at ${formatCurrency(newTx.totalValue)} for ${supplier.name}`,
+        newData: newTx
+      }).catch(err => console.error('Audit log failed:', err));
+
+      setIsAddingPurchaseReturn(false);
+      setSuccessMessage('Purchase return successfully recorded!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `transactions/${id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddSupplierCharge = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!(isAccount || isAdmin) || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const id = crypto.randomUUID();
+    const selectedDate = formData.get('date') as string;
+    const transactionDateIso = selectedDate 
+      ? new Date(selectedDate + 'T12:00:00').toISOString() 
+      : new Date().toISOString();
+
+    const newEntry: any = {
+      id,
+      companyId: profile.companyId,
+      warehouseId: formData.get('warehouseId') as string,
+      date: transactionDateIso,
+      postingDate: new Date().toISOString(),
+      type: 'OUTFLOW',
+      category: 'SUPPLIER_CHARGE',
+      amount: Number(formData.get('amount')),
+      description: formData.get('description') as string,
+      supplierId: supplier.id,
+      paymentMethod: formData.get('paymentMethod') as any,
+      excludeFromJournal: true
+    };
+
+    try {
+      const writePromise = setDoc(doc(db, 'journal', id), newEntry);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Supplier Charges',
+        recordId: id,
+        details: `Recorded supplier charge: ${newEntry.description} of amount ${formatCurrency(newEntry.amount)} for ${supplier.name}`,
+        newData: newEntry
+      }).catch(err => console.error('Audit log failed:', err));
+
+      setIsAddingSupplierCharge(false);
+      setSuccessMessage('Supplier charge successfully recorded!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `journal/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -721,6 +850,26 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                   </div>
                 </div>
               </div>
+
+              {/* Quick actions for Supplier ledger */}
+              {(isStaff || isAccount || isAdmin) && (
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setIsAddingPurchaseReturn(true)}
+                    className="flex-1 flex items-center justify-center gap-1 text-xs font-black text-rose-600 bg-rose-50 hover:bg-rose-100 py-2.5 rounded-xl border border-rose-200 transition-all shadow-sm hover:scale-[1.02]"
+                  >
+                    <Plus size={14} /> Purchase Return
+                  </button>
+                  {(isAccount || isAdmin) && (
+                    <button 
+                      onClick={() => setIsAddingSupplierCharge(true)}
+                      className="flex-1 flex items-center justify-center gap-1 text-xs font-black text-amber-600 bg-amber-50 hover:bg-amber-100 py-2.5 rounded-xl border border-amber-200 transition-all shadow-sm hover:scale-[1.02]"
+                    >
+                      <Plus size={14} /> Supplier Charge
+                    </button>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">Transaction History</h2>
@@ -1222,6 +1371,171 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                     className="flex-2 bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
                   >
                     {submitting ? 'Saving Changes...' : 'Save Adjustments'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {isAddingPurchaseReturn && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl my-auto"
+            >
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-rose-600">
+                <Plus className="rotate-45" size={24} /> New Purchase Return
+              </h2>
+              <form onSubmit={handleAddPurchaseReturn} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                  <input 
+                    name="date" 
+                    type="date" 
+                    required 
+                    defaultValue={new Date().toISOString().substring(0, 10)} 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                  <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="">Select Warehouse</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
+                  <select name="commodity" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="COCOA">Cocoa</option>
+                    <option value="CASHEW">Cashew</option>
+                    <option value="PK">Palm Kernel (PK)</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags</label>
+                    <DigitFormattedInput name="bags" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="bags" placeholder="0" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross Weight (kg)</label>
+                    <DigitFormattedInput name="grossWeight" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="kg" placeholder="0" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Net Weight (kg)</label>
+                    <DigitFormattedInput 
+                      name="netWeight" 
+                      required 
+                      value={returnNetWeight}
+                      onChange={(e: any) => setReturnNetWeight(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                      suffix="kg" 
+                      placeholder="0" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price Per Kg (₦)</label>
+                    <DigitFormattedInput 
+                      name="pricePerKg" 
+                      required 
+                      value={returnPricePerKg}
+                      onChange={(e: any) => setReturnPricePerKg(e.target.value)}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                      prefix="₦" 
+                      placeholder="0" 
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Total Return Value (₦)</label>
+                  <DigitFormattedInput 
+                    name="totalValue" 
+                    required 
+                    value={String(roundTo((Number(returnNetWeight.replace(/,/g, '')) || 0) * (Number(returnPricePerKg.replace(/,/g, '')) || 0), 2))}
+                    className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl outline-none text-sm font-black text-rose-700" 
+                    prefix="₦" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference ID (Optional)</label>
+                  <input name="referenceId" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" placeholder="e.g. RET-001" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Notes / Reason</label>
+                  <input name="notes" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" placeholder="Reason for the return..." />
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setIsAddingPurchaseReturn(false)} className="flex-1 py-4 text-slate-500 font-bold text-sm">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-rose-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {submitting ? 'Recording...' : 'Record Return'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {isAddingSupplierCharge && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl my-auto"
+            >
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-amber-600">
+                <Plus className="rotate-45" size={24} /> New Supplier Charge
+              </h2>
+              <form onSubmit={handleAddSupplierCharge} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                  <input 
+                    name="date" 
+                    type="date" 
+                    required 
+                    defaultValue={new Date().toISOString().substring(0, 10)} 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                  <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="">Select Warehouse</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
+                  <DigitFormattedInput name="amount" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" prefix="₦" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Payment Method</label>
+                  <select name="paymentMethod" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="CASH">Cash</option>
+                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Description / Notes</label>
+                  <input name="description" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" placeholder="Describe the charge..." />
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setIsAddingSupplierCharge(false)} className="flex-1 py-4 text-slate-500 font-bold text-sm">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-amber-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {submitting ? 'Recording...' : 'Record Charge'}
                   </button>
                 </div>
               </form>
