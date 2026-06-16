@@ -269,3 +269,32 @@ export interface AuditLog {
   previousData?: any;
   newData?: any;
 }
+
+export type AdjustmentTypeValue =
+  | 'WEIGHT_LOSS'
+  | 'DAMAGED_STOCK'
+  | 'SPOILAGE'
+  | 'THEFT_LOSS'
+  | 'STOCK_COUNT'
+  | 'QUALITY_TEST'
+  | 'INTERNAL_USE';
+
+export interface InventoryAdjustment {
+  id: string;
+  companyId: string;
+  date: string; // ISO string for the selected day of the adjustment
+  postingDate: string; // ISO string when logged in the database
+  commodity: CommodityType;
+  warehouseId: string;
+  adjustmentType: AdjustmentTypeValue;
+  adjustmentDirection: 'ADD' | 'REMOVE';
+  netWeight: number; // weight in kg
+  bags: number; // bags affected
+  notes?: string;
+  createdBy: string;
+  creatorEmail: string;
+  isDeleted?: boolean;
+  deletedBy?: string;
+  deletionReason?: string;
+  deletedAt?: string;
+}

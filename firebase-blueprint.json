@@ -311,6 +311,31 @@
         "newData": { "type": "object" }
       },
       "required": ["id", "companyId", "timestamp", "userId", "action", "module", "recordId"]
+    },
+    "InventoryAdjustment": {
+      "title": "InventoryAdjustment",
+      "description": "Adjustment to log weight loss, spoilage, damage, and stock corrections",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "postingDate": { "type": "string", "format": "date-time" },
+        "commodity": { "type": "string", "enum": ["COCOA", "CASHEW", "PK"] },
+        "warehouseId": { "type": "string" },
+        "adjustmentType": { "type": "string", "enum": ["WEIGHT_LOSS", "DAMAGED_STOCK", "SPOILAGE", "THEFT_LOSS", "STOCK_COUNT", "QUALITY_TEST", "INTERNAL_USE"] },
+        "adjustmentDirection": { "type": "string", "enum": ["ADD", "REMOVE"] },
+        "netWeight": { "type": "number" },
+        "bags": { "type": "number" },
+        "notes": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "creatorEmail": { "type": "string" },
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "companyId", "date", "commodity", "warehouseId", "adjustmentType", "adjustmentDirection", "netWeight", "bags", "createdBy", "creatorEmail"]
     }
   },
   "firestore": {
@@ -373,6 +398,10 @@
     "audit_logs": {
       "schema": "AuditLog",
       "description": "Collection of audit logs"
+    },
+    "inventory_adjustments": {
+      "schema": "InventoryAdjustment",
+      "description": "Collection of inventory adjustments"
     }
   }
 }

@@ -35,42 +35,56 @@ service cloud.firestore {
     }
 
     function sameCompany(companyId) {
-      let userData = getUserData();
       return isSignedIn() && (
         isSuperAdmin() || 
         (isAnonymous() && companyId == 'demo_company') || 
-        (userData != null && userData.companyId == companyId)
+        (getUserData() != null && getUserData().companyId == companyId)
       );
     }
 
     function isAdmin() {
-      let userData = getUserData();
-      return isSignedIn() && (isSuperAdmin() || isAnonymous() || (userData != null && userData.role == 'ADMIN'));
+      return isSignedIn() && (
+        isSuperAdmin() || 
+        isAnonymous() || 
+        (getUserData() != null && getUserData().role == 'ADMIN')
+      );
     }
 
     function isManager() {
-      let userData = getUserData();
-      return isSignedIn() && (isAdmin() || (userData != null && userData.role == 'MANAGER'));
+      return isSignedIn() && (
+        isAdmin() || 
+        (getUserData() != null && getUserData().role == 'MANAGER')
+      );
     }
 
     function isAccount() {
-      let userData = getUserData();
-      return isSignedIn() && (isManager() || (userData != null && userData.role == 'ACCOUNT'));
+      return isSignedIn() && (
+        isManager() || 
+        (getUserData() != null && getUserData().role == 'ACCOUNT')
+      );
     }
 
     function isAuditor() {
-      let userData = getUserData();
-      return isSignedIn() && (isManager() || (userData != null && userData.role == 'AUDITOR'));
+      return isSignedIn() && (
+        isManager() || 
+        (getUserData() != null && getUserData().role == 'AUDITOR')
+      );
     }
 
     function isStaff() {
-      let userData = getUserData();
-      return isSignedIn() && (isAccount() || isAuditor() || isAnonymous() || (userData != null && (userData.role == 'STAFF' || userData.role == 'STORE_KEEPER')));
+      return isSignedIn() && (
+        isAccount() || 
+        isAuditor() || 
+        isAnonymous() || 
+        (getUserData() != null && (getUserData().role == 'STAFF' || getUserData().role == 'STORE_KEEPER'))
+      );
     }
 
     function isStoreKeeper() {
-      let userData = getUserData();
-      return isSignedIn() && (isAdmin() || (userData != null && userData.role == 'STORE_KEEPER'));
+      return isSignedIn() && (
+        isAdmin() || 
+        (getUserData() != null && getUserData().role == 'STORE_KEEPER')
+      );
     }
 
     // Soft delete helper
@@ -93,6 +107,16 @@ service cloud.firestore {
              data.commodity in ['COCOA', 'CASHEW', 'PK'] &&
              data.netWeight is number && data.netWeight >= 0 &&
              data.deductions is map;
+    }
+
+    function isValidInventoryAdjustment(data) {
+      return data.keys().hasAll(['id', 'companyId', 'date', 'postingDate', 'commodity', 'warehouseId', 'adjustmentType', 'adjustmentDirection', 'netWeight', 'bags', 'createdBy', 'creatorEmail']) &&
+             data.id is string && data.companyId is string &&
+             data.commodity in ['COCOA', 'CASHEW', 'PK'] &&
+             data.adjustmentType in ['WEIGHT_LOSS', 'DAMAGED_STOCK', 'SPOILAGE', 'THEFT_LOSS', 'STOCK_COUNT', 'QUALITY_TEST', 'INTERNAL_USE'] &&
+             data.adjustmentDirection in ['ADD', 'REMOVE'] &&
+             data.netWeight is number && data.netWeight >= 0 &&
+             data.bags is number && data.bags >= 0;
     }
 
     function isValidJournalEntry(data) {
@@ -253,6 +277,17 @@ service cloud.firestore {
     match /audit_logs/{id} {
       allow list: if (isManager() || isAuditor()) && sameCompany(resource.data.companyId);
       allow create: if isSignedIn() && sameCompany(incoming().companyId);
+    }
+
+    match /inventory_adjustments/{id} {
+      allow list: if isStaff() && sameCompany(resource.data.companyId);
+      allow get: if isStaff() && sameCompany(existing().companyId);
+      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidInventoryAdjustment(incoming());
+      allow update: if sameCompany(existing().companyId) && (
+        (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
+        (!existing().get('isDeleted', false) && isStaff() && isValidInventoryAdjustment(incoming()))
+      );
+      allow delete: if false;
     }
     
     // Test helper

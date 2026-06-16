@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, ArrowRightLeft, History, Warehouse as WarehouseIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CommodityType, PackagingType, Transaction, BagTransaction, Supplier, Warehouse } from '../types';
+import { CommodityType, PackagingType, Transaction, BagTransaction, Supplier, Warehouse, InventoryAdjustment, AdjustmentTypeValue } from '../types';
 import { db } from '../firebase';
 import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,6 +22,8 @@ import BagTransferForm from './inventory/BagTransferForm';
 import StockTransferForm from './inventory/StockTransferForm';
 import InventoryStats from './inventory/InventoryStats';
 import TransactionList from './inventory/TransactionList';
+import AdjustmentForm from './inventory/AdjustmentForm';
+import AdjustmentLedger from './inventory/AdjustmentLedger';
 import ConfirmModal from './ConfirmModal';
 
 const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
@@ -30,22 +32,26 @@ const BENCHMARKS = { COCOA: 8, CASHEW: 10, PK: 8 };
 
 export default function InventoryModule() {
   const { profile, isStaff, isAdmin, canTransferStock, canPostTransactions, isOnline } = useAuth();
-  const [activeTab, setActiveTab] = useState<'COMMODITIES' | 'PACKAGING'>('COMMODITIES');
+  const [activeTab, setActiveTab] = useState<'COMMODITIES' | 'PACKAGING' | 'ADJUSTMENTS'>('COMMODITIES');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
+  const [adjustments, setAdjustments] = useState<InventoryAdjustment[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [isAdding, setIsAdding] = useState(false);
+  const [isAddingAdjustment, setIsAddingAdjustment] = useState(false);
   const [isTransferring, setIsTransferring] = useState(false);
   const [isTransferringBag, setIsTransferringBag] = useState(false);
   const [isAddingBag, setIsAddingBag] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editingAdjustment, setEditingAdjustment] = useState<InventoryAdjustment | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
   const [isWalkIn, setIsWalkIn] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteConfirmAdjustmentId, setDeleteConfirmAdjustmentId] = useState<string | null>(null);
 
   // Default selected warehouse for staff
   React.useEffect(() => {
@@ -113,11 +119,24 @@ export default function InventoryModule() {
       setBagTransactions(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'bag_transactions')));
 
+    const qAdjustments = query(
+      collection(db, 'inventory_adjustments'), 
+      where('companyId', '==', profile.companyId)
+    );
+    const unsubscribeAdjustments = onSnapshot(qAdjustments, (snapshot) => {
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as InventoryAdjustment))
+        .filter(adj => !adj.isDeleted);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setAdjustments(sorted);
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'inventory_adjustments')));
+
     return () => {
       unsubscribeTx();
       unsubscribeSuppliers();
       unsubscribeWarehouses();
       unsubscribeBags();
+      unsubscribeAdjustments();
     };
   }, [profile?.companyId]);
 
@@ -158,8 +177,21 @@ export default function InventoryModule() {
         // Transfers don't change total inventory, only location
       }
     });
+
+    // Factor in Inventory Adjustments
+    adjustments.forEach(adj => {
+      if (adj.isDeleted) return;
+      if (selectedWarehouseId !== 'ALL' && adj.warehouseId !== selectedWarehouseId) return;
+      const weightSec = adj.netWeight;
+      if (adj.adjustmentDirection === 'ADD') {
+        summary[adj.commodity] += weightSec;
+      } else {
+        summary[adj.commodity] -= weightSec;
+      }
+    });
+
     return summary;
-  }, [allTransactions, selectedWarehouseId]);
+  }, [allTransactions, adjustments, selectedWarehouseId]);
 
   const packagingInventory = React.useMemo(() => {
     const summary: Record<PackagingType, number> = { JUTE_BAG: 0, NYLON_BAG: 0 };
@@ -178,7 +210,7 @@ export default function InventoryModule() {
   }, [bagTransactions, selectedWarehouseId]);
 
   const getWarehouseStock = (warehouseId: string, commodityType: CommodityType) => {
-    return allTransactions.reduce((sum, tx) => {
+    const transTotal = allTransactions.reduce((sum, tx) => {
       if (tx.commodity !== commodityType) return sum;
       const weightKg = getWeightInKg(tx.netWeight);
       if (tx.type === 'PURCHASE' && tx.warehouseId === warehouseId) return sum + weightKg;
@@ -189,6 +221,13 @@ export default function InventoryModule() {
       }
       return sum;
     }, 0);
+
+    const adjTotal = adjustments.reduce((sum, adj) => {
+      if (adj.isDeleted || adj.commodity !== commodityType || adj.warehouseId !== warehouseId) return sum;
+      return adj.adjustmentDirection === 'ADD' ? sum + adj.netWeight : sum - adj.netWeight;
+    }, 0);
+
+    return transTotal + adjTotal;
   };
 
   const getWarehouseBagStock = (warehouseId: string, pkgType: PackagingType) => {
@@ -468,6 +507,111 @@ export default function InventoryModule() {
     }
   };
 
+  const handleAdjustmentSubmit = async (data: any) => {
+    if (!profile?.companyId) return;
+    setSubmitting(true);
+    const id = editingAdjustment ? editingAdjustment.id : crypto.randomUUID();
+    
+    const adjustmentPayload: InventoryAdjustment = {
+      id,
+      companyId: profile.companyId,
+      date: new Date(data.date).toISOString(),
+      postingDate: editingAdjustment ? editingAdjustment.postingDate : new Date().toISOString(),
+      commodity: data.commodity,
+      warehouseId: data.warehouseId,
+      adjustmentType: data.adjustmentType,
+      adjustmentDirection: data.adjustmentDirection,
+      netWeight: Number(data.netWeight),
+      bags: Number(data.bags),
+      notes: data.notes,
+      createdBy: profile.uid,
+      creatorEmail: profile.email
+    };
+
+    if (editingAdjustment) {
+      if (editingAdjustment.isDeleted !== undefined) adjustmentPayload.isDeleted = editingAdjustment.isDeleted;
+      if (editingAdjustment.deletedBy !== undefined) adjustmentPayload.deletedBy = editingAdjustment.deletedBy;
+      if (editingAdjustment.deletedAt !== undefined) adjustmentPayload.deletedAt = editingAdjustment.deletedAt;
+      if (editingAdjustment.deletionReason !== undefined) adjustmentPayload.deletionReason = editingAdjustment.deletionReason;
+    }
+
+    try {
+      const writePromise = setDoc(doc(db, 'inventory_adjustments', id), adjustmentPayload);
+      if (isOnline) await writePromise;
+
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: editingAdjustment ? AuditAction.UPDATE : AuditAction.CREATE,
+        module: 'Inventory (Adjustment)',
+        recordId: id,
+        details: `${editingAdjustment ? 'Updated' : 'Created'} adjustment of ${data.netWeight}kg of ${data.commodity} (${data.adjustmentType}) in ${warehouses.find(w => w.id === data.warehouseId)?.name}`,
+        newData: adjustmentPayload,
+        previousData: editingAdjustment || undefined
+      }).catch(err => console.error('Audit log failed:', err));
+
+      setIsAddingAdjustment(false);
+      setEditingAdjustment(null);
+      setSuccessMessage(editingAdjustment ? 'Adjustment updated successfully!' : 'Adjustment posted successfully!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, editingAdjustment ? OperationType.UPDATE : OperationType.CREATE, `inventory_adjustments/${id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleEditAdjustmentClick = (adj: InventoryAdjustment) => {
+    setEditingAdjustment(adj);
+    setIsAddingAdjustment(true);
+  };
+
+  const handleDeleteAdjustmentClick = (id: string) => {
+    setDeleteConfirmAdjustmentId(id);
+  };
+
+  const confirmDeleteAdjustment = async (reason: string) => {
+    if (!deleteConfirmAdjustmentId || !profile?.companyId) return;
+    setSubmitting(true);
+    const id = deleteConfirmAdjustmentId;
+    const existing = adjustments.find(a => a.id === id);
+    if (!existing) {
+      setDeleteConfirmAdjustmentId(null);
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      const updateData = {
+        isDeleted: true,
+        deletedBy: profile.email,
+        deletionReason: reason,
+        deletedAt: new Date().toISOString()
+      };
+      
+      const writePromise = updateDoc(doc(db, 'inventory_adjustments', id), updateData);
+      if (isOnline) await writePromise;
+
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.DELETE,
+        module: 'Inventory (Adjustment)',
+        recordId: id,
+        details: `Deleted adjustment: ${existing.netWeight}kg ${existing.commodity} (${existing.adjustmentType}). Reason: ${reason}`,
+        newData: updateData
+      }).catch(err => console.error('Audit log failed:', err));
+
+      setDeleteConfirmAdjustmentId(null);
+      setSuccessMessage('Adjustment record deleted successfully.');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.DELETE, `inventory_adjustments/${id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const resetForm = () => {
     setEditingTransaction(null);
     setIsWalkIn(false);
@@ -548,6 +692,17 @@ export default function InventoryModule() {
         requireReason={true}
       />
 
+      <ConfirmModal
+        isOpen={!!deleteConfirmAdjustmentId}
+        title="Delete Inventory Adjustment"
+        message="Are you sure you want to delete this inventory adjustment? Current commodity stock levels will be updated accordingly."
+        onConfirm={confirmDeleteAdjustment}
+        onCancel={() => setDeleteConfirmAdjustmentId(null)}
+        confirmText="Delete"
+        type="danger"
+        requireReason={true}
+      />
+
       <header className="bg-white border-b border-[var(--border)] px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-xl font-bold text-[var(--text-primary)] shrink-0">Inventory</h1>
@@ -571,7 +726,7 @@ export default function InventoryModule() {
                   </button>
                 )}
               </>
-            ) : (
+            ) : activeTab === 'PACKAGING' ? (
               <div className="flex items-center gap-2">
                 {canTransferStock && (
                   <button
@@ -596,6 +751,20 @@ export default function InventoryModule() {
                   </button>
                 )}
               </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                {canPostTransactions && !isAddingAdjustment && !editingAdjustment && (
+                  <button
+                    onClick={() => {
+                      setEditingAdjustment(null);
+                      setIsAddingAdjustment(true);
+                    }}
+                    className="google-btn-primary flex items-center gap-2 shrink-0"
+                  >
+                    <Plus size={18} /> <span>New Adjustment</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -605,7 +774,11 @@ export default function InventoryModule() {
         {/* Tab Switcher */}
         <div className="flex bg-slate-100 p-1 rounded-xl">
           <button
-            onClick={() => setActiveTab('COMMODITIES')}
+            onClick={() => {
+              setActiveTab('COMMODITIES');
+              setIsAddingAdjustment(false);
+              setEditingAdjustment(null);
+            }}
             className={cn(
               "flex-1 py-2 rounded-lg text-xs font-bold transition-all",
               activeTab === 'COMMODITIES' ? "bg-white text-[var(--accent)] shadow-sm" : "text-[var(--text-secondary)]"
@@ -614,7 +787,11 @@ export default function InventoryModule() {
             Commodities
           </button>
           <button
-            onClick={() => setActiveTab('PACKAGING')}
+            onClick={() => {
+              setActiveTab('PACKAGING');
+              setIsAddingAdjustment(false);
+              setEditingAdjustment(null);
+            }}
             className={cn(
               "flex-1 py-2 rounded-lg text-xs font-bold transition-all",
               activeTab === 'PACKAGING' ? "bg-white text-[var(--accent)] shadow-sm" : "text-[var(--text-secondary)]"
@@ -622,10 +799,37 @@ export default function InventoryModule() {
           >
             Packaging (Bags)
           </button>
+          <button
+            onClick={() => {
+              setActiveTab('ADJUSTMENTS');
+              setIsAddingAdjustment(false);
+              setEditingAdjustment(null);
+            }}
+            className={cn(
+              "flex-1 py-2 rounded-lg text-xs font-bold transition-all",
+              activeTab === 'ADJUSTMENTS' ? "bg-white text-[var(--accent)] shadow-sm" : "text-[var(--text-secondary)]"
+            )}
+          >
+            Stock Adjustments
+          </button>
         </div>
 
         <AnimatePresence mode="wait">
-          {isAdding || editingTransaction ? (
+          {isAddingAdjustment || editingAdjustment ? (
+            <AdjustmentForm
+              key="adjustment-form"
+              warehouses={warehouses}
+              getWarehouseStock={getWarehouseStock}
+              profile={profile}
+              editingAdjustment={editingAdjustment}
+              submitting={submitting}
+              onCancel={() => {
+                setIsAddingAdjustment(false);
+                setEditingAdjustment(null);
+              }}
+              onSubmit={handleAdjustmentSubmit}
+            />
+          ) : isAdding || editingTransaction ? (
             <PurchaseForm
               key="purchase-form"
               suppliers={suppliers}
@@ -695,21 +899,31 @@ export default function InventoryModule() {
               </div>
 
               <InventoryStats
-                activeTab={activeTab}
+                activeTab={activeTab === 'ADJUSTMENTS' ? 'COMMODITIES' : activeTab}
                 inventory={inventory}
                 packagingInventory={packagingInventory}
               />
 
-              <TransactionList
-                activeTab={activeTab}
-                transactions={transactions}
-                bagTransactions={bagTransactions}
-                suppliers={suppliers}
-                warehouses={warehouses}
-                isAdmin={isAdmin}
-                onEdit={handleEditClick}
-                onDelete={handleDeleteEntry}
-              />
+              {activeTab === 'ADJUSTMENTS' ? (
+                <AdjustmentLedger
+                  adjustments={adjustments}
+                  warehouses={warehouses}
+                  isAdmin={isAdmin}
+                  onEdit={handleEditAdjustmentClick}
+                  onDelete={handleDeleteAdjustmentClick}
+                />
+              ) : (
+                <TransactionList
+                  activeTab={activeTab}
+                  transactions={transactions}
+                  bagTransactions={bagTransactions}
+                  suppliers={suppliers}
+                  warehouses={warehouses}
+                  isAdmin={isAdmin}
+                  onEdit={handleEditClick}
+                  onDelete={handleDeleteEntry}
+                />
+              )}
             </div>
           )}
         </AnimatePresence>
