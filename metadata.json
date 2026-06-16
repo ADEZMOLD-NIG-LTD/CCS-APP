@@ -1,5 +1,6 @@
 {
-  "name": "(CCS) Commodity Control System",
+  "name": "Commodity Control System",
   "description": "Commodity Control System (CCS) by Adezmold Business Consulting. Manage cocoa, cashew, and palm kernel operations.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

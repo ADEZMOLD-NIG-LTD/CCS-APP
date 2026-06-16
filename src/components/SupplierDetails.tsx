@@ -48,6 +48,24 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [activeTab, setActiveTab] = useState<'ledger' | 'bags' | 'payments'>('ledger');
+  const [currentSupplier, setCurrentSupplier] = useState<Supplier>(supplier);
+
+  // Sync with prop if it changes
+  useEffect(() => {
+    setCurrentSupplier(supplier);
+  }, [supplier]);
+
+  // Real-time subscription to the supplier document
+  useEffect(() => {
+    if (!profile?.companyId || !supplier.id) return;
+    const unsubscribeSupplier = onSnapshot(doc(db, 'suppliers', supplier.id), (snapshot) => {
+      if (snapshot.exists()) {
+        setCurrentSupplier({ ...snapshot.data(), id: snapshot.id } as Supplier);
+      }
+    });
+    return () => unsubscribeSupplier();
+  }, [supplier.id, profile?.companyId]);
+
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     const year = d.getFullYear();
@@ -217,7 +235,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
 
     // Calculate Balance Brought Forward (BBF)
-    let bbf = supplier.previousBalance || 0;
+    let bbf = Number(currentSupplier.previousBalance) || 0;
     const filtered = [];
     
     for (const entry of allEntries) {
@@ -240,14 +258,14 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       entries: entriesWithBalance.reverse(), 
       bbf 
     };
-  }, [transactions, payments, journal, supplier.previousBalance, startDate, endDate, supplier.id]);
+  }, [transactions, payments, journal, currentSupplier.previousBalance, startDate, endDate, supplier.id]);
 
   const totalPurchases = useMemo(() => transactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
   const totalReturns = useMemo(() => transactions.filter(t => (t.type as string) === 'PURCHASE_RETURN').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
   const totalSales = useMemo(() => transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
   const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + roundTo(Number(p.amount) || 0, 2), 0), [payments]);
   const totalCharges = useMemo(() => journal.reduce((sum, e) => sum + roundTo(e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0, 2), 0), [journal]);
-  const currentBalance = roundTo((Number(supplier.previousBalance) || 0) + totalPurchases - totalReturns - totalSales - totalPayments - totalCharges, 2);
+  const currentBalance = roundTo((Number(currentSupplier.previousBalance) || 0) + totalPurchases - totalReturns - totalSales - totalPayments - totalCharges, 2);
 
   const bagBalance = useMemo(() => {
     return bagTransactions.reduce((sum, b) => {
@@ -512,10 +530,10 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
     // Supplier Info
     doc.setFontSize(12);
     doc.setTextColor(0);
-    doc.text(`Supplier: ${supplier.name || 'UNKNOWN'}`, 15, 55);
+    doc.text(`Supplier: ${currentSupplier.name || 'UNKNOWN'}`, 15, 55);
     doc.setFontSize(10);
-    doc.text(`Phone: ${supplier.phone || 'N/A'}`, 15, 62);
-    doc.text(`Location: ${supplier.location || 'N/A'}`, 15, 69);
+    doc.text(`Phone: ${currentSupplier.phone || 'N/A'}`, 15, 62);
+    doc.text(`Location: ${currentSupplier.location || 'N/A'}`, 15, 69);
 
     // Summary Box - shifted right to align with the margin at x=282
     doc.setFillColor(248, 250, 252); // Slate-50
@@ -595,7 +613,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       }
     });
 
-    doc.save(`${supplier.name}_Ledger_${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`${currentSupplier.name}_Ledger_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   const handleAdjustSave = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -778,8 +796,8 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-lg font-bold text-slate-900">{supplier.name}</h1>
-            <p className="text-[10px] text-slate-400 uppercase tracking-wider">{supplier.location}</p>
+            <h1 className="text-lg font-bold text-slate-900">{currentSupplier.name}</h1>
+            <p className="text-[10px] text-slate-400 uppercase tracking-wider">{currentSupplier.location}</p>
           </div>
         </div>
 

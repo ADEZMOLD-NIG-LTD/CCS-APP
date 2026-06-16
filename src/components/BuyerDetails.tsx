@@ -53,6 +53,23 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [dateFilter, setDateFilter] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH'>('ALL');
+  const [currentBuyer, setCurrentBuyer] = useState<Buyer>(buyer);
+
+  // Sync with prop if it changes
+  useEffect(() => {
+    setCurrentBuyer(buyer);
+  }, [buyer]);
+
+  // Subscribe to real-time updates for this specific buyer document
+  useEffect(() => {
+    if (!profile?.companyId || !buyer.id) return;
+    const unsubscribeBuyer = onSnapshot(doc(db, 'buyers', buyer.id), (snapshot) => {
+      if (snapshot.exists()) {
+        setCurrentBuyer({ ...snapshot.data(), id: snapshot.id } as Buyer);
+      }
+    });
+    return () => unsubscribeBuyer();
+  }, [buyer.id, profile?.companyId]);
 
   const [isAddingSalesReturn, setIsAddingSalesReturn] = useState(false);
   const [isAddingCustomerCharge, setIsAddingCustomerCharge] = useState(false);
@@ -275,10 +292,10 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
     const totalReturns = sales.filter(s => (s.type as string) === 'SALES_RETURN').reduce((sum, s) => sum + roundTo(s.totalValue || 0, 2), 0);
     const totalPayments = payments.filter(p => p.type === 'INFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
     const totalCharges = payments.filter(p => p.type === 'OUTFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
-    const currentBalance = roundTo((buyer.previousBalance || 0) + totalSales - totalReturns + totalCharges - totalPayments, 2);
+    const currentBalance = roundTo((Number(currentBuyer.previousBalance) || 0) + totalSales - totalReturns + totalCharges - totalPayments, 2);
 
     return { totalSales, totalPayments, currentBalance, totalReturns, totalCharges };
-  }, [sales, payments, buyer.previousBalance]);
+  }, [sales, payments, currentBuyer.previousBalance]);
 
   const exportPDF = () => {
     const doc = new jsPDF('landscape');
@@ -300,19 +317,19 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
     
     doc.setFontSize(12);
     doc.setTextColor(15, 23, 42);
-    doc.text((buyer.name || 'UNKNOWN').toUpperCase(), 20, 45);
+    doc.text((currentBuyer.name || 'UNKNOWN').toUpperCase(), 20, 45);
     
     doc.setFontSize(9);
     doc.setTextColor(100);
-    doc.text(`Phone: ${buyer.phone || 'N/A'}`, 20, 52);
-    doc.text(`Location: ${buyer.location || 'N/A'}`, 20, 58);
+    doc.text(`Phone: ${currentBuyer.phone || 'N/A'}`, 20, 52);
+    doc.text(`Location: ${currentBuyer.location || 'N/A'}`, 20, 58);
 
     // Summary Stats in PDF
     doc.setFontSize(10);
     doc.setTextColor(15, 23, 42);
     doc.text('SUMMARY', pageWidth - 80, 45);
     doc.setFontSize(9);
-    doc.text(`Opening Balance: ${formatCurrency(buyer.previousBalance || 0)}`, pageWidth - 80, 52);
+    doc.text(`Opening Balance: ${formatCurrency(Number(currentBuyer.previousBalance) || 0)}`, pageWidth - 80, 52);
     doc.text(`Total Sales: ${formatCurrency(stats.totalSales || 0)}`, pageWidth - 80, 58);
     doc.text(`Total Payments: ${formatCurrency(stats.totalPayments || 0)}`, pageWidth - 80, 64);
     
@@ -356,7 +373,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       }
     });
 
-    doc.save(`${buyer.name.replace(/\s+/g, '_')}_Ledger.pdf`);
+    doc.save(`${currentBuyer.name.replace(/\s+/g, '_')}_Ledger.pdf`);
   };
 
   return (
@@ -384,7 +401,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
               <ArrowLeft size={20} className="text-slate-600" />
             </button>
             <div>
-              <h1 className="text-lg font-bold text-slate-900 leading-tight">{buyer.name}</h1>
+              <h1 className="text-lg font-bold text-slate-900 leading-tight">{currentBuyer.name}</h1>
               <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Customer Ledger</p>
             </div>
           </div>
@@ -420,15 +437,15 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-4">
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Phone size={14} className="text-slate-400" />
-            <span className="font-medium">{buyer.phone || 'N/A'}</span>
+            <span className="font-medium">{currentBuyer.phone || 'N/A'}</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <MapPin size={14} className="text-slate-400" />
-            <span className="font-medium">{buyer.location || 'N/A'}</span>
+            <span className="font-medium">{currentBuyer.location || 'N/A'}</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Calendar size={14} className="text-slate-400" />
-            <span className="font-medium">Joined: {buyer.createdAt ? new Date(buyer.createdAt).toLocaleDateString() : 'N/A'}</span>
+            <span className="font-medium">Joined: {currentBuyer.createdAt ? new Date(currentBuyer.createdAt).toLocaleDateString() : 'N/A'}</span>
           </div>
         </div>
 
@@ -476,9 +493,9 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
               <div className="text-right">
                 <p className={cn(
                   "text-sm font-black",
-                  (buyer.previousBalance || 0) >= 0 ? "text-blue-600" : "text-rose-600"
+                  (Number(currentBuyer.previousBalance) || 0) >= 0 ? "text-blue-600" : "text-rose-600"
                 )}>
-                  {(buyer.previousBalance || 0) >= 0 ? '+' : ''}{formatCurrency(buyer.previousBalance || 0)}
+                  {(Number(currentBuyer.previousBalance) || 0) >= 0 ? '+' : ''}{formatCurrency(Number(currentBuyer.previousBalance) || 0)}
                 </p>
               </div>
             </div>
