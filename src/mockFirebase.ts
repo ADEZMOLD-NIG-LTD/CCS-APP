@@ -18,7 +18,12 @@ export const firebaseConfig = {
 };
 
 export const initializeApp = (options: FirebaseOptions) => {
-  return { options };
+  const appObj = { options };
+  return appObj;
+};
+
+export const getApps = () => {
+  return [];
 };
 
 // Listeners registry for local state updates
@@ -259,6 +264,43 @@ export const updatePassword = async (user: any, newPassword: string) => {
   console.log("Mock password updated for user");
   return true;
 };
+
+export const signInWithPopup = async (authObj: any, provider: any) => {
+  const mockUser = {
+    uid: 'google_provider_user',
+    email: 'google-user@ccs.com',
+    displayName: 'Google Training User'
+  };
+  authInstance.setCurrentUser(mockUser);
+  return { user: mockUser };
+};
+
+export const signInWithRedirect = async (authObj: any, provider: any) => {
+  const mockUser = {
+    uid: 'google_provider_user',
+    email: 'google-user@ccs.com',
+    displayName: 'Google Training User'
+  };
+  authInstance.setCurrentUser(mockUser);
+  return;
+};
+
+export class GoogleAuthProvider {
+  static PROVIDER_ID = 'google.com';
+}
+
+export class EmailAuthProvider {
+  static PROVIDER_ID = 'password';
+  static credential(email: string, password: string) {
+    return { providerId: 'password', signInMethod: 'password', email, password };
+  }
+}
+
+export const reauthenticateWithCredential = async (user: any, credential: any) => {
+  return true;
+};
+
+export type User = any;
 
 // Mock Firestore
 export const getFirestore = () => {

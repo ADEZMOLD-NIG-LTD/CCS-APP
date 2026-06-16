@@ -353,8 +353,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
 
               <button 
                 onClick={onSignInAsDemo}
-                disabled={!isFirestoreConnected}
-                className={`p-5 rounded-xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50`}
+                className={`p-5 rounded-xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)]`}
               >
                 <LayoutDashboard size={18} />
                 <span>Demo</span>

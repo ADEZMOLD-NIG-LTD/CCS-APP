@@ -68,22 +68,28 @@ let auth: any;
 let db: any;
 
 try {
-  if (isValidConfig) {
-    app = initializeApp(firebaseConfig);
-    
-    // Use getFirestore(app, databaseId) for multiple database support
-    const urlParams = new URLSearchParams(window.location.search);
-    const forceDefaultDb = urlParams.get('forceDefaultDb') === 'true';
-    const databaseId = forceDefaultDb ? "(default)" : (firebaseConfig.firestoreDatabaseId || "(default)");
-    
-    console.log("Initializing Firestore with Database ID:", databaseId);
-    db = getFirestore(app, databaseId);
-    
-    auth = getAuth(app);
-    console.log("Firebase initialized.");
-  } else {
-    console.warn("Firebase app initialization skipped due to invalid config.");
-  }
+  // Always initialize app, falling back to mock values if config is currently empty/invalid
+  const activeConfig = isValidConfig ? firebaseConfig : {
+    apiKey: "mock-api-key-safe-fallback",
+    projectId: "mock-project-safe-fallback",
+    authDomain: "mock-project-safe-fallback.firebaseapp.com",
+    storageBucket: "mock-project-safe-fallback.appspot.com",
+    messagingSenderId: "123456789",
+    appId: "1:123456789:web:abcdef123456",
+  };
+
+  app = initializeApp(activeConfig);
+  
+  // Use getFirestore(app, databaseId) for multiple database support
+  const urlParams = new URLSearchParams(window.location.search);
+  const forceDefaultDb = urlParams.get('forceDefaultDb') === 'true';
+  const databaseId = forceDefaultDb ? "(default)" : (firebaseConfig.firestoreDatabaseId || "(default)");
+  
+  console.log("Initializing Firestore with Database ID:", databaseId);
+  db = getFirestore(app, databaseId);
+  
+  auth = getAuth(app);
+  console.log("Firebase initialized successfully (using " + (isValidConfig ? "loaded" : "mock fallback") + " config).");
 } catch (error: any) {
   console.error("FAILED to initialize Firebase:", error);
   (window as any).FIREBASE_INIT_ERROR = error.message;

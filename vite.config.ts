@@ -7,9 +7,12 @@ import {defineConfig, loadEnv} from 'vite';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
 
-  const hasRealFirebase = fs.existsSync(path.resolve(__dirname, './firebase-applet-config.json')) || 
-    !!env.VITE_FIREBASE_API_KEY || 
-    !!env.FIREBASE_API_KEY;
+  const isProd = mode === 'production';
+  const hasConfigJson = fs.existsSync(path.resolve(__dirname, './firebase-applet-config.json'));
+  
+  // Only use real Firebase in development if the config JSON file was successfully generated/provisioned.
+  // In production builds, we also allow falling back to environment variables.
+  const hasRealFirebase = hasConfigJson || (isProd && (!!env.VITE_FIREBASE_API_KEY || !!env.FIREBASE_API_KEY));
 
   const aliases: Record<string, string> = {
     '@': path.resolve(__dirname, '.'),
