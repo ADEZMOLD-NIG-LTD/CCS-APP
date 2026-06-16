@@ -185,6 +185,27 @@ export default function PettyCashModule() {
       return;
     }
 
+    if (txType === 'EXPENSE') {
+      let warehouseDisburse = 0;
+      let warehouseExpense = 0;
+      transactions.forEach(tx => {
+        if (tx.isDeleted || tx.warehouseId !== warehouseId) return;
+        if (tx.type === 'DISBURSEMENT') {
+          warehouseDisburse += tx.amount;
+        } else {
+          warehouseExpense += tx.amount;
+        }
+      });
+      const warehouseBalance = warehouseDisburse - warehouseExpense;
+      if (amountVal > warehouseBalance) {
+        const whObj = warehouses.find(w => w.id === warehouseId);
+        const whName = whObj ? whObj.name : 'selected store';
+        setErrorMessage(`Insufficient funds in the petty cash book of "${whName}". Available: ₦${warehouseBalance.toLocaleString()}. Requested: ₦${amountVal.toLocaleString()}.`);
+        setSubmitting(false);
+        return;
+      }
+    }
+
     const isoDate = dateInput
       ? new Date(dateInput + 'T12:00:00').toISOString()
       : new Date().toISOString();
