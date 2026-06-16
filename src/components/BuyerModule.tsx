@@ -16,7 +16,7 @@ import { handleFirestoreError, reportFirestoreError, formatFirestoreError, Opera
 import { recordAuditLog, AuditAction } from '../lib/audit';
 import Toast from './Toast';
 import ConfirmModal from './ConfirmModal';
-import { cn, formatNumber } from '../lib/utils';
+import { cn, formatNumber, roundTo } from '../lib/utils';
 import { DigitFormattedInput } from './DigitFormattedInput';
 import BuyerDetails from './BuyerDetails';
 
@@ -58,27 +58,25 @@ export default function BuyerModule() {
 
     const qTx = query(
       collection(db, 'transactions'),
-      where('companyId', '==', profile.companyId),
-      where('type', '==', 'SALE')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs
         .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
         .filter(t => !t.isDeleted);
       setTransactions(data);
-    }, (error) => console.error('Failed to load sales for buyer balance:', error));
+    }, (error) => console.error('Failed to load transactions for buyer balance:', error));
 
     const qJournal = query(
       collection(db, 'journal'),
-      where('companyId', '==', profile.companyId),
-      where('type', '==', 'INFLOW')
+      where('companyId', '==', profile.companyId)
     );
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       const data = snapshot.docs
         .map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry))
         .filter(j => !j.isDeleted);
       setJournal(data);
-    }, (error) => console.error('Failed to load journal payments for buyer balance:', error));
+    }, (error) => console.error('Failed to load journal entries for buyer balance:', error));
 
     return () => {
       unsubscribeTx();
@@ -87,13 +85,15 @@ export default function BuyerModule() {
   }, [profile?.companyId]);
 
   const getBuyerBalance = (bId: string, previousBalance: number) => {
-    const bSales = transactions.filter(t => t.buyerId === bId);
+    const bTx = transactions.filter(t => t.buyerId === bId);
     const bPay = journal.filter(j => j.buyerId === bId);
 
-    const totalSales = bSales.reduce((sum, s) => sum + (s.totalValue || 0), 0);
-    const totalPayments = bPay.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalSales = bTx.filter(t => t.type === 'SALE').reduce((sum, s) => sum + (s.totalValue || 0), 0);
+    const totalReturns = bTx.filter(t => (t.type as string) === 'SALES_RETURN').reduce((sum, s) => sum + (s.totalValue || 0), 0);
+    const totalPayments = bPay.filter(p => p.type === 'INFLOW').reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalCharges = bPay.filter(p => p.type === 'OUTFLOW').reduce((sum, p) => sum + (p.amount || 0), 0);
 
-    return (previousBalance || 0) + totalSales - totalPayments;
+    return roundTo((Number(previousBalance) || 0) + totalSales - totalReturns + totalCharges - totalPayments, 2);
   };
 
   const handleAddBuyer = async (e: React.FormEvent<HTMLFormElement>) => {

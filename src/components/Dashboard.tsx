@@ -47,7 +47,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setTransactions(sorted.slice(0, 50));
+      setTransactions(sorted);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
 
     const qPayments = query(
@@ -57,7 +57,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setPayments(sorted.slice(0, 50));
+      setPayments(sorted);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'payments'));
 
     const qJournal = query(
@@ -67,7 +67,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
       const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setJournal(sorted.slice(0, 50));
+      setJournal(sorted);
     }, (error) => handleFirestoreError(error, OperationType.LIST, 'journal'));
 
     const qSuppliers = query(
@@ -99,15 +99,18 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
     // Calculate total supplier balance
     const totalSupplierBalance = suppliers.reduce((sum, s) => {
-      const sTx = activeTransactions.filter(t => t.supplierId === s.id && t.type === 'PURCHASE');
+      const sTx = activeTransactions.filter(t => t.supplierId === s.id);
       const sPay = activePayments.filter(p => p.supplierId === s.id);
-      const sExp = activeJournal.filter(e => e.supplierId === s.id && e.type === 'OUTFLOW');
+      const sExp = activeJournal.filter(e => e.supplierId === s.id);
       
-      const sPurchases = sTx.reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
-      const sPayments = sPay.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
-      const sCharges = sExp.reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
+      const sPurchases = sTx.filter(t => t.type === 'PURCHASE').reduce((sSum, t) => sSum + roundTo(t.totalValue || 0, 2), 0);
+      const sReturns = sTx.filter(t => (t.type as string) === 'PURCHASE_RETURN').reduce((sSum, t) => sSum + roundTo(t.totalValue || 0, 2), 0);
+      const sSales = sTx.filter(t => t.type === 'SALE').reduce((sSum, t) => sSum + roundTo(t.totalValue || 0, 2), 0);
+      const sPayments = sPay.reduce((sSum, p) => sSum + roundTo(p.amount || 0, 2), 0);
+      const sCharges = sExp.reduce((sSum, e) => sSum + roundTo(e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0, 2), 0);
       
-      return roundTo(sum + (s.previousBalance || 0) + sPurchases - sPayments - sCharges, 2);
+      const supplierBalance = roundTo((Number(s.previousBalance) || 0) + sPurchases - sReturns - sSales - sPayments - sCharges, 2);
+      return roundTo(sum + supplierBalance, 2);
     }, 0);
 
     return {

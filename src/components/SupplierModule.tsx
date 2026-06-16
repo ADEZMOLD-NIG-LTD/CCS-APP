@@ -114,11 +114,12 @@ export default function SupplierModule() {
     const sExp = journal.filter(e => e.supplierId === sId);
 
     const sPurchases = sTx.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
+    const sReturns = sTx.filter(t => (t.type as string) === 'PURCHASE_RETURN').reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
     const sSales = sTx.filter(t => t.type === 'SALE').reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
     const sPayments = sPay.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
     const sCharges = sExp.reduce((sum, e) => sum + (e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0), 0);
 
-    return (Number(previousBalance) || 0) + sPurchases - sSales - sPayments - sCharges;
+    return (Number(previousBalance) || 0) + sPurchases - sReturns - sSales - sPayments - sCharges;
   };
 
   const handleAddSupplier = async (e: React.FormEvent<HTMLFormElement>) => {

@@ -22,7 +22,7 @@ import {
   Truck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CommodityType, Transaction, Buyer, DeductionParams, Warehouse, Supplier, CalculationMethod } from '../types';
+import { CommodityType, Transaction, Buyer, DeductionParams, Warehouse, Supplier, CalculationMethod, InventoryAdjustment } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
@@ -55,6 +55,7 @@ export default function SalesModule() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  const [adjustments, setAdjustments] = useState<InventoryAdjustment[]>([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Default selected warehouse for staff
@@ -154,16 +155,28 @@ export default function SalesModule() {
       setAllTransactions(data);
     });
 
+    const qAdjustments = query(
+      collection(db, 'inventory_adjustments'), 
+      where('companyId', '==', profile.companyId)
+    );
+    const unsubscribeAdjustments = onSnapshot(qAdjustments, (snapshot) => {
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as InventoryAdjustment))
+        .filter(adj => !adj.isDeleted);
+      setAdjustments(data);
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'inventory_adjustments')));
+
     return () => {
       unsubscribeTx();
       unsubscribeBuyers();
       unsubscribeWarehouses();
       unsubscribeSuppliers();
       unsubscribeAll();
+      unsubscribeAdjustments();
     };
   }, [profile?.companyId]);
 
-  // Inventory Summary (Calculated from all transactions)
+  // Inventory Summary (Calculated from all transactions and adjustments)
   const inventory = useMemo(() => {
     const summary: Record<CommodityType, number> = { COCOA: 0, CASHEW: 0, PK: 0 };
     allTransactions.forEach(tx => {
@@ -180,8 +193,21 @@ export default function SalesModule() {
         if (tx.type === 'SALE') summary[tx.commodity] -= weightKg;
       }
     });
+
+    // Factor in Inventory Adjustments
+    adjustments.forEach(adj => {
+      if (adj.isDeleted) return;
+      if (selectedWarehouseId && selectedWarehouseId !== 'ALL' && adj.warehouseId !== selectedWarehouseId) return;
+      const weightSec = adj.netWeight;
+      if (adj.adjustmentDirection === 'ADD') {
+        summary[adj.commodity] += weightSec;
+      } else {
+        summary[adj.commodity] -= weightSec;
+      }
+    });
+
     return summary;
-  }, [allTransactions, selectedWarehouseId]);
+  }, [allTransactions, adjustments, selectedWarehouseId]);
 
   // Calculation Logic
   const moistureLoss = useMemo(() => {
