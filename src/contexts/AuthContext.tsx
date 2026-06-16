@@ -87,7 +87,8 @@ export type PermissionAction =
   | 'view_analytics' 
   | 'manage_warehouses' 
   | 'manage_journal'
-  | 'manage_store_records';
+  | 'manage_store_records'
+  | 'manage_petty_cash';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -132,6 +133,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return isAdmin || isManager;
       case 'manage_store_records':
         return isAdmin || isManager || isStoreKeeper;
+      case 'manage_petty_cash':
+        return isStaff; // Any company staff can access Petty Cash
       default:
         return false;
     }

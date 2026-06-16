@@ -9,13 +9,14 @@
  */
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock, Wifi, WifiOff, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock, Wifi, WifiOff, BookOpen, Wallet } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import SupplierModule from './components/SupplierModule';
 import BuyerModule from './components/BuyerModule';
 import InventoryModule from './components/InventoryModule';
 import SalesModule from './components/SalesModule';
 import JournalModule from './components/JournalModule';
+import PettyCashModule from './components/PettyCashModule';
 import StaffModule from './components/StaffModule';
 import WarehouseModule from './components/WarehouseModule';
 import StoreKeeperModule from './components/StoreKeeperModule';
@@ -31,7 +32,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { firebaseConfig } from './firebase';
 
-type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin' | 'store';
+type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'petty_cash' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin' | 'store';
 
 function AppContent() {
   const { 
@@ -166,6 +167,7 @@ function AppContent() {
     { id: 'purchases', icon: ShoppingCart, label: 'Buy', hidden: !can('manage_inventory') },
     { id: 'sales', icon: TrendingUp, label: 'Sales', hidden: !can('manage_inventory') },
     { id: 'journal', icon: Receipt, label: 'Journal', hidden: !can('manage_journal') },
+    { id: 'petty_cash', icon: Wallet, label: 'Petty Cash', hidden: !can('manage_petty_cash') },
     { id: 'staff', icon: Users, label: 'Staff', hidden: !can('manage_staff') },
     { id: 'analytics', icon: BarChart3, label: 'Data', hidden: !can('view_analytics') },
     { id: 'reports', icon: FileText, label: 'Docs', hidden: !can('view_reports') },
@@ -411,6 +413,7 @@ function AppContent() {
             {activeModule === 'purchases' && <InventoryModule />}
             {activeModule === 'sales' && <SalesModule />}
             { activeModule === 'journal' && <JournalModule /> }
+            {activeModule === 'petty_cash' && <PettyCashModule />}
             {activeModule === 'staff' && <StaffModule />}
             {activeModule === 'warehouses' && <WarehouseModule />}
             {activeModule === 'store' && <StoreKeeperModule />}

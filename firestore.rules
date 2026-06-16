@@ -35,56 +35,45 @@ service cloud.firestore {
     }
 
     function sameCompany(companyId) {
+      let data = getUserData();
       return isSignedIn() && (
         isSuperAdmin() || 
         (isAnonymous() && companyId == 'demo_company') || 
-        (getUserData() != null && getUserData().companyId == companyId)
+        (data != null && data.companyId == companyId)
+      );
+    }
+
+    function hasRole(allowedRoles) {
+      let data = getUserData();
+      return isSignedIn() && (
+        isSuperAdmin() ||
+        isAnonymous() ||
+        (data != null && data.role in allowedRoles)
       );
     }
 
     function isAdmin() {
-      return isSignedIn() && (
-        isSuperAdmin() || 
-        isAnonymous() || 
-        (getUserData() != null && getUserData().role == 'ADMIN')
-      );
+      return hasRole(['ADMIN']);
     }
 
     function isManager() {
-      return isSignedIn() && (
-        isAdmin() || 
-        (getUserData() != null && getUserData().role == 'MANAGER')
-      );
+      return hasRole(['ADMIN', 'MANAGER']);
     }
 
     function isAccount() {
-      return isSignedIn() && (
-        isManager() || 
-        (getUserData() != null && getUserData().role == 'ACCOUNT')
-      );
+      return hasRole(['ADMIN', 'MANAGER', 'ACCOUNT']);
     }
 
     function isAuditor() {
-      return isSignedIn() && (
-        isManager() || 
-        (getUserData() != null && getUserData().role == 'AUDITOR')
-      );
+      return hasRole(['ADMIN', 'MANAGER', 'AUDITOR']);
     }
 
     function isStaff() {
-      return isSignedIn() && (
-        isAccount() || 
-        isAuditor() || 
-        isAnonymous() || 
-        (getUserData() != null && (getUserData().role == 'STAFF' || getUserData().role == 'STORE_KEEPER'))
-      );
+      return hasRole(['ADMIN', 'MANAGER', 'ACCOUNT', 'AUDITOR', 'STAFF', 'STORE_KEEPER']);
     }
 
     function isStoreKeeper() {
-      return isSignedIn() && (
-        isAdmin() || 
-        (getUserData() != null && getUserData().role == 'STORE_KEEPER')
-      );
+      return hasRole(['ADMIN', 'STORE_KEEPER']);
     }
 
     // Soft delete helper
@@ -122,6 +111,13 @@ service cloud.firestore {
     function isValidJournalEntry(data) {
       return data.keys().hasAll(['id', 'companyId', 'warehouseId', 'date', 'type', 'category', 'amount']) &&
              data.type in ['INFLOW', 'OUTFLOW'] &&
+             data.amount is number && data.amount >= 0;
+    }
+
+    function isValidPettyCash(data) {
+      return data.keys().hasAll(['id', 'companyId', 'warehouseId', 'date', 'postingDate', 'type', 'amount', 'category', 'status', 'createdBy', 'creatorEmail']) &&
+             data.type in ['DISBURSEMENT', 'EXPENSE'] &&
+             data.status in ['PENDING', 'RETIRED'] &&
              data.amount is number && data.amount >= 0;
     }
 
@@ -286,6 +282,17 @@ service cloud.firestore {
       allow update: if sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidInventoryAdjustment(incoming()))
+      );
+      allow delete: if false;
+    }
+
+    match /petty_cash/{id} {
+      allow list: if isStaff() && sameCompany(resource.data.companyId);
+      allow get: if isStaff() && sameCompany(existing().companyId);
+      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidPettyCash(incoming());
+      allow update: if sameCompany(existing().companyId) && (
+        (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
+        (!existing().get('isDeleted', false) && isStaff() && isValidPettyCash(incoming()))
       );
       allow delete: if false;
     }

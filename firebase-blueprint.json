@@ -336,6 +336,34 @@
         "deletedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "companyId", "date", "commodity", "warehouseId", "adjustmentType", "adjustmentDirection", "netWeight", "bags", "createdBy", "creatorEmail"]
+    },
+    "PettyCashTransaction": {
+      "title": "PettyCashTransaction",
+      "description": "Log of minor cash payments and funding for branches",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "warehouseId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "postingDate": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["DISBURSEMENT", "EXPENSE"] },
+        "amount": { "type": "number" },
+        "category": { "type": "string" },
+        "description": { "type": "string" },
+        "recipient": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "RETIRED"] },
+        "retiredDate": { "type": "string", "format": "date-time" },
+        "retiredJournalId": { "type": "string" },
+        "reference": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "creatorEmail": { "type": "string" },
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "companyId", "warehouseId", "date", "postingDate", "type", "amount", "category", "status", "createdBy", "creatorEmail"]
     }
   },
   "firestore": {
@@ -402,6 +430,10 @@
     "inventory_adjustments": {
       "schema": "InventoryAdjustment",
       "description": "Collection of inventory adjustments"
+    },
+    "petty_cash": {
+      "schema": "PettyCashTransaction",
+      "description": "Collection of petty cash transactions"
     }
   }
 }

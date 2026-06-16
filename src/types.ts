@@ -298,3 +298,27 @@ export interface InventoryAdjustment {
   deletionReason?: string;
   deletedAt?: string;
 }
+
+export interface PettyCashTransaction {
+  id: string;
+  companyId: string;
+  warehouseId: string;
+  date: string; // transaction selection date
+  postingDate: string; // ISO string
+  type: 'DISBURSEMENT' | 'EXPENSE';
+  amount: number;
+  category: string;
+  description: string;
+  recipient: string;
+  status: 'PENDING' | 'RETIRED';
+  retiredDate?: string;
+  retiredJournalId?: string;
+  reference?: string;
+  createdBy: string;
+  creatorEmail: string;
+  isDeleted?: boolean;
+  deletedBy?: string;
+  deletionReason?: string;
+  deletedAt?: string;
+}
+
