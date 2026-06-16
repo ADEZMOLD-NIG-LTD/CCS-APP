@@ -249,7 +249,7 @@ export default function SalesModule() {
       name: formData.get('name') as string,
       phone: formData.get('phone') as string,
       location: formData.get('location') as string,
-      previousBalance: 0,
+      previousBalance: Number(formData.get('previousBalance')) || 0,
       createdAt: new Date().toISOString(),
     };
     try {

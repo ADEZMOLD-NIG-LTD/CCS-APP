@@ -192,7 +192,7 @@ export default function ReportsModule() {
       const totalPayments = sPay.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
       const totalCharges = sExp.reduce((sum, e) => sum + (e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0), 0);
       
-      const baseBalance = selectedWarehouseId === 'ALL' ? (Number(s.previousBalance) || 0) : 0;
+      const baseBalance = Number(s.previousBalance) || 0;
       const balance = baseBalance + totalPurchases - totalReturns - totalSales - totalPayments - totalCharges;
       return { ...s, balance };
     }).filter(s => s.balance !== 0);
@@ -240,7 +240,7 @@ export default function ReportsModule() {
       const totalPayments = bPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
       const totalCharges = bCharges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
       
-      const baseBalance = selectedWarehouseId === 'ALL' ? (Number(b.previousBalance) || 0) : 0;
+      const baseBalance = Number(b.previousBalance) || 0;
       const balance = baseBalance + totalSales - totalReturns + totalCharges - totalPayments;
       return { ...b, balance };
     }).filter(b => b.balance !== 0);

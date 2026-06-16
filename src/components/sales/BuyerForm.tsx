@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { DigitFormattedInput } from '../DigitFormattedInput';
 
 interface BuyerFormProps {
   submitting: boolean;
@@ -34,6 +35,16 @@ export default function BuyerForm({
         <div>
           <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Location</label>
           <input required name="location" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="City/State" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-500 uppercase mb-1">Previous Balance (₦)</label>
+          <DigitFormattedInput
+            name="previousBalance"
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+            placeholder="0.00"
+            prefix="₦"
+          />
+          <p className="text-[10px] text-slate-400 mt-1">Positive for Debit (they owe us), Negative for Credit (we owe them)</p>
         </div>
         <button 
           type="submit" 
