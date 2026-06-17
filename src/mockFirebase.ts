@@ -287,6 +287,9 @@ export const signInWithRedirect = async (authObj: any, provider: any) => {
 
 export class GoogleAuthProvider {
   static PROVIDER_ID = 'google.com';
+  setCustomParameters(params: any) {
+    return this;
+  }
 }
 
 export class EmailAuthProvider {
