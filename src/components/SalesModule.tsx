@@ -224,9 +224,17 @@ export default function SalesModule() {
     return Math.max(0, roundTo(gross - totalDeductions, 2));
   }, [grossWeight, totalDeductions]);
 
-  // Sync manual values with calculated values if in DIRECT mode
+  // Sync manual values with calculated values if not manually changed or if there are no manual inputs yet
   useEffect(() => {
-    if (calculationMethod === 'DIRECT') {
+    if (
+      calculationMethod === 'DIRECT' || 
+      !manualNetWeight || 
+      manualNetWeight === '0' || 
+      manualNetWeight === 0 ||
+      !manualTotalValue || 
+      manualTotalValue === '0' || 
+      manualTotalValue === 0
+    ) {
       setManualNetWeight(calculatedNetWeight);
       setManualTotalValue(roundTo(calculatedNetWeight * Number(price), 2));
     }
@@ -273,8 +281,15 @@ export default function SalesModule() {
 
     // Check inventory availability (Skip for direct delivery)
     const availableStock = inventory[commodity] + (editingTransaction && editingTransaction.commodity === commodity ? editingTransaction.netWeight : 0);
-    const finalNetWeight = calculationMethod === 'MANUAL' ? Number(manualNetWeight) : calculatedNetWeight;
-    const finalTotalValue = calculationMethod === 'MANUAL' ? Number(manualTotalValue) : roundTo(finalNetWeight * Number(price), 2);
+    
+    // Fall back to automatic calculation if manual values are not set or are 0
+    const finalNetWeight = calculationMethod === 'MANUAL' 
+      ? (Number(manualNetWeight) || calculatedNetWeight) 
+      : calculatedNetWeight;
+      
+    const finalTotalValue = calculationMethod === 'MANUAL' 
+      ? (Number(manualTotalValue) || roundTo(finalNetWeight * Number(price), 2)) 
+      : roundTo(finalNetWeight * Number(price), 2);
 
     if (!isDirectDelivery && finalNetWeight > availableStock) {
       setErrorMessage(`Insufficient inventory! Available ${commodity} stock is only ${formatNumber(availableStock || 0)} kg.`);

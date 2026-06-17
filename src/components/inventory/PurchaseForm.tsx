@@ -83,9 +83,17 @@ export default function PurchaseForm({
     return Math.max(0, roundTo(gross - totalDeductions, 2));
   }, [grossWeight, totalDeductions]);
 
-  // Sync manual values with calculated values if not manually changed
+  // Sync manual values with calculated values if not manually changed or if there are no manual inputs yet
   React.useEffect(() => {
-    if (calculationMethod === 'DIRECT') {
+    if (
+      calculationMethod === 'DIRECT' || 
+      !manualNetWeight || 
+      manualNetWeight === '0' || 
+      manualNetWeight === 0 ||
+      !manualTotalValue || 
+      manualTotalValue === '0' || 
+      manualTotalValue === 0
+    ) {
       setManualNetWeight(calculatedNetWeight);
       setManualTotalValue(roundTo(calculatedNetWeight * Number(price), 2));
     }
@@ -95,8 +103,14 @@ export default function PurchaseForm({
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     
-    const finalNetWeight = calculationMethod === 'MANUAL' ? Number(manualNetWeight) : calculatedNetWeight;
-    const finalTotalValue = calculationMethod === 'MANUAL' ? Number(manualTotalValue) : roundTo(finalNetWeight * Number(price), 2);
+    // Fall back to automatic calculation if manual values are not set or are 0
+    const finalNetWeight = calculationMethod === 'MANUAL' 
+      ? (Number(manualNetWeight) || calculatedNetWeight) 
+      : calculatedNetWeight;
+      
+    const finalTotalValue = calculationMethod === 'MANUAL' 
+      ? (Number(manualTotalValue) || roundTo(finalNetWeight * Number(price), 2)) 
+      : roundTo(finalNetWeight * Number(price), 2);
     
     const data = {
       commodity,

@@ -641,7 +641,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         
         // If manual calculation, use the input netWeight value; if direct, perform calculation
         let calculatedNet = editingEntry.originalDoc.calculationMethod === 'MANUAL' 
-          ? Number(formData.get('netWeight') || 0)
+          ? (Number(formData.get('netWeight')) || Number(editingEntry.originalDoc.netWeight) || 0)
           : 0;
 
         if (editingEntry.originalDoc.calculationMethod !== 'MANUAL') {
