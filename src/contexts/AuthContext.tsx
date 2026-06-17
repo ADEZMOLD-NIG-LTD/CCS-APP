@@ -48,6 +48,7 @@ interface AuthContextType {
   changePassword: (currentPass: string, newPass: string) => Promise<void>;
   logout: () => Promise<void>;
   registerCompany: (companyName: string) => Promise<void>;
+  resetProfileCompany: () => Promise<void>;
   approveCompany: (companyId: string) => Promise<void>;
   disapproveCompany: (companyId: string) => Promise<void>;
   toggleUserSuspension: (userId: string, status: boolean) => Promise<void>;
@@ -309,10 +310,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 unsubscribeCompany = onSnapshot(companyRef, (companyDoc) => {
                   if (companyDoc.exists()) {
                     setCompany(companyDoc.data() as Company);
+                  } else {
+                    console.warn('AuthContext: Company doc does not exist for ID:', data.companyId);
+                    // Prevent infinite loading state by giving it a fallback and not keeping company null
+                    setCompany({
+                      id: data.companyId,
+                      name: 'Unknown / Deleted Company',
+                      isApproved: false,
+                      createdAt: new Date().toISOString()
+                    } as Company);
                   }
                 }, (error) => {
                   // If company fetch fails during initial load, we still want to show the app
                   console.warn('AuthContext: Company snapshot failed:', error);
+                  // Provide fallback so it does not hang
+                  setCompany({
+                    id: data.companyId,
+                    name: 'Temp (Connection Error)',
+                    isApproved: false,
+                    createdAt: new Date().toISOString()
+                  } as Company);
                 });
               }
             } else {
@@ -782,6 +799,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const resetProfileCompany = async () => {
+    if (!user) return;
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, {
+        companyId: "",
+        role: "ADMIN"
+      }, { merge: true });
+      
+      setCompany(null);
+      if (profile) {
+        setProfile({
+          ...profile,
+          companyId: ""
+        });
+      }
+      setSuccessMessage('Company profile reset successfully.');
+    } catch (error: any) {
+      console.error('Resetting company profile failed:', error);
+      setErrorMessage(`Failed to reset company: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
    const approveCompany = async (companyId: string) => {
     if (!isSuperAdmin) return;
     try {
@@ -840,6 +884,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     changePassword,
     logout,
     registerCompany,
+    resetProfileCompany,
     approveCompany,
     disapproveCompany,
     toggleUserSuspension,

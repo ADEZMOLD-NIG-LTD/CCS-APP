@@ -36,7 +36,7 @@ type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' |
 
 function AppContent() {
   const { 
-    user, profile, company, loading, signIn, logout, registerCompany, 
+    user, profile, company, loading, signIn, logout, registerCompany, resetProfileCompany,
     signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode,
     mustChangePassword, can, isOnline,
     errorMessage, setErrorMessage, successMessage, setSuccessMessage
@@ -244,9 +244,16 @@ function AppContent() {
           
           <button 
             onClick={logout}
-            className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold active:scale-95 transition-all"
+            className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold active:scale-95 transition-all mb-3 text-sm"
           >
             Sign Out
+          </button>
+
+          <button 
+            onClick={resetProfileCompany}
+            className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 py-4 rounded-2xl font-bold active:scale-95 transition-all text-sm"
+          >
+            Register a Different Company
           </button>
         </div>
       </div>
