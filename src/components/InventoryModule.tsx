@@ -166,14 +166,24 @@ export default function InventoryModule() {
       const weightKg = getWeightInKg(tx.netWeight);
       if (selectedWarehouseId !== 'ALL') {
         if (tx.type === 'PURCHASE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
-        if (tx.type === 'SALE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
+        if (tx.type === 'SALE' && tx.warehouseId === selectedWarehouseId) {
+          // Direct delivery bypasses physical warehouse inventory
+          if (!tx.isDirectDelivery) {
+            summary[tx.commodity] -= weightKg;
+          }
+        }
         if (tx.type === 'TRANSFER') {
           if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
           if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
         }
       } else {
         if (tx.type === 'PURCHASE') summary[tx.commodity] += weightKg;
-        if (tx.type === 'SALE') summary[tx.commodity] -= weightKg;
+        if (tx.type === 'SALE') {
+          // Direct delivery bypasses physical warehouse inventory
+          if (!tx.isDirectDelivery) {
+            summary[tx.commodity] -= weightKg;
+          }
+        }
         // Transfers don't change total inventory, only location
       }
     });
@@ -214,7 +224,12 @@ export default function InventoryModule() {
       if (tx.commodity !== commodityType) return sum;
       const weightKg = getWeightInKg(tx.netWeight);
       if (tx.type === 'PURCHASE' && tx.warehouseId === warehouseId) return sum + weightKg;
-      if (tx.type === 'SALE' && tx.warehouseId === warehouseId) return sum - weightKg;
+      if (tx.type === 'SALE' && tx.warehouseId === warehouseId) {
+        // Direct delivery bypasses physical warehouse inventory
+        if (!tx.isDirectDelivery) {
+          return sum - weightKg;
+        }
+      }
       if (tx.type === 'TRANSFER') {
         if (tx.sourceWarehouseId === warehouseId) return sum - weightKg;
         if (tx.destinationWarehouseId === warehouseId) return sum + weightKg;

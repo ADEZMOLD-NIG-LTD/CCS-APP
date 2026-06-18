@@ -183,14 +183,24 @@ export default function SalesModule() {
       const weightKg = getWeightInKg(tx.netWeight);
       if (selectedWarehouseId && selectedWarehouseId !== 'ALL') {
         if (tx.type === 'PURCHASE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
-        if (tx.type === 'SALE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
+        if (tx.type === 'SALE' && tx.warehouseId === selectedWarehouseId) {
+          // Direct delivery bypasses physical warehouse inventory
+          if (!tx.isDirectDelivery) {
+            summary[tx.commodity] -= weightKg;
+          }
+        }
         if (tx.type === 'TRANSFER') {
           if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
           if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
         }
       } else {
         if (tx.type === 'PURCHASE') summary[tx.commodity] += weightKg;
-        if (tx.type === 'SALE') summary[tx.commodity] -= weightKg;
+        if (tx.type === 'SALE') {
+          // Direct delivery bypasses physical warehouse inventory
+          if (!tx.isDirectDelivery) {
+            summary[tx.commodity] -= weightKg;
+          }
+        }
       }
     });
 
