@@ -225,9 +225,33 @@ function AppContent() {
 
   if (user && profile?.companyId && !company && !isSuperAdmin) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest">Loading company profile...</p>
+      <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-6 text-center">
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl w-full max-w-md">
+          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
+          <h2 className="text-2xl font-black text-slate-900 mb-2">Connecting...</h2>
+          <p className="text-slate-500 mb-8 text-sm">Loading your registered company profile. If this takes too long, your connection may be slow, or the database record might be unavailable.</p>
+          
+          <button 
+            onClick={logout}
+            className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 py-4 rounded-2xl font-bold active:scale-95 transition-all mb-3 text-sm"
+          >
+            Sign Out
+          </button>
+
+          <button 
+            onClick={resetProfileCompany}
+            className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 py-4 rounded-2xl font-bold active:scale-95 transition-all text-sm mb-3"
+          >
+            Register a Different Company
+          </button>
+
+          <button 
+            onClick={signInAsDemo}
+            className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-4 rounded-2xl font-bold active:scale-95 transition-all text-sm"
+          >
+            Switch to Training Demo Mode
+          </button>
+        </div>
       </div>
     );
   }
@@ -251,9 +275,16 @@ function AppContent() {
 
           <button 
             onClick={resetProfileCompany}
-            className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 py-4 rounded-2xl font-bold active:scale-95 transition-all text-sm"
+            className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 py-4 rounded-2xl font-bold active:scale-95 transition-all text-sm mb-3"
           >
             Register a Different Company
+          </button>
+
+          <button 
+            onClick={signInAsDemo}
+            className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-4 rounded-2xl font-bold active:scale-95 transition-all text-sm"
+          >
+            Switch to Training Demo Mode
           </button>
         </div>
       </div>

@@ -731,12 +731,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(demoProfile);
       setCompany(demoCompany);
     } catch (error: any) {
-      console.error('Demo sign in failed:', error);
-      if (error.code === 'auth/admin-restricted-operation') {
-        setErrorMessage('Training Demo Mode requires "Anonymous Authentication" to be enabled in the Firebase Console. Please contact the Super Admin.');
-      } else {
-        setErrorMessage('Failed to start demo mode. Please try again.');
-      }
+      console.warn('Demo sign in failed, calling local offline mock fallback:', error);
+      setIsDemoMode(true);
+      const demoCompanyId = 'demo_company_local';
+      const demoProfile: any = {
+        uid: 'demo_admin_profile_local',
+        email: 'demo@ccs.com',
+        displayName: 'Training User (Local Offline)',
+        role: 'ADMIN',
+        companyId: demoCompanyId,
+        createdAt: new Date().toISOString()
+      };
+      const demoCompany: any = {
+        id: demoCompanyId,
+        name: 'CCS Training Demo (Local Offline)',
+        ownerEmail: 'demo@ccs.com',
+        createdAt: new Date().toISOString(),
+        isApproved: true
+      };
+      
+      setProfile(demoProfile);
+      setCompany(demoCompany);
+      setUser({
+        uid: 'demo_user_local',
+        email: 'demo@ccs.com',
+        displayName: 'Training User (Local Offline)',
+        isAnonymous: true,
+        emailVerified: true,
+        providerData: []
+      } as any);
+
+      setSuccessMessage('Launched Local Offline Training Mode successfully!');
     } finally {
       setLoading(false);
     }
