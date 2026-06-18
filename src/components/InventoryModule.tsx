@@ -161,11 +161,16 @@ export default function InventoryModule() {
   }, [profile?.companyId]);
 
   const inventory = React.useMemo(() => {
-    const summary: Record<CommodityType, number> = { COCOA: 0, CASHEW: 0, PK: 0 };
+    const summary: Record<string, number> = { COCOA: 0, CASHEW: 0, PK: 0 };
     allTransactions.forEach(tx => {
       const weightKg = getWeightInKg(tx.netWeight);
+      if (summary[tx.commodity] === undefined) {
+        summary[tx.commodity] = 0;
+      }
       if (selectedWarehouseId !== 'ALL') {
-        if (tx.type === 'PURCHASE' && tx.warehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
+        if (tx.type === 'PURCHASE' && tx.warehouseId === selectedWarehouseId) {
+          summary[tx.commodity] += weightKg;
+        }
         if (tx.type === 'SALE' && tx.warehouseId === selectedWarehouseId) {
           // Direct delivery bypasses physical warehouse inventory
           if (!tx.isDirectDelivery) {
@@ -177,7 +182,9 @@ export default function InventoryModule() {
           if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
         }
       } else {
-        if (tx.type === 'PURCHASE') summary[tx.commodity] += weightKg;
+        if (tx.type === 'PURCHASE') {
+          summary[tx.commodity] += weightKg;
+        }
         if (tx.type === 'SALE') {
           // Direct delivery bypasses physical warehouse inventory
           if (!tx.isDirectDelivery) {
@@ -193,6 +200,9 @@ export default function InventoryModule() {
       if (adj.isDeleted) return;
       if (selectedWarehouseId !== 'ALL' && adj.warehouseId !== selectedWarehouseId) return;
       const weightSec = adj.netWeight;
+      if (summary[adj.commodity] === undefined) {
+        summary[adj.commodity] = 0;
+      }
       if (adj.adjustmentDirection === 'ADD') {
         summary[adj.commodity] += weightSec;
       } else {

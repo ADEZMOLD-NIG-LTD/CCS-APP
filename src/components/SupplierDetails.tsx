@@ -81,6 +81,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   const [isAddingPayment, setIsAddingPayment] = useState(false);
   const [isAddingPurchaseReturn, setIsAddingPurchaseReturn] = useState(false);
   const [isAddingSupplierCharge, setIsAddingSupplierCharge] = useState(false);
+  const [returnCommodity, setReturnCommodity] = useState<string>('COCOA');
+  const [isCustomReturnCommodity, setIsCustomReturnCommodity] = useState<boolean>(false);
+  const [customReturnName, setCustomReturnName] = useState<string>('');
   const [editingEntry, setEditingEntry] = useState<{
     id: string;
     entryType: 'TRANSACTION' | 'PAYMENT' | 'JOURNAL';
@@ -398,13 +401,17 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       ? new Date(selectedDate + 'T12:00:00').toISOString() 
       : new Date().toISOString();
 
+    const finalCommodity = isCustomReturnCommodity 
+      ? (customReturnName.trim() || 'Custom Item') 
+      : returnCommodity;
+
     const newTx: any = {
       id,
       companyId: profile.companyId,
       date: transactionDateIso,
       postingDate: new Date().toISOString(),
       type: 'PURCHASE_RETURN',
-      commodity: formData.get('commodity') as CommodityType,
+      commodity: finalCommodity,
       supplierId: supplier.id,
       warehouseId: formData.get('warehouseId') as string,
       grossWeight: Number(formData.get('grossWeight') || 0),
@@ -444,6 +451,9 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       }).catch(err => console.error('Audit log failed:', err));
 
       setIsAddingPurchaseReturn(false);
+      setReturnCommodity('COCOA');
+      setIsCustomReturnCommodity(false);
+      setCustomReturnName('');
       setSuccessMessage('Purchase return successfully recorded!');
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `transactions/${id}`));
@@ -1427,11 +1437,37 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
-                  <select name="commodity" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
-                    <option value="COCOA">Cocoa</option>
-                    <option value="CASHEW">Cashew</option>
-                    <option value="PK">Palm Kernel (PK)</option>
-                  </select>
+                  <div className="flex flex-col gap-2">
+                    <select 
+                      value={isCustomReturnCommodity ? "OTHER" : returnCommodity} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "OTHER") {
+                          setIsCustomReturnCommodity(true);
+                        } else {
+                          setIsCustomReturnCommodity(false);
+                          setReturnCommodity(val);
+                        }
+                      }}
+                      required 
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm"
+                    >
+                      <option value="COCOA">Cocoa</option>
+                      <option value="CASHEW">Cashew</option>
+                      <option value="PK">Palm Kernel (PK)</option>
+                      <option value="OTHER">Other (Custom Stock Item)</option>
+                    </select>
+                    {isCustomReturnCommodity && (
+                      <input
+                        type="text"
+                        required
+                        placeholder="Enter custom item name"
+                        value={customReturnName}
+                        onChange={(e) => setCustomReturnName(e.target.value)}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium focus:ring-2 focus:ring-emerald-500"
+                      />
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>

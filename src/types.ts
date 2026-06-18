@@ -40,7 +40,7 @@ export interface Supplier {
   deletedAt?: string;
 }
 
-export type CommodityType = 'COCOA' | 'CASHEW' | 'PK';
+export type CommodityType = 'COCOA' | 'CASHEW' | 'PK' | string;
 export type PackagingType = 'JUTE_BAG' | 'NYLON_BAG';
 export type CalculationMethod = 'DIRECT' | 'MANUAL';
 
