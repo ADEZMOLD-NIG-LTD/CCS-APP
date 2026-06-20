@@ -47,6 +47,20 @@ export default function AdjustmentForm({
   const [notes, setNotes] = useState<string>('');
   const [errorW, setErrorW] = useState<string | null>(null);
 
+  const [isCustomCommodity, setIsCustomCommodity] = useState<boolean>(() => {
+    return !!editingAdjustment && !['COCOA', 'CASHEW', 'PK'].includes(editingAdjustment.commodity);
+  });
+  const [customName, setCustomName] = useState<string>(() => {
+    return editingAdjustment && !['COCOA', 'CASHEW', 'PK'].includes(editingAdjustment.commodity)
+      ? editingAdjustment.commodity
+      : '';
+  });
+
+  const handleCustomNameChange = (val: string) => {
+    setCustomName(val);
+    setCommodity(val.trim() || 'Custom Item');
+  };
+
   // Default warehouse to staff's store if set
   useEffect(() => {
     if (profile?.assignedWarehouseId) {
@@ -75,6 +89,9 @@ export default function AdjustmentForm({
       setNetWeight(editingAdjustment.netWeight);
       setBags(editingAdjustment.bags);
       setNotes(editingAdjustment.notes || '');
+      const isCustom = !['COCOA', 'CASHEW', 'PK'].includes(editingAdjustment.commodity);
+      setIsCustomCommodity(isCustom);
+      setCustomName(isCustom ? editingAdjustment.commodity : '');
     }
   }, [editingAdjustment]);
 
@@ -166,25 +183,39 @@ export default function AdjustmentForm({
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Commodity Select */}
-          <div>
-            <label className="google-label flex items-center gap-1.5">
+          <div className="col-span-1">
+            <label className="google-label flex items-center gap-1.5 mb-1.5">
               <Tag size={14} className="text-slate-400" /> Commodity
             </label>
-            <div className="flex gap-2">
-              {(['COCOA', 'CASHEW', 'PK'] as CommodityType[]).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setCommodity(c)}
-                  className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold border transition-all ${
-                    commodity === c
-                      ? 'border-indigo-600 bg-indigo-50 text-indigo-700 shadow-sm'
-                      : 'border-[var(--border)] bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {c}
-                </button>
-              ))}
+            <div className="flex flex-col gap-2">
+              <select
+                value={isCustomCommodity ? "OTHER" : commodity}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "OTHER") {
+                    setIsCustomCommodity(true);
+                    setCommodity(customName.trim() || 'Custom Item');
+                  } else {
+                    setIsCustomCommodity(false);
+                    setCommodity(val);
+                  }
+                }}
+                className="google-input text-sm"
+                required
+              >
+                {['COCOA', 'CASHEW', 'PK'].map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="OTHER">Other (Custom Stock Item)</option>
+              </select>
+              {isCustomCommodity && (
+                <input
+                  type="text"
+                  required
+                  placeholder="Enter custom item name"
+                  value={customName}
+                  onChange={(e) => handleCustomNameChange(e.target.value)}
+                  className="google-input text-sm font-medium"
+                />
+              )}
             </div>
           </div>
 

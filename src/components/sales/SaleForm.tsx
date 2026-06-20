@@ -92,6 +92,20 @@ export default function SaleForm({
   setCalculationMethod,
   editingTransaction
 }: SaleFormProps) {
+  const [isCustomCommodity, setIsCustomCommodity] = React.useState<boolean>(() => {
+    return !!editingTransaction && !COMMODITIES.includes(editingTransaction.commodity);
+  });
+  const [customName, setCustomName] = React.useState<string>(() => {
+    return editingTransaction && !COMMODITIES.includes(editingTransaction.commodity)
+      ? editingTransaction.commodity
+      : '';
+  });
+
+  const handleCustomNameChange = (val: string) => {
+    setCustomName(val);
+    setCommodity(val.trim() || 'Custom Item');
+  };
+
   return (
     <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
       <div className="flex items-center justify-between mb-6">
@@ -200,15 +214,37 @@ export default function SaleForm({
               placeholder="Quote Tranx ID from Store Keeper" 
             />
           </div>
-          <div>
+          <div className={isCustomCommodity ? "col-span-2" : "col-span-1"}>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
-            <select 
-              value={commodity} 
-              onChange={(e) => setCommodity(e.target.value as CommodityType)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
-            >
-              {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <div className="flex flex-col gap-2">
+              <select 
+                value={isCustomCommodity ? "OTHER" : commodity} 
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "OTHER") {
+                    setIsCustomCommodity(true);
+                    setCommodity(customName.trim() || 'Custom Item');
+                  } else {
+                    setIsCustomCommodity(false);
+                    setCommodity(val);
+                  }
+                }}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+              >
+                {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="OTHER">Other (Custom Stock Item)</option>
+              </select>
+              {isCustomCommodity && (
+                <input
+                  type="text"
+                  required
+                  placeholder="Enter custom item name"
+                  value={customName}
+                  onChange={(e) => handleCustomNameChange(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium focus:ring-2 focus:ring-blue-500"
+                />
+              )}
+            </div>
           </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calculation Method</label>

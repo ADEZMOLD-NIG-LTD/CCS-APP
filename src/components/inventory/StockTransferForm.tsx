@@ -28,6 +28,13 @@ export default function StockTransferForm({
 }: StockTransferFormProps) {
   const [transferCommodity, setTransferCommodity] = useState<CommodityType>('COCOA');
   const [transferSourceId, setTransferSourceId] = useState<string>('');
+  const [isCustomCommodity, setIsCustomCommodity] = useState<boolean>(false);
+  const [customName, setCustomName] = useState<string>('');
+
+  const handleCustomNameChange = (val: string) => {
+    setCustomName(val);
+    setTransferCommodity(val.trim() || 'Custom Item');
+  };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -60,15 +67,37 @@ export default function StockTransferForm({
         <div className="grid grid-cols-2 gap-4">
           <div className="col-span-2">
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
-            <select 
-              name="commodity" 
-              required 
-              value={transferCommodity}
-              onChange={(e) => setTransferCommodity(e.target.value as CommodityType)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <div className="flex flex-col gap-2">
+              <select 
+                name="commoditySelector" 
+                required 
+                value={isCustomCommodity ? "OTHER" : transferCommodity}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "OTHER") {
+                    setIsCustomCommodity(true);
+                    setTransferCommodity(customName.trim() || 'Custom Item');
+                  } else {
+                    setIsCustomCommodity(false);
+                    setTransferCommodity(val);
+                  }
+                }}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="OTHER">Other (Custom Stock Item)</option>
+              </select>
+              {isCustomCommodity && (
+                <input
+                  type="text"
+                  required
+                  placeholder="Enter custom item name"
+                  value={customName}
+                  onChange={(e) => handleCustomNameChange(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium focus:ring-2 focus:ring-indigo-500"
+                />
+              )}
+            </div>
           </div>
           <div>
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Source Warehouse</label>

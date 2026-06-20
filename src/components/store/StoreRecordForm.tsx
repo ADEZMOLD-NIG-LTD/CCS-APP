@@ -33,6 +33,20 @@ export default function StoreRecordForm({
   getWarehouseStock,
   commodities
 }: StoreRecordFormProps) {
+  const [isCustomCommodity, setIsCustomCommodity] = React.useState<boolean>(() => {
+    return !!formData.commodity && !commodities.includes(formData.commodity);
+  });
+  const [customName, setCustomName] = React.useState<string>(() => {
+    return formData.commodity && !commodities.includes(formData.commodity)
+      ? formData.commodity
+      : '';
+  });
+
+  const handleCustomNameChange = (val: string) => {
+    setCustomName(val);
+    setFormData({ ...formData, commodity: val.trim() || 'Custom Item' });
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <motion.div
@@ -129,16 +143,38 @@ export default function StoreRecordForm({
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Commodity</label>
-              <select
-                value={formData.commodity}
-                onChange={(e) => setFormData({ ...formData, commodity: e.target.value as CommodityType })}
-                className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-                required
-              >
-                {commodities.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+              <div className="flex flex-col gap-2">
+                <select
+                  value={isCustomCommodity ? "OTHER" : formData.commodity}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "OTHER") {
+                      setIsCustomCommodity(true);
+                      setFormData({ ...formData, commodity: customName.trim() || 'Custom Item' });
+                    } else {
+                      setIsCustomCommodity(false);
+                      setFormData({ ...formData, commodity: val as CommodityType });
+                    }
+                  }}
+                  className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
+                  required
+                >
+                  {commodities.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                  <option value="OTHER">Other (Custom Stock Item)</option>
+                </select>
+                {isCustomCommodity && (
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter custom item name"
+                    value={customName}
+                    onChange={(e) => handleCustomNameChange(e.target.value)}
+                    className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 mt-1"
+                  />
+                )}
+              </div>
             </div>
 
             <div>
