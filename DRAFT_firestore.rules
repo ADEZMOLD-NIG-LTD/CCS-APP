@@ -73,7 +73,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'companyId', 'date', 'type', 'commodity', 'netWeight', 'deductions']) &&
              data.id is string && data.companyId is string &&
              data.type in ['PURCHASE', 'SALE', 'TRANSFER'] &&
-             data.commodity in ['COCOA', 'CASHEW', 'PK'] &&
+             data.commodity is string && data.commodity.size() > 0 &&
              data.netWeight is number && data.netWeight >= 0 &&
              data.deductions is map;
     }
