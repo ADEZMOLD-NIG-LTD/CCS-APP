@@ -181,6 +181,14 @@ export default function InventoryModule() {
           if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
           if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
         }
+        if (tx.type === 'PURCHASE_RETURN' && tx.warehouseId === selectedWarehouseId) {
+          summary[tx.commodity] -= weightKg;
+        }
+        if (tx.type === 'SALES_RETURN' && tx.warehouseId === selectedWarehouseId) {
+          if (!tx.isDirectDelivery) {
+            summary[tx.commodity] += weightKg;
+          }
+        }
       } else {
         if (tx.type === 'PURCHASE') {
           summary[tx.commodity] += weightKg;
@@ -189,6 +197,14 @@ export default function InventoryModule() {
           // Direct delivery bypasses physical warehouse inventory
           if (!tx.isDirectDelivery) {
             summary[tx.commodity] -= weightKg;
+          }
+        }
+        if (tx.type === 'PURCHASE_RETURN') {
+          summary[tx.commodity] -= weightKg;
+        }
+        if (tx.type === 'SALES_RETURN') {
+          if (!tx.isDirectDelivery) {
+            summary[tx.commodity] += weightKg;
           }
         }
         // Transfers don't change total inventory, only location
@@ -243,6 +259,14 @@ export default function InventoryModule() {
       if (tx.type === 'TRANSFER') {
         if (tx.sourceWarehouseId === warehouseId) return sum - weightKg;
         if (tx.destinationWarehouseId === warehouseId) return sum + weightKg;
+      }
+      if (tx.type === 'PURCHASE_RETURN' && tx.warehouseId === warehouseId) {
+        return sum - weightKg;
+      }
+      if (tx.type === 'SALES_RETURN' && tx.warehouseId === warehouseId) {
+        if (!tx.isDirectDelivery) {
+          return sum + weightKg;
+        }
       }
       return sum;
     }, 0);

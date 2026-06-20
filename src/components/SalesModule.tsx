@@ -198,6 +198,14 @@ export default function SalesModule() {
           if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.commodity] -= weightKg;
           if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.commodity] += weightKg;
         }
+        if (tx.type === 'PURCHASE_RETURN' && tx.warehouseId === selectedWarehouseId) {
+          summary[tx.commodity] -= weightKg;
+        }
+        if (tx.type === 'SALES_RETURN' && tx.warehouseId === selectedWarehouseId) {
+          if (!tx.isDirectDelivery) {
+            summary[tx.commodity] += weightKg;
+          }
+        }
       } else {
         if (tx.type === 'PURCHASE') {
           summary[tx.commodity] += weightKg;
@@ -206,6 +214,14 @@ export default function SalesModule() {
           // Direct delivery bypasses physical warehouse inventory
           if (!tx.isDirectDelivery) {
             summary[tx.commodity] -= weightKg;
+          }
+        }
+        if (tx.type === 'PURCHASE_RETURN') {
+          summary[tx.commodity] -= weightKg;
+        }
+        if (tx.type === 'SALES_RETURN') {
+          if (!tx.isDirectDelivery) {
+            summary[tx.commodity] += weightKg;
           }
         }
       }
