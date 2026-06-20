@@ -92,8 +92,8 @@ service cloud.firestore {
     function isValidTransaction(data) {
       return data.keys().hasAll(['id', 'companyId', 'date', 'type', 'commodity', 'netWeight', 'deductions']) &&
              data.id is string && data.companyId is string &&
-             data.type in ['PURCHASE', 'SALE', 'TRANSFER'] &&
-             data.commodity in ['COCOA', 'CASHEW', 'PK'] &&
+             data.type in ['PURCHASE', 'SALE', 'TRANSFER', 'PURCHASE_RETURN', 'SALES_RETURN'] &&
+             data.commodity is string && data.commodity.size() > 0 &&
              data.netWeight is number && data.netWeight >= 0 &&
              data.deductions is map;
     }
@@ -101,7 +101,7 @@ service cloud.firestore {
     function isValidInventoryAdjustment(data) {
       return data.keys().hasAll(['id', 'companyId', 'date', 'postingDate', 'commodity', 'warehouseId', 'adjustmentType', 'adjustmentDirection', 'netWeight', 'bags', 'createdBy', 'creatorEmail']) &&
              data.id is string && data.companyId is string &&
-             data.commodity in ['COCOA', 'CASHEW', 'PK'] &&
+             data.commodity is string && data.commodity.size() > 0 &&
              data.adjustmentType in ['WEIGHT_LOSS', 'DAMAGED_STOCK', 'SPOILAGE', 'THEFT_LOSS', 'STOCK_COUNT', 'QUALITY_TEST', 'INTERNAL_USE'] &&
              data.adjustmentDirection in ['ADD', 'REMOVE'] &&
              data.netWeight is number && data.netWeight >= 0 &&

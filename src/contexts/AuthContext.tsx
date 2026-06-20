@@ -891,7 +891,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Refined permissions
-  const canPostTransactions = isManager || isAccount;
+  const canPostTransactions = isManager || isAccount || profile?.role === 'STAFF';
   const canManageStaff = isAdmin || isManager;
   const canTransferStock = isAdmin || isManager;
 
