@@ -26,28 +26,37 @@ try {
 // Helper to sanitize env variables (strip accidental quotes)
 const sanitize = (val: any) => typeof val === 'string' ? val.replace(/['"]/g, '').trim() : val;
 
+const rawApiKey = sanitize(import.meta.env.VITE_FIREBASE_API_KEY || configJson.apiKey);
+const rawProjectId = sanitize(import.meta.env.VITE_FIREBASE_PROJECT_ID || configJson.projectId);
+
+// If real credentials are missing, we fall back to mock credentials so that the app stays functional.
+export const isMockFallback = !rawApiKey || !rawProjectId;
+
 export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
-  apiKey: sanitize(import.meta.env.VITE_FIREBASE_API_KEY || configJson.apiKey),
-  authDomain: sanitize(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || configJson.authDomain),
-  projectId: sanitize(import.meta.env.VITE_FIREBASE_PROJECT_ID || configJson.projectId),
-  storageBucket: sanitize(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || configJson.storageBucket),
-  messagingSenderId: sanitize(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || configJson.messagingSenderId),
-  appId: sanitize(import.meta.env.VITE_FIREBASE_APP_ID || configJson.appId),
+  apiKey: rawApiKey || "mock-api-key-safe-fallback",
+  authDomain: sanitize(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || configJson.authDomain) || "mock-project-safe-fallback.firebaseapp.com",
+  projectId: rawProjectId || "mock-project-safe-fallback",
+  storageBucket: sanitize(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || configJson.storageBucket) || "mock-project-safe-fallback.appspot.com",
+  messagingSenderId: sanitize(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || configJson.messagingSenderId) || "123456789",
+  appId: sanitize(import.meta.env.VITE_FIREBASE_APP_ID || configJson.appId) || "1:123456789:web:abcdef123456",
   measurementId: sanitize(import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || configJson.measurementId),
   firestoreDatabaseId: sanitize(import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || configJson.firestoreDatabaseId || "(default)")
 };
 
-// CRITICAL: Ensure app doesn't crash on init if keys are missing, 
-// so we can show a helpful UI error instead.
-const isValidConfig = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
+// CRITICAL: Ensure app doesn't crash on init if keys are missing in production.
+// During development we allow running in offline fallback mode using mockFirebase.ts.
+const isValidConfig = !isMockFallback;
 const appEnv = sanitize(import.meta.env.VITE_APP_ENV || 'development');
 
 if (!isValidConfig) {
-  const errorMsg = `CRITICAL: Firebase configuration is incomplete for environment: ${appEnv}. 
-  If this is Production, please ensure your GitHub Secrets or environment variables (VITE_FIREBASE_*) are configured.`;
-  console.error(errorMsg);
-  // Add to window for easier debugging
-  (window as any).FIREBASE_CONFIG_ERROR = errorMsg;
+  if (appEnv === 'production') {
+    const errorMsg = `CRITICAL: Firebase configuration is incomplete for environment: ${appEnv}. 
+    Please ensure your environment variables (VITE_FIREBASE_*) are configured.`;
+    console.error(errorMsg);
+    (window as any).FIREBASE_CONFIG_ERROR = errorMsg;
+  } else {
+    console.log("No real Firebase configuration detected. Safe-booting in Local / Offline Mock Mode.");
+  }
 } else {
   console.log(`Firebase Config loaded successfully for [${appEnv}] from ` + 
     (import.meta.env.VITE_FIREBASE_API_KEY ? "environment variables" : "local JSON file") + ".");
