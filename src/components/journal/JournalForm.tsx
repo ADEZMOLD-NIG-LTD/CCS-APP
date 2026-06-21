@@ -162,7 +162,7 @@ export default function JournalForm({
             </label>
             <select name="supplierId" className="w-full px-4 py-2 bg-white border border-rose-200 rounded-lg outline-none text-sm">
               <option value="">No - General Business Expense</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.location})</option>)}
+              {suppliers.filter(s => !s.isDeleted).map(s => <option key={s.id} value={s.id}>{s.name} ({s.location})</option>)}
             </select>
             <p className="text-[9px] text-rose-400 mt-2 italic">
               * If selected, this amount will be deducted from the supplier's ledger balance.
@@ -191,7 +191,7 @@ export default function JournalForm({
               </label>
               <select name="supplierId" className="w-full px-4 py-2 bg-white border border-emerald-200 rounded-lg outline-none text-sm">
                 <option value="">No - General Income</option>
-                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.location})</option>)}
+                {suppliers.filter(s => !s.isDeleted).map(s => <option key={s.id} value={s.id}>{s.name} ({s.location})</option>)}
               </select>
               <p className="text-[9px] text-emerald-400 mt-2 italic">
                 * If selected, this amount will be credited back/refunded to the supplier's ledger balance.

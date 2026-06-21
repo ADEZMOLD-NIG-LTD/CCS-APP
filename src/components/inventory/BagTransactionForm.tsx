@@ -153,7 +153,7 @@ export default function BagTransactionForm({
               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier (Required for Issuance)</label>
               <select name="supplierId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
                 <option value="">Select Supplier</option>
-                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.location})</option>)}
+                {suppliers.filter(s => !s.isDeleted).map(s => <option key={s.id} value={s.id}>{s.name} ({s.location})</option>)}
               </select>
             </div>
           )}

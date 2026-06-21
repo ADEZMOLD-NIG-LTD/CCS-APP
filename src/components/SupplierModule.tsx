@@ -4,13 +4,13 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, MapPin, Phone, Landmark, Trash2, Edit2, ChevronRight, ArrowLeft } from 'lucide-react';
+import { Plus, Search, MapPin, Phone, Landmark, Trash2, Edit2, ChevronRight, ArrowLeft, GitMerge } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Supplier, Transaction, Payment, JournalEntry } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, updateDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, updateDoc, query, orderBy, where, getDocs } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 import { recordAuditLog, AuditAction } from '../lib/audit';
@@ -55,7 +55,7 @@ export default function SupplierModule() {
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
-      const sorted = data.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      const sorted = data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       setSuppliers(sorted);
     }, (error) => {
       setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers'));
@@ -150,6 +150,20 @@ export default function SupplierModule() {
     // Clean up undefined values
     Object.keys(newSupplier).forEach(key => newSupplier[key] === undefined && delete newSupplier[key]);
 
+    // Check for duplicate names to prevent duplicate registration
+    const normalizedNewName = (newSupplier.name || '').trim().toLowerCase();
+    const isDuplicate = suppliers.some(s => 
+      !s.isDeleted && 
+      s.id !== editingSupplier?.id && 
+      (s.name || '').trim().toLowerCase() === normalizedNewName
+    );
+
+    if (isDuplicate) {
+      setErrorMessage(`A supplier named "${newSupplier.name}" already exists! Duplicate names can lead to incorrect balances. Please enter a different name or use the Merge tool to combine them.`);
+      setSubmitting(false);
+      return;
+    }
+
     try {
       const writePromise = setDoc(doc(db, 'suppliers', id), newSupplier);
       
@@ -185,8 +199,8 @@ export default function SupplierModule() {
   };
 
   const deleteSupplier = async (id: string) => {
-    if (!isAdmin) {
-      setErrorMessage('Only Admins can delete suppliers.');
+    if (!(isStaff || isAccount || isAdmin)) {
+      setErrorMessage('You do not have permission to delete suppliers.');
       return;
     }
     setDeleteConfirmId(id);
@@ -271,7 +285,7 @@ export default function SupplierModule() {
           {!isAdding && !editingSupplier && isStaff && (
             <button
               onClick={() => setIsAdding(true)}
-              className="google-btn-primary flex items-center gap-2"
+              className="google-btn-primary flex items-center gap-2 text-xs sm:text-sm"
               id="add-supplier-btn"
             >
               <Plus size={20} />
@@ -466,10 +480,11 @@ export default function SupplierModule() {
                             <Edit2 size={16} />
                           </button>
                         )}
-                        {isAdmin && (
+                        {(isStaff || isAccount || isAdmin) && (
                           <button
                             onClick={(e) => { e.stopPropagation(); deleteSupplier(supplier.id); }}
                             className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                            title="Delete Supplier"
                           >
                             <Trash2 size={16} />
                           </button>

@@ -184,7 +184,7 @@ export default function SaleForm({
               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier (Direct Delivery From)</label>
               <select name="supplierId" defaultValue={editingTransaction?.supplierId || ''} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="">Select Supplier</option>
-                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {suppliers.filter(s => !s.isDeleted).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
           )}
@@ -195,7 +195,7 @@ export default function SaleForm({
             {isSupplierBuyer ? (
               <select name="supplierId" defaultValue={editingTransaction?.supplierId || ''} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
                 <option value="">Select Supplier</option>
-                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {suppliers.filter(s => !s.isDeleted).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             ) : (
               <select name="buyerId" defaultValue={editingTransaction?.buyerId || ''} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
