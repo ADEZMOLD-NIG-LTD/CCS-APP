@@ -81,6 +81,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   const [isAddingPayment, setIsAddingPayment] = useState(false);
   const [isAddingPurchaseReturn, setIsAddingPurchaseReturn] = useState(false);
   const [isAddingSupplierCharge, setIsAddingSupplierCharge] = useState(false);
+  const [isAddingSupplierExpense, setIsAddingSupplierExpense] = useState(false);
   const [returnCommodity, setReturnCommodity] = useState<string>('COCOA');
   const [isCustomReturnCommodity, setIsCustomReturnCommodity] = useState<boolean>(false);
   const [customReturnName, setCustomReturnName] = useState<string>('');
@@ -222,9 +223,13 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         entryType: 'JOURNAL' as const,
         originalDoc: e,
         date: e.date,
-        description: e.type === 'INFLOW' 
-          ? `Credit/Reversal: ${e.category} - ${e.description}`
-          : `Charge: ${e.category} - ${e.description}`,
+        description: e.category === 'SUPPLIER_EXPENSE_DEDUCTION'
+          ? `Deduction: ${e.description}`
+          : e.category === 'SUPPLIER_CHARGE'
+            ? `Charge: ${e.description}`
+            : e.type === 'INFLOW' 
+              ? `Credit/Reversal: ${e.category} - ${e.description}`
+              : `Charge: ${e.category} - ${e.description}`,
         credit: e.type === 'INFLOW' ? roundTo(e.amount || 0, 2) : 0,
         debit: e.type === 'OUTFLOW' ? roundTo(e.amount || 0, 2) : 0,
         ref: 'JOURNAL',
@@ -511,6 +516,66 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
 
       setIsAddingSupplierCharge(false);
       setSuccessMessage('Supplier charge successfully recorded!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `journal/${id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddSupplierExpense = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!(isAccount || isAdmin) || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const id = crypto.randomUUID();
+    const selectedDate = formData.get('date') as string;
+    const transactionDateIso = selectedDate 
+      ? new Date(selectedDate + 'T12:00:00').toISOString() 
+      : new Date().toISOString();
+
+    const deductionType = formData.get('deductionType') as string;
+    const details = formData.get('description') as string;
+    const description = `${deductionType}${details ? ' - ' + details : ''}`;
+
+    const newEntry: any = {
+      id,
+      companyId: profile.companyId,
+      warehouseId: formData.get('warehouseId') as string,
+      date: transactionDateIso,
+      postingDate: new Date().toISOString(),
+      type: 'OUTFLOW',
+      category: 'SUPPLIER_EXPENSE_DEDUCTION',
+      amount: Number(formData.get('amount')),
+      description: description,
+      supplierId: supplier.id,
+      paymentMethod: (formData.get('paymentMethod') || 'CASH') as any,
+      excludeFromJournal: true
+    };
+
+    try {
+      const writePromise = setDoc(doc(db, 'journal', id), newEntry);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Supplier Expense Deductions',
+        recordId: id,
+        details: `Recorded supplier expense deduction: ${description} of amount ${formatCurrency(newEntry.amount)} for ${supplier.name}`,
+        newData: newEntry
+      }).catch(err => console.error('Audit log failed:', err));
+
+      setIsAddingSupplierExpense(false);
+      setSuccessMessage('Supplier expense deduction successfully recorded!');
     } catch (error) {
       setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `journal/${id}`));
     } finally {
@@ -881,20 +946,28 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
 
               {/* Quick actions for Supplier ledger */}
               {(isStaff || isAccount || isAdmin) && (
-                <div className="flex gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button 
                     onClick={() => setIsAddingPurchaseReturn(true)}
-                    className="flex-1 flex items-center justify-center gap-1 text-xs font-black text-rose-600 bg-rose-50 hover:bg-rose-100 py-2.5 rounded-xl border border-rose-200 transition-all shadow-sm hover:scale-[1.02]"
+                    className="flex items-center justify-center gap-1 text-xs font-black text-rose-600 bg-rose-50 hover:bg-rose-100 py-2.5 rounded-xl border border-rose-200 transition-all shadow-sm hover:scale-[1.02] w-full"
                   >
                     <Plus size={14} /> Purchase Return
                   </button>
                   {(isAccount || isAdmin) && (
-                    <button 
-                      onClick={() => setIsAddingSupplierCharge(true)}
-                      className="flex-1 flex items-center justify-center gap-1 text-xs font-black text-amber-600 bg-amber-50 hover:bg-amber-100 py-2.5 rounded-xl border border-amber-200 transition-all shadow-sm hover:scale-[1.02]"
-                    >
-                      <Plus size={14} /> Supplier Charge
-                    </button>
+                    <>
+                      <button 
+                        onClick={() => setIsAddingSupplierCharge(true)}
+                        className="flex items-center justify-center gap-1 text-xs font-black text-amber-600 bg-amber-50 hover:bg-amber-100 py-2.5 rounded-xl border border-amber-200 transition-all shadow-sm hover:scale-[1.02] w-full"
+                      >
+                        <Plus size={14} /> Charge
+                      </button>
+                      <button 
+                        onClick={() => setIsAddingSupplierExpense(true)}
+                        className="flex items-center justify-center gap-1 text-xs font-black text-indigo-600 bg-indigo-50 hover:bg-indigo-100 py-2.5 rounded-xl border border-indigo-200 transition-all shadow-sm hover:scale-[1.02] w-full"
+                      >
+                        <Plus size={14} /> Expense Deduction
+                      </button>
+                    </>
                   )}
                 </div>
               )}
@@ -925,7 +998,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                         <div className="flex gap-3">
                           <div className={cn(
                             "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-                            (entry.credit || 0) > 0 ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                            (entry.credit || 0) > 0 
+                              ? "bg-emerald-50 text-emerald-600" 
+                              : (entry.description || '').includes('Deduction')
+                                ? "bg-indigo-50 text-indigo-600"
+                                : "bg-rose-50 text-rose-600"
                           )}>
                             {(entry.credit || 0) > 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
                           </div>
@@ -935,6 +1012,11 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                                 <span className="flex items-center gap-1">
                                   <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[8px] font-black uppercase">Advance</span>
                                   {(entry.description || '').replace('[ADVANCE] ', '')}
+                                </span>
+                              ) : (entry.description || '').includes('Deduction:') ? (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded text-[8px] font-black uppercase">Deduction</span>
+                                  {(entry.description || '').replace('Deduction: ', '')}
                                 </span>
                               ) : entry.description}
                             </p>
@@ -1002,7 +1084,15 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                             {(entry.credit || 0) > 0 ? '+' : '-'}{formatCurrency((entry.debit || 0) || (entry.credit || 0))}
                           </p>
                           <p className="text-[8px] text-slate-400 uppercase font-bold tracking-tighter mt-1">
-                            {entry.credit > 0 ? 'Purchase' : entry.debit > 0 ? (entry.description.includes('Sale') ? 'Sale' : 'Payment/Charge') : 'Transaction'}
+                            {entry.credit > 0 
+                              ? 'Purchase' 
+                              : entry.debit > 0 
+                                ? ((entry.description || '').includes('Sale') 
+                                  ? 'Sale' 
+                                  : (entry.description || '').includes('Deduction') 
+                                    ? 'Deduction' 
+                                    : 'Payment/Charge') 
+                                : 'Transaction'}
                           </p>
                           <div className="mt-2 pt-1 border-t border-slate-100">
                             <p className="text-[7px] text-slate-400 uppercase font-bold">Balance</p>
@@ -1531,6 +1621,78 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                     className="flex-2 bg-rose-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                   >
                     {submitting ? 'Recording...' : 'Record Return'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {isAddingSupplierExpense && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl my-auto"
+            >
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-indigo-600">
+                <Plus className="rotate-45" size={24} /> Expense Deduction
+              </h2>
+              <form onSubmit={handleAddSupplierExpense} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                  <input 
+                    name="date" 
+                    type="date" 
+                    required 
+                    defaultValue={new Date().toISOString().substring(0, 10)} 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                  <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="">Select Warehouse</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Deduction Type</label>
+                  <select name="deductionType" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="Transportation Charges">Transportation Charges</option>
+                    <option value="Jute/ nylon expenses">Jute/ nylon expenses</option>
+                    <option value="Loading expense">Loading expense</option>
+                    <option value="Offloading expense">Offloading expense</option>
+                    <option value="Quality Charges">Quality Charges</option>
+                    <option value="Storage Charges">Storage Charges</option>
+                    <option value="Advance recovery">Advance recovery</option>
+                    <option value="Others">Others</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
+                  <DigitFormattedInput name="amount" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" prefix="₦" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Payment Method</label>
+                  <select name="paymentMethod" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="CASH">Cash</option>
+                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Description / Notes</label>
+                  <input name="description" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" placeholder="E.g. Jute bag recovery from cocoa batch..." />
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setIsAddingSupplierExpense(false)} className="flex-1 py-4 text-slate-500 font-bold text-sm">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {submitting ? 'Recording...' : 'Record Deduction'}
                   </button>
                 </div>
               </form>
