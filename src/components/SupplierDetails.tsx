@@ -218,28 +218,31 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
         pricePerKg: 0,
         bags: 0
       })),
-      ...journal.map(e => ({
-        id: e.id,
-        entryType: 'JOURNAL' as const,
-        originalDoc: e,
-        date: e.date,
-        description: e.category === 'SUPPLIER_EXPENSE_DEDUCTION'
-          ? `Deduction: ${e.description}`
-          : e.category === 'SUPPLIER_CHARGE'
-            ? `Charge: ${e.description}`
-            : e.type === 'INFLOW' 
-              ? `Credit/Reversal: ${e.category} - ${e.description}`
-              : `Charge: ${e.category} - ${e.description}`,
-        credit: e.type === 'INFLOW' ? roundTo(e.amount || 0, 2) : 0,
-        debit: e.type === 'OUTFLOW' ? roundTo(e.amount || 0, 2) : 0,
-        ref: 'JOURNAL',
-        grossWeight: 0,
-        netWeight: 0,
-        deductionWeight: 0,
-        deductions: undefined,
-        pricePerKg: 0,
-        bags: 0
-      }))
+      ...journal.map(e => {
+        const isDeduction = e.category === 'SUPPLIER_EXPENSE_DEDUCTION';
+        return {
+          id: e.id,
+          entryType: 'JOURNAL' as const,
+          originalDoc: e,
+          date: e.date,
+          description: isDeduction
+            ? `Deduction: ${e.description}`
+            : e.category === 'SUPPLIER_CHARGE'
+              ? `Charge: ${e.description}`
+              : e.type === 'INFLOW' 
+                ? `Credit/Reversal: ${e.category} - ${e.description}`
+                : `Charge: ${e.category} - ${e.description}`,
+          credit: (e.type === 'INFLOW' || isDeduction) ? roundTo(e.amount || 0, 2) : 0,
+          debit: (e.type === 'OUTFLOW' && !isDeduction) ? roundTo(e.amount || 0, 2) : 0,
+          ref: 'JOURNAL',
+          grossWeight: 0,
+          netWeight: 0,
+          deductionWeight: 0,
+          deductions: undefined,
+          pricePerKg: 0,
+          bags: 0
+        };
+      })
     ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
 
     // Calculate Balance Brought Forward (BBF)
@@ -272,7 +275,10 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
   const totalReturns = useMemo(() => transactions.filter(t => (t.type as string) === 'PURCHASE_RETURN').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
   const totalSales = useMemo(() => transactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(Number(t.totalValue) || 0, 2), 0), [transactions]);
   const totalPayments = useMemo(() => payments.reduce((sum, p) => sum + roundTo(Number(p.amount) || 0, 2), 0), [payments]);
-  const totalCharges = useMemo(() => journal.reduce((sum, e) => sum + roundTo(e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0, 2), 0), [journal]);
+  const totalCharges = useMemo(() => journal.reduce((sum, e) => {
+    const isOutflow = e.type === 'OUTFLOW' && e.category !== 'SUPPLIER_EXPENSE_DEDUCTION';
+    return sum + roundTo(isOutflow ? Number(e.amount) || 0 : -Number(e.amount) || 0, 2);
+  }, 0), [journal]);
   const currentBalance = roundTo((Number(currentSupplier.previousBalance) || 0) + totalPurchases - totalReturns - totalSales - totalPayments - totalCharges, 2);
 
   const bagBalance = useMemo(() => {
@@ -545,7 +551,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       warehouseId: formData.get('warehouseId') as string,
       date: transactionDateIso,
       postingDate: new Date().toISOString(),
-      type: 'OUTFLOW',
+      type: 'INFLOW',
       category: 'SUPPLIER_EXPENSE_DEDUCTION',
       amount: Number(formData.get('amount')),
       description: description,
@@ -1085,7 +1091,7 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
                           </p>
                           <p className="text-[8px] text-slate-400 uppercase font-bold tracking-tighter mt-1">
                             {entry.credit > 0 
-                              ? 'Purchase' 
+                              ? ((entry.description || '').includes('Deduction') ? 'Deduction' : 'Purchase') 
                               : entry.debit > 0 
                                 ? ((entry.description || '').includes('Sale') 
                                   ? 'Sale' 

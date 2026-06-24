@@ -107,7 +107,10 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       const sReturns = sTx.filter(t => (t.type as string) === 'PURCHASE_RETURN').reduce((sSum, t) => sSum + roundTo(t.totalValue || 0, 2), 0);
       const sSales = sTx.filter(t => t.type === 'SALE').reduce((sSum, t) => sSum + roundTo(t.totalValue || 0, 2), 0);
       const sPayments = sPay.reduce((sSum, p) => sSum + roundTo(p.amount || 0, 2), 0);
-      const sCharges = sExp.reduce((sSum, e) => sSum + roundTo(e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0, 2), 0);
+      const sCharges = sExp.reduce((sSum, e) => {
+        const isOutflow = e.type === 'OUTFLOW' && e.category !== 'SUPPLIER_EXPENSE_DEDUCTION';
+        return sSum + roundTo(isOutflow ? Number(e.amount) || 0 : -Number(e.amount) || 0, 2);
+      }, 0);
       
       const supplierBalance = roundTo((Number(s.previousBalance) || 0) + sPurchases - sReturns - sSales - sPayments - sCharges, 2);
       return roundTo(sum + supplierBalance, 2);

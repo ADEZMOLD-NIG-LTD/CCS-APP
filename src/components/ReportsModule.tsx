@@ -190,7 +190,10 @@ export default function ReportsModule() {
       const totalReturns = sReturns.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
       const totalSales = sSales.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
       const totalPayments = sPay.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-      const totalCharges = sExp.reduce((sum, e) => sum + (e.type === 'OUTFLOW' ? Number(e.amount) || 0 : -Number(e.amount) || 0), 0);
+      const totalCharges = sExp.reduce((sum, e) => {
+        const isOutflow = e.type === 'OUTFLOW' && e.category !== 'SUPPLIER_EXPENSE_DEDUCTION';
+        return sum + (isOutflow ? Number(e.amount) || 0 : -Number(e.amount) || 0);
+      }, 0);
       
       const baseBalance = Number(s.previousBalance) || 0;
       const balance = baseBalance + totalPurchases - totalReturns - totalSales - totalPayments - totalCharges;
