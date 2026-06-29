@@ -77,6 +77,11 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
   const [returnNetWeight, setReturnNetWeight] = useState<string>('');
   const [returnPricePerKg, setReturnPricePerKg] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [editingEntry, setEditingEntry] = useState<{
+    id: string;
+    entryType: 'TRANSACTION' | 'JOURNAL';
+    originalDoc: any;
+  } | null>(null);
 
   // Success message auto-hide
   useEffect(() => {
@@ -256,6 +261,116 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
     }
   };
 
+  const handleAdjustSave = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!isAdmin || !editingEntry || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const updatedDate = formData.get('date') as string;
+    const dateIso = updatedDate ? new Date(updatedDate + 'T12:00:00').toISOString() : editingEntry.originalDoc.date;
+
+    try {
+      if (editingEntry.entryType === 'TRANSACTION') {
+        const docRef = doc(db, 'transactions', editingEntry.id);
+        const grossVal = Number(formData.get('grossWeight') || 0);
+        const bagsVal = Number(formData.get('bags') || 0);
+        const priceVal = Number(formData.get('pricePerKg') || 0);
+        
+        // Compute moisture benchmark for commodity
+        const benchmarkVal = editingEntry.originalDoc.commodity === 'CASHEW' ? 10 : 8;
+        const moistureAct = Number(formData.get('moistureActual') || benchmarkVal);
+        const tare = Number(formData.get('tareWeight') || 0);
+        const mold = Number(formData.get('moldWeight') || 0);
+        const other = Number(formData.get('otherDeduction') || 0);
+        
+        // If manual calculation, use the input netWeight value; if direct, perform calculation
+        let calculatedNet = editingEntry.originalDoc.calculationMethod === 'MANUAL' 
+          ? (Number(formData.get('netWeight')) || Number(editingEntry.originalDoc.netWeight) || 0)
+          : 0;
+
+        if (editingEntry.originalDoc.calculationMethod !== 'MANUAL') {
+          const moistureLoss = moistureAct > benchmarkVal 
+            ? roundTo(((moistureAct - benchmarkVal) * grossVal) / 100, 2) 
+            : 0;
+          calculatedNet = roundTo(grossVal - moistureLoss - tare - mold - other, 2);
+        }
+        
+        const calculatedTotal = roundTo(calculatedNet * priceVal, 2);
+
+        const updatedTx: any = {
+          ...editingEntry.originalDoc,
+          date: dateIso,
+          grossWeight: grossVal,
+          netWeight: calculatedNet,
+          bags: bagsVal,
+          noOfBags: bagsVal,
+          pricePerKg: priceVal,
+          totalValue: calculatedTotal,
+          notes: formData.get('notes') as string,
+          deductions: {
+            moistureActual: moistureAct,
+            moistureBenchmark: benchmarkVal,
+            tareWeight: tare,
+            moldWeight: mold,
+            otherDeduction: other
+          }
+        };
+
+        await setDoc(docRef, updatedTx);
+
+        // Record Audit Log
+        await recordAuditLog({
+          companyId: profile.companyId,
+          userId: profile.uid,
+          userEmail: profile.email,
+          action: AuditAction.UPDATE,
+          module: 'Transactions',
+          recordId: editingEntry.id,
+          details: `Adjusted sales/return transaction ${editingEntry.originalDoc.referenceId || editingEntry.id}: set gross weight to ${grossVal}kg, net to ${calculatedNet}kg, price to ₦${priceVal}/kg, total value to ₦${calculatedTotal}`,
+          previousData: editingEntry.originalDoc,
+          newData: updatedTx
+        }).catch(err => console.error('Failed to log audit:', err));
+
+      } else if (editingEntry.entryType === 'JOURNAL') {
+        const docRef = doc(db, 'journal', editingEntry.id);
+        const amountVal = Number(formData.get('amount') || 0);
+        const categoryVal = formData.get('category') as string;
+        const descVal = formData.get('description') as string;
+
+        const updatedJournal = {
+          ...editingEntry.originalDoc,
+          date: dateIso,
+          amount: amountVal,
+          category: categoryVal,
+          description: descVal
+        };
+
+        await setDoc(docRef, updatedJournal);
+
+        // Record Audit Log
+        await recordAuditLog({
+          companyId: profile.companyId,
+          userId: profile.uid,
+          userEmail: profile.email,
+          action: AuditAction.UPDATE,
+          module: 'Journal',
+          recordId: editingEntry.id,
+          details: `Adjusted customer journal ${editingEntry.originalDoc.type?.toLowerCase() || 'entry'} of ₦${amountVal} linked to customer: ${buyer.name}`,
+          previousData: editingEntry.originalDoc,
+          newData: updatedJournal
+        }).catch(err => console.error('Failed to log audit:', err));
+      }
+
+      setEditingEntry(null);
+      setSuccessMessage('Entry successfully updated!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `${editingEntry.entryType.toLowerCase()}/${editingEntry.id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const ledgerEntries = useMemo(() => {
     const entries = [
       ...sales.map(s => ({
@@ -269,7 +384,9 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
             : `${s.commodity} Sale (${formatNumber(s.netWeight || 0)}kg @ ${formatCurrency(s.pricePerKg || 0)})`),
         debit: s.type === 'SALE' ? roundTo(s.totalValue || 0, 2) : 0,
         credit: (s.type as string) === 'SALES_RETURN' ? roundTo(s.totalValue || 0, 2) : 0,
-        reference: s.referenceId
+        reference: s.referenceId,
+        entryType: 'TRANSACTION' as const,
+        originalDoc: s
       })),
       ...payments.map(p => ({
         id: p.id,
@@ -280,7 +397,9 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
           : (p.description || 'Cash Payment'),
         debit: p.type === 'OUTFLOW' ? roundTo(p.amount || 0, 2) : 0,
         credit: p.type === 'INFLOW' ? roundTo(p.amount || 0, 2) : 0,
-        reference: p.category
+        reference: p.category,
+        entryType: 'JOURNAL' as const,
+        originalDoc: p
       }))
     ];
 
@@ -540,6 +659,19 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
                         <p className="text-[9px] text-slate-400 uppercase font-bold">
                           {(entry.debit || 0) > 0 ? 'Debit (Owed to Us)' : 'Credit'}
                         </p>
+                        {isAdmin && (
+                          <button
+                            onClick={() => setEditingEntry({
+                              id: entry.id,
+                              entryType: entry.entryType,
+                              originalDoc: entry.originalDoc
+                            })}
+                            className="mt-2 text-[10px] text-blue-600 font-black hover:text-blue-700 hover:underline flex items-center gap-1 justify-end ml-auto"
+                            title="Adjust Entry"
+                          >
+                            <Edit2 size={10} /> Adjust
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -710,6 +842,119 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
                     className="flex-2 bg-amber-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                   >
                     {submitting ? 'Recording...' : 'Record Charge'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {editingEntry && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl my-auto"
+            >
+              <h2 className="text-xl font-bold mb-6">Adjust Entry ({editingEntry.entryType})</h2>
+              <form onSubmit={handleAdjustSave} className="space-y-4">
+                {/* Date is common to all */}
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                  <input 
+                    name="date" 
+                    type="date" 
+                    required 
+                    defaultValue={editingEntry.originalDoc.date?.substring(0, 10)} 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                  />
+                </div>
+
+                {editingEntry.entryType === 'TRANSACTION' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross Weight (kg)</label>
+                        <DigitFormattedInput name="grossWeight" required defaultValue={editingEntry.originalDoc.grossWeight} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="kg" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags</label>
+                        <DigitFormattedInput name="bags" required defaultValue={editingEntry.originalDoc.noOfBags || editingEntry.originalDoc.bags || 0} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="bags" />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price Per Kg (₦)</label>
+                        <DigitFormattedInput name="pricePerKg" required defaultValue={editingEntry.originalDoc.pricePerKg} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" prefix="₦" />
+                      </div>
+                      {editingEntry.originalDoc.calculationMethod === 'MANUAL' && (
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Net Weight (kg)</label>
+                          <DigitFormattedInput name="netWeight" required defaultValue={editingEntry.originalDoc.netWeight} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" suffix="kg" />
+                        </div>
+                      )}
+                    </div>
+
+                    {editingEntry.originalDoc.calculationMethod !== 'MANUAL' && (
+                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-3">
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">Deduction Inputs (Calculated Net Weight)</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase">Moisture Actual (%)</label>
+                            <input name="moistureActual" type="number" step="0.1" defaultValue={editingEntry.originalDoc.deductions?.moistureActual || 8} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs" />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase">Tare Weight (kg)</label>
+                            <input name="tareWeight" type="number" step="0.1" defaultValue={editingEntry.originalDoc.deductions?.tareWeight || 0} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs" />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase">Mold Weight (kg)</label>
+                            <input name="moldWeight" type="number" step="0.1" defaultValue={editingEntry.originalDoc.deductions?.moldWeight || 0} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs" />
+                          </div>
+                          <div>
+                            <label className="block text-[8px] font-bold text-slate-400 uppercase">Other Ded. (kg)</label>
+                            <input name="otherDeduction" type="number" step="0.1" defaultValue={editingEntry.originalDoc.deductions?.otherDeduction || 0} className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Notes / Remarks</label>
+                      <input name="notes" defaultValue={editingEntry.originalDoc.notes || ''} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm" placeholder="Reason for adjusting..." />
+                    </div>
+                  </>
+                )}
+
+                {editingEntry.entryType === 'JOURNAL' && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
+                        <DigitFormattedInput name="amount" required defaultValue={editingEntry.originalDoc.amount} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" prefix="₦" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Category</label>
+                        <input name="category" required defaultValue={editingEntry.originalDoc.category} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Description</label>
+                      <input name="description" required defaultValue={editingEntry.originalDoc.description} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" />
+                    </div>
+                  </>
+                )}
+
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setEditingEntry(null)} className="flex-1 py-4 text-slate-500 font-bold">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm font-medium"
+                  >
+                    {submitting ? 'Saving Changes...' : 'Save Adjustments'}
                   </button>
                 </div>
               </form>
