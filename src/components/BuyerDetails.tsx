@@ -627,7 +627,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
             ) : (
               <div className="divide-y divide-slate-50">
                 {ledgerEntries.map((entry) => (
-                  <div key={entry.id} className="p-4 hover:bg-slate-50 transition-colors group">
+                  <div key={`${entry.entryType}-${entry.id}`} className="p-4 hover:bg-slate-50 transition-colors group">
                     <div className="flex justify-between items-start">
                       <div className="flex items-center gap-3">
                         <div className={cn(

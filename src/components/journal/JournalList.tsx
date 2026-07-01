@@ -1,5 +1,5 @@
 import React from 'react';
-import { Receipt, ArrowUpRight, ArrowDownRight, Calendar, Trash2, AlertCircle } from 'lucide-react';
+import { Receipt, ArrowUpRight, ArrowDownRight, Calendar, Trash2, AlertCircle, Edit2 } from 'lucide-react';
 import { cn, formatCurrency } from '../../lib/utils';
 import { JournalEntry, Supplier, Buyer, Warehouse } from '../../types';
 
@@ -10,6 +10,7 @@ interface JournalListProps {
   warehouses: Warehouse[];
   isAdmin: boolean;
   onDeleteEntry: (id: string) => void;
+  onEditEntry?: (entry: JournalEntry) => void;
 }
 
 export default function JournalList({
@@ -18,7 +19,8 @@ export default function JournalList({
   buyers,
   warehouses,
   isAdmin,
-  onDeleteEntry
+  onDeleteEntry,
+  onEditEntry
 }: JournalListProps) {
   return (
     <div className="space-y-3">
@@ -77,12 +79,24 @@ export default function JournalList({
                   {entry.type === 'INFLOW' ? '+' : '-'}{formatCurrency(entry.amount || 0)}
                 </p>
                 {isAdmin && (
-                  <button 
-                    onClick={() => onDeleteEntry(entry.id)}
-                    className="text-slate-300 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+                    {onEditEntry && (
+                      <button 
+                        onClick={() => onEditEntry(entry)}
+                        className="text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 text-[10px] font-black"
+                        title="Adjust Entry"
+                      >
+                        <Edit2 size={12} /> Adjust
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => onDeleteEntry(entry.id)}
+                      className="text-slate-400 hover:text-rose-600 transition-colors"
+                      title="Delete Entry"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
