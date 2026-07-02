@@ -79,22 +79,22 @@ export default function JournalList({
                   {entry.type === 'INFLOW' ? '+' : '-'}{formatCurrency(entry.amount || 0)}
                 </p>
                 {isAdmin && (
-                  <div className="flex items-center gap-2 mt-2 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+                  <div className="flex items-center gap-3 mt-2 justify-end">
                     {onEditEntry && (
                       <button 
                         onClick={() => onEditEntry(entry)}
-                        className="text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 text-[10px] font-black"
+                        className="text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 text-[11px] font-bold bg-indigo-50 px-2 py-1 rounded-lg"
                         title="Adjust Entry"
                       >
-                        <Edit2 size={12} /> Adjust
+                        <Edit2 size={11} /> Adjust
                       </button>
                     )}
                     <button 
                       onClick={() => onDeleteEntry(entry.id)}
-                      className="text-slate-400 hover:text-rose-600 transition-colors"
+                      className="text-slate-400 hover:text-rose-600 transition-colors flex items-center gap-1 text-[11px] font-bold bg-slate-50 hover:bg-rose-50 px-2 py-1 rounded-lg"
                       title="Delete Entry"
                     >
-                      <Trash2 size={12} />
+                      <Trash2 size={11} /> Delete
                     </button>
                   </div>
                 )}
