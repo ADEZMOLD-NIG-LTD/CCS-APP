@@ -39,7 +39,7 @@ export default function TransfersReport({
           <p className="text-center py-12 text-slate-400 text-xs bg-white rounded-2xl border border-dashed border-slate-200">No transfers found for this period</p>
         ) : (
           filteredTransfers.map((t) => (
-            <div key={t.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+            <div key={`${t.transferType}-${t.id}`} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
