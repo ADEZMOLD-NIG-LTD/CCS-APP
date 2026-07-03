@@ -142,10 +142,10 @@ export default function JournalModule() {
 
   // Default selected warehouse for staff
   useEffect(() => {
-    if (profile?.assignedWarehouseId && !isAdmin) {
+    if (profile?.assignedWarehouseId && !isAccount) {
       setSelectedWarehouseId(profile.assignedWarehouseId);
     }
-  }, [profile, isAdmin]);
+  }, [profile, isAccount]);
 
   const handleAddEntry = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -200,8 +200,8 @@ export default function JournalModule() {
   };
 
   const deleteEntry = async (id: string) => {
-    if (!isAdmin) {
-      setErrorMessage('Only Admins can delete journal entries.');
+    if (!isAccount) {
+      setErrorMessage('Only authorized managers or accountants can delete journal entries.');
       return;
     }
     setDeleteConfirmId(id);
@@ -239,7 +239,7 @@ export default function JournalModule() {
 
   const handleAdjustSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!isAdmin || !editingEntry || submitting || !profile?.companyId) return;
+    if (!isAccount || !editingEntry || submitting || !profile?.companyId) return;
 
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
@@ -435,7 +435,7 @@ export default function JournalModule() {
               ))}
             </div>
 
-            {isAdmin && (
+            {isAccount && (
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Warehouse Filter (Harmonize)</label>
                 <select 
@@ -492,9 +492,8 @@ export default function JournalModule() {
                 suppliers={suppliers}
                 buyers={buyers}
                 warehouses={warehouses}
-                isAdmin={isAdmin}
+                isAdmin={isAccount}
                 onDeleteEntry={deleteEntry}
-                onEditEntry={setEditingEntry}
               />
             </div>
           )}
