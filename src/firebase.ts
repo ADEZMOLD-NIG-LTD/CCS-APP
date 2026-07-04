@@ -145,7 +145,7 @@ async function testConnection(retries = 5) {
       });
       
       if (i === retries - 1) {
-        console.error("All Firestore connection attempts failed. This might be due to network restrictions or a pending database provisioning. Please try refreshing in a few minutes.");
+        console.warn("All Firestore connection attempts failed. This might be due to network restrictions or a pending database provisioning. Please try refreshing in a few minutes.");
       } else {
         // Wait longer between retries
         const delay = (i + 1) * 3000;

@@ -24,7 +24,7 @@ import {
   Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Buyer, Transaction, JournalEntry, Warehouse, CommodityType, BuyerPayment } from '../types';
+import { Buyer, Transaction, JournalEntry, Warehouse, CommodityType } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
@@ -75,18 +75,17 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
   const [isAddingSalesReturn, setIsAddingSalesReturn] = useState(false);
   const [isAddingCustomerCharge, setIsAddingCustomerCharge] = useState(false);
   const [isAddingDirectPayment, setIsAddingDirectPayment] = useState(false);
-  const [directPayments, setDirectPayments] = useState<BuyerPayment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [returnNetWeight, setReturnNetWeight] = useState<string>('');
   const [returnPricePerKg, setReturnPricePerKg] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<{
     id: string;
-    entryType: 'TRANSACTION' | 'JOURNAL' | 'DIRECT_PAYMENT';
+    entryType: 'TRANSACTION' | 'JOURNAL';
   } | null>(null);
   const [editingEntry, setEditingEntry] = useState<{
     id: string;
-    entryType: 'TRANSACTION' | 'JOURNAL' | 'DIRECT_PAYMENT';
+    entryType: 'TRANSACTION' | 'JOURNAL';
     originalDoc: any;
   } | null>(null);
 
@@ -139,25 +138,10 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       setWarehouses(data);
     });
 
-    // Load Direct Payments (direct credit payments to buyer account)
-    const qDirectPayments = query(
-      collection(db, 'buyer_payments'),
-      where('companyId', '==', profile.companyId),
-      where('buyerId', '==', buyer.id)
-    );
-    const unsubscribeDirectPayments = onSnapshot(qDirectPayments, (snapshot) => {
-      const data = snapshot.docs
-        .map(doc => ({ ...doc.data(), id: doc.id } as BuyerPayment))
-        .filter(e => !e.isDeleted);
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setDirectPayments(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyer_payments')));
-
     return () => {
       unsubscribeSales();
       unsubscribePayments();
       unsubscribeWarehouses();
-      unsubscribeDirectPayments();
     };
   }, [profile?.companyId, buyer.id]);
 
@@ -295,7 +279,11 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       ? new Date(selectedDate + 'T12:00:00').toISOString() 
       : new Date().toISOString();
 
-    const newPayment: BuyerPayment = {
+    const desc = formData.get('description') as string || 'Direct Payment';
+    const method = formData.get('paymentMethod') as string;
+    const ref = formData.get('reference') as string || '';
+
+    const newPayment: JournalEntry = {
       id,
       companyId: profile.companyId,
       warehouseId: formData.get('warehouseId') as string,
@@ -303,13 +291,16 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       postingDate: new Date().toISOString(),
       buyerId: buyer.id,
       amount: Number(formData.get('amount')),
-      method: formData.get('paymentMethod') as any,
-      reference: formData.get('reference') as string || '',
-      description: formData.get('description') as string || 'Direct Payment',
+      type: 'INFLOW',
+      category: 'PART_PAYMENT',
+      description: desc + ` (${method})`,
+      reference: ref,
+      paymentMethod: method as any,
+      excludeFromJournal: true
     };
 
     try {
-      const writePromise = setDoc(doc(db, 'buyer_payments', id), newPayment);
+      const writePromise = setDoc(doc(db, 'journal', id), newPayment);
       
       if (!isOnline) {
         console.log('Working offline, proceeding optimistically');
@@ -322,7 +313,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         userId: profile.uid,
         userEmail: profile.email,
         action: AuditAction.CREATE,
-        module: 'Buyer Payments',
+        module: 'Journal',
         recordId: id,
         details: `Recorded direct credit payment of ₦${newPayment.amount} to buyer account of ${buyer.name}`,
         newData: newPayment
@@ -331,7 +322,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       setIsAddingDirectPayment(false);
       setSuccessMessage('Payment successfully credited!');
     } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `buyer_payments/${id}`));
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `journal/${id}`));
     } finally {
       setSubmitting(false);
     }
@@ -354,8 +345,6 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         collectionName = 'transactions';
       } else if (entryType === 'JOURNAL') {
         collectionName = 'journal';
-      } else if (entryType === 'DIRECT_PAYMENT') {
-        collectionName = 'buyer_payments';
       }
 
       await setDoc(doc(db, collectionName, id), updateData, { merge: true });
@@ -366,7 +355,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         userId: profile.uid,
         userEmail: profile.email,
         action: AuditAction.DELETE,
-        module: entryType === 'DIRECT_PAYMENT' ? 'Buyer Payments' : (entryType === 'TRANSACTION' ? 'Transactions' : 'Journal'),
+        module: entryType === 'TRANSACTION' ? 'Transactions' : 'Journal',
         recordId: id,
         details: `Deleted (Soft) ${entryType.toLowerCase()} entry. Reason: ${reason}`,
         newData: updateData
@@ -517,36 +506,24 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
           : (p.description || 'Cash Payment'),
         debit: p.type === 'OUTFLOW' ? roundTo(p.amount || 0, 2) : 0,
         credit: p.type === 'INFLOW' ? roundTo(p.amount || 0, 2) : 0,
-        reference: p.category,
+        reference: p.reference || p.category,
         entryType: 'JOURNAL' as const,
         originalDoc: p
-      })),
-      ...directPayments.map(dp => ({
-        id: dp.id,
-        date: dp.date,
-        type: 'DIRECT_PAYMENT' as const,
-        description: `Direct Credit: ${dp.description || 'Direct Payment'} (${dp.method})`,
-        debit: 0,
-        credit: roundTo(dp.amount || 0, 2),
-        reference: dp.reference || '',
-        entryType: 'DIRECT_PAYMENT' as const,
-        originalDoc: dp
       }))
     ];
 
     return entries.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-  }, [sales, payments, directPayments]);
+  }, [sales, payments]);
 
   const stats = useMemo(() => {
     const totalSales = sales.filter(s => s.type === 'SALE').reduce((sum, s) => sum + roundTo(s.totalValue || 0, 2), 0);
     const totalReturns = sales.filter(s => (s.type as string) === 'SALES_RETURN').reduce((sum, s) => sum + roundTo(s.totalValue || 0, 2), 0);
-    const totalPayments = payments.filter(p => p.type === 'INFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0) +
-                          directPayments.reduce((sum, dp) => sum + roundTo(dp.amount || 0, 2), 0);
+    const totalPayments = payments.filter(p => p.type === 'INFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
     const totalCharges = payments.filter(p => p.type === 'OUTFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
     const currentBalance = roundTo((Number(currentBuyer.previousBalance) || 0) + totalSales - totalReturns + totalCharges - totalPayments, 2);
 
     return { totalSales, totalPayments, currentBalance, totalReturns, totalCharges };
-  }, [sales, payments, directPayments, currentBuyer.previousBalance]);
+  }, [sales, payments, currentBuyer.previousBalance]);
 
   const exportPDF = () => {
     const doc = new jsPDF('landscape');

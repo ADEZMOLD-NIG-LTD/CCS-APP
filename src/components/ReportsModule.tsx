@@ -10,7 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Supplier, Transaction, Payment, JournalEntry, Warehouse, Buyer, BagTransaction, AuditLog, BuyerPayment } from '../types';
+import { Supplier, Transaction, Payment, JournalEntry, Warehouse, Buyer, BagTransaction, AuditLog } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
@@ -39,7 +39,6 @@ export default function ReportsModule() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
-  const [buyerPayments, setBuyerPayments] = useState<BuyerPayment[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -139,15 +138,6 @@ export default function ReportsModule() {
       setBagTransactions(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'bag_transactions')));
 
-    const qBuyerPayments = query(
-      collection(db, 'buyer_payments'),
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeBuyerPayments = onSnapshot(qBuyerPayments, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as BuyerPayment));
-      setBuyerPayments(data);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyer_payments')));
-
     return () => {
       unsubscribeSuppliers();
       unsubscribeBuyers();
@@ -157,7 +147,6 @@ export default function ReportsModule() {
       unsubscribeAuditLogs();
       unsubscribeJournal();
       unsubscribeBags();
-      unsubscribeBuyerPayments();
     };
   }, [profile?.companyId]);
 
@@ -222,7 +211,6 @@ export default function ReportsModule() {
   const buyerBalances = useMemo(() => {
     const activeTransactions = transactions.filter(t => !t.isDeleted);
     const activeJournal = journal.filter(e => !e.isDeleted);
-    const activeBuyerPayments = buyerPayments.filter(bp => !bp.isDeleted);
 
     return buyers.map(b => {
       const bSales = activeTransactions.filter(t => 
@@ -249,23 +237,17 @@ export default function ReportsModule() {
         e.date.split('T')[0] <= endDate &&
         (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
       );
-      const bDirectPayments = activeBuyerPayments.filter(bp =>
-        bp.buyerId === b.id &&
-        bp.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || bp.warehouseId === selectedWarehouseId)
-      );
       
       const totalSales = bSales.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
       const totalReturns = bReturns.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
-      const totalPayments = bPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0) +
-                            bDirectPayments.reduce((sum, bp) => sum + (Number(bp.amount) || 0), 0);
+      const totalPayments = bPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
       const totalCharges = bCharges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
       
       const baseBalance = Number(b.previousBalance) || 0;
       const balance = baseBalance + totalSales - totalReturns + totalCharges - totalPayments;
       return { ...b, balance };
     }).filter(b => b.balance !== 0);
-  }, [buyers, transactions, journal, buyerPayments, endDate, selectedWarehouseId]);
+  }, [buyers, transactions, journal, endDate, selectedWarehouseId]);
 
   const debitBuyers = buyerBalances.filter(b => b.balance > 0);
   const creditBuyers = buyerBalances.filter(b => b.balance < 0);

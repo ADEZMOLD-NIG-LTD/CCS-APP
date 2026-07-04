@@ -84,23 +84,6 @@ export interface Payment {
   deletedAt?: string;
 }
 
-export interface BuyerPayment {
-  id: string;
-  companyId: string;
-  warehouseId: string;
-  date: string; // The selected transaction date
-  postingDate?: string; // The actual software entry/posting timestamp
-  buyerId: string;
-  amount: number;
-  method: 'CASH' | 'BANK_TRANSFER' | 'CHECK';
-  reference: string;
-  description: string;
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
-}
-
 export interface BagTransaction {
   id: string;
   companyId: string;
@@ -190,7 +173,8 @@ export interface JournalEntry {
   description: string;
   supplierId?: string; // Optional: if charged to a supplier (for outflows)
   buyerId?: string; // Optional: if received from a buyer (for inflows)
-  paymentMethod: 'CASH' | 'BANK_TRANSFER';
+  paymentMethod?: 'CASH' | 'BANK_TRANSFER' | 'CHEQUE' | 'OTHER' | string;
+  reference?: string;
   bankName?: string;
   isDeleted?: boolean;
   deletedBy?: string;

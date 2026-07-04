@@ -93,12 +93,62 @@ export type PermissionAction =
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const shouldDefaultToDemo = () => {
+  const isDemo = localStorage.getItem('ccs_demo_mode');
+  const isLoggedOut = localStorage.getItem('ccs_logged_out');
+  if (isLoggedOut === 'true') return false;
+  if (isDemo === 'false') return false;
+  // If not explicitly logged out or disabled, default to true in development/preview to showcase the active app immediately
+  return true;
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [company, setCompany] = useState<Company | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [isDemoMode, setIsDemoMode] = useState(() => {
+    const active = shouldDefaultToDemo();
+    if (active) localStorage.setItem('ccs_demo_mode', 'true');
+    return active;
+  });
+  const [user, setUser] = useState<User | null>(() => {
+    if (shouldDefaultToDemo()) {
+      return {
+        uid: 'demo_user_local',
+        email: 'demo@ccs.com',
+        displayName: 'Training User (Local Offline)',
+        isAnonymous: true,
+        emailVerified: true,
+        providerData: []
+      } as any;
+    }
+    return null;
+  });
+  const [profile, setProfile] = useState<UserProfile | null>(() => {
+    if (shouldDefaultToDemo()) {
+      return {
+        uid: 'demo_admin_profile_local',
+        email: 'demo@ccs.com',
+        displayName: 'Training User (Local Offline)',
+        role: 'ADMIN',
+        companyId: 'demo_company_local',
+        createdAt: new Date().toISOString()
+      };
+    }
+    return null;
+  });
+  const [company, setCompany] = useState<Company | null>(() => {
+    if (shouldDefaultToDemo()) {
+      return {
+        id: 'demo_company_local',
+        name: 'CCS Training Demo (Local Offline)',
+        ownerEmail: 'demo@ccs.com',
+        createdAt: new Date().toISOString(),
+        isApproved: true
+      };
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(() => {
+    return !shouldDefaultToDemo();
+  });
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [isFirestoreConnected, setIsFirestoreConnected] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -250,6 +300,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       console.log('AuthContext: onAuthStateChanged trigger:', user?.uid || 'no user');
+      
+      if (localStorage.getItem('ccs_demo_mode') === 'true' && !user) {
+        setLoading(false);
+        clearTimeout(loadingTimeout);
+        return;
+      }
+      
       setUser(user);
       
       try {
@@ -391,8 +448,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   setLoading(false);
                 }
               } else {
-                setProfile(null);
-                setCompany(null);
+                if (localStorage.getItem('ccs_demo_mode') === 'true') {
+                  setProfile({
+                    uid: 'demo_admin_profile_local',
+                    email: 'demo@ccs.com',
+                    displayName: 'Training User (Local Offline)',
+                    role: 'ADMIN',
+                    companyId: 'demo_company_local',
+                    createdAt: new Date().toISOString()
+                  });
+                  setCompany({
+                    id: 'demo_company_local',
+                    name: 'CCS Training Demo (Local Offline)',
+                    ownerEmail: 'demo@ccs.com',
+                    createdAt: new Date().toISOString(),
+                    isApproved: true
+                  });
+                } else {
+                  setProfile(null);
+                  setCompany(null);
+                }
                 setLoading(false);
               }
             }
@@ -675,6 +750,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(true);
       const { user } = await signInAnonymously(auth);
       setIsDemoMode(true);
+      localStorage.setItem('ccs_demo_mode', 'true');
+      localStorage.removeItem('ccs_logged_out');
       
       const demoCompanyId = 'demo_company';
       const demoProfile: any = {
@@ -733,6 +810,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error: any) {
       console.warn('Demo sign in failed, calling local offline mock fallback:', error);
       setIsDemoMode(true);
+      localStorage.setItem('ccs_demo_mode', 'true');
+      localStorage.removeItem('ccs_logged_out');
       const demoCompanyId = 'demo_company_local';
       const demoProfile: any = {
         uid: 'demo_admin_profile_local',
@@ -772,6 +851,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('AuthContext: Logging out...');
       await signOut(auth);
       setIsDemoMode(false);
+      localStorage.removeItem('ccs_demo_mode');
+      localStorage.setItem('ccs_logged_out', 'true');
       setProfile(null);
       setCompany(null);
       setUser(null);
