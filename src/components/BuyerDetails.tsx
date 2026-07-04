@@ -512,7 +512,14 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       }))
     ];
 
-    return entries.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+    return entries.sort((a, b) => {
+      const dateA = new Date(a.date || 0).getTime();
+      const dateB = new Date(b.date || 0).getTime();
+      if (dateB !== dateA) return dateB - dateA;
+      const postA = new Date(a.originalDoc?.postingDate || a.date || 0).getTime();
+      const postB = new Date(b.originalDoc?.postingDate || b.date || 0).getTime();
+      return postB - postA;
+    });
   }, [sales, payments]);
 
   const stats = useMemo(() => {

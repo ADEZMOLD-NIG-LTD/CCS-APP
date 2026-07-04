@@ -311,170 +311,169 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       try {
         if (user) {
-          if (user.isAnonymous) {
+          if (user.isAnonymous || localStorage.getItem('ccs_demo_mode') === 'true') {
             setIsDemoMode(true);
-          }
+            setProfile({
+              uid: 'demo_admin_profile_local',
+              email: 'demo@ccs.com',
+              displayName: 'Training User (Local Offline)',
+              role: 'ADMIN',
+              companyId: 'demo_company_local',
+              createdAt: new Date().toISOString()
+            });
+            setCompany({
+              id: 'demo_company_local',
+              name: 'CCS Training Demo (Local Offline)',
+              ownerEmail: 'demo@ccs.com',
+              createdAt: new Date().toISOString(),
+              isApproved: true
+            });
+            setLoading(false);
+            clearTimeout(loadingTimeout);
+          } else {
+            if (unsubscribeProfile) unsubscribeProfile();
+            if (unsubscribeCompany) unsubscribeCompany();
 
-          if (unsubscribeProfile) unsubscribeProfile();
-          if (unsubscribeCompany) unsubscribeCompany();
-
-          const profileId = user.isAnonymous ? 'demo_admin_profile' : user.uid;
-          const userRef = doc(db, 'users', profileId);
-          
-          console.log('AuthContext: Setting up profile listener for:', profileId);
-          unsubscribeProfile = onSnapshot(userRef, async (userDoc) => {
-            if (userDoc.exists()) {
-              const data = userDoc.data() as UserProfile;
-              console.log('AuthContext: Profile update received:', { role: data.role, mustChange: !!data.lastPasswordUpdate });
-              
-              // Check for suspension
-              if (data.suspended && !isSuperAdmin) {
-                console.warn('AuthContext: User is suspended. Signing out.');
-                setErrorMessage('Your account has been suspended. Please contact the Super Admin.');
-                signOut(auth);
-                return;
-              }
-
-              setProfile(data);
-              setLoading(false);
-              clearTimeout(loadingTimeout);
-
-              // Password Policy Engine
-              const providers = user.providerData.map(p => p.providerId);
-              const isEmailUser = providers.includes('password');
-              
-              if (isEmailUser) {
-                if (data.lastPasswordUpdate) {
-                  const lastUpdate = new Date(data.lastPasswordUpdate).getTime();
-                  const now = new Date().getTime();
-                  const diffDays = (now - lastUpdate) / (1000 * 60 * 60 * 24);
-                  const expired = diffDays >= 90;
-                  console.log('AuthContext: Password policy check:', { lastPasswordUpdate: data.lastPasswordUpdate, diffDays, expired });
-                  setMustChangePassword(expired);
-                } else {
-                  // Force change on first login for email users
-                  console.log('AuthContext: Force change - lastPasswordUpdate missing');
-                  setMustChangePassword(true);
-                }
-              } else {
-                setMustChangePassword(false);
-              }
-              
-              if (data.companyId) {
-                const companyRef = doc(db, 'companies', data.companyId);
-                if (unsubscribeCompany) unsubscribeCompany();
+            const profileId = user.uid;
+            const userRef = doc(db, 'users', profileId);
+            
+            console.log('AuthContext: Setting up profile listener for:', profileId);
+            unsubscribeProfile = onSnapshot(userRef, async (userDoc) => {
+              if (userDoc.exists()) {
+                const data = userDoc.data() as UserProfile;
+                console.log('AuthContext: Profile update received:', { role: data.role, mustChange: !!data.lastPasswordUpdate });
                 
-                unsubscribeCompany = onSnapshot(companyRef, (companyDoc) => {
-                  if (companyDoc.exists()) {
-                    setCompany(companyDoc.data() as Company);
+                // Check for suspension
+                if (data.suspended && !isSuperAdmin) {
+                  console.warn('AuthContext: User is suspended. Signing out.');
+                  setErrorMessage('Your account has been suspended. Please contact the Super Admin.');
+                  signOut(auth);
+                  return;
+                }
+
+                setProfile(data);
+                setLoading(false);
+                clearTimeout(loadingTimeout);
+
+                // Password Policy Engine
+                const providers = user.providerData.map(p => p.providerId);
+                const isEmailUser = providers.includes('password');
+                
+                if (isEmailUser) {
+                  if (data.lastPasswordUpdate) {
+                    const lastUpdate = new Date(data.lastPasswordUpdate).getTime();
+                    const now = new Date().getTime();
+                    const diffDays = (now - lastUpdate) / (1000 * 60 * 60 * 24);
+                    const expired = diffDays >= 90;
+                    console.log('AuthContext: Password policy check:', { lastPasswordUpdate: data.lastPasswordUpdate, diffDays, expired });
+                    setMustChangePassword(expired);
                   } else {
-                    console.warn('AuthContext: Company doc does not exist for ID:', data.companyId);
-                    // Prevent infinite loading state by giving it a fallback and not keeping company null
+                    // Force change on first login for email users
+                    console.log('AuthContext: Force change - lastPasswordUpdate missing');
+                    setMustChangePassword(true);
+                  }
+                } else {
+                  setMustChangePassword(false);
+                }
+                
+                if (data.companyId) {
+                  const companyRef = doc(db, 'companies', data.companyId);
+                  if (unsubscribeCompany) unsubscribeCompany();
+                  
+                  unsubscribeCompany = onSnapshot(companyRef, (companyDoc) => {
+                    if (companyDoc.exists()) {
+                      setCompany(companyDoc.data() as Company);
+                    } else {
+                      console.warn('AuthContext: Company doc does not exist for ID:', data.companyId);
+                      // Prevent infinite loading state by giving it a fallback and not keeping company null
+                      setCompany({
+                        id: data.companyId,
+                        name: 'Unknown / Deleted Company',
+                        isApproved: false,
+                        createdAt: new Date().toISOString()
+                      } as Company);
+                    }
+                  }, (error) => {
+                    // If company fetch fails during initial load, we still want to show the app
+                    console.warn('AuthContext: Company snapshot failed:', error);
+                    // Provide fallback so it does not hang
                     setCompany({
                       id: data.companyId,
-                      name: 'Unknown / Deleted Company',
+                      name: 'Temp (Connection Error)',
                       isApproved: false,
                       createdAt: new Date().toISOString()
                     } as Company);
-                  }
-                }, (error) => {
-                  // If company fetch fails during initial load, we still want to show the app
-                  console.warn('AuthContext: Company snapshot failed:', error);
-                  // Provide fallback so it does not hang
-                  setCompany({
-                    id: data.companyId,
-                    name: 'Temp (Connection Error)',
-                    isApproved: false,
-                    createdAt: new Date().toISOString()
-                  } as Company);
-                });
-              }
-            } else {
-              // New User / Pre-registered Staff Logic
-              if (user.email && !isDemoMode) {
-                console.log('AuthContext: User profile missing, checking staff records for:', user.email);
-                setLoading(true); // Ensure loading is true while checking staff
-                try {
-                  const staffQuery = query(
-                    collection(db, 'staff'),
-                    where('email', '==', user.email.toLowerCase())
-                  );
-                  const staffDocs = await getDocs(staffQuery);
-                  
-                  if (!staffDocs.empty) {
-                    const staffData = staffDocs.docs[0].data() as Staff;
-                    console.log('AuthContext: Staff record found. Creating profile for new user...');
-                    const newProfile: any = {
-                      uid: user.uid,
-                      email: user.email.toLowerCase(),
-                      displayName: user.displayName || staffData.name,
-                      role: staffData.role,
-                      companyId: staffData.companyId,
-                      assignedWarehouseId: staffData.assignedWarehouseId,
-                      createdAt: new Date().toISOString(),
-                      lastPasswordUpdate: new Date().toISOString()
-                    };
-                    
-                    Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
-                    
-                    try {
-                      await setDoc(userRef, newProfile);
-                      console.log('AuthContext: Profile created successfully.');
-                      
-                      // Speed up UI update by setting state manually before snapshot catches up
-                      setProfile(newProfile);
-                      
-                      // Note: the onSnapshot will fire again and sync everything
-                    } catch (rulesError: any) {
-                      console.error('AuthContext: Profile creation REJECTED by rules:', rulesError);
-                      setErrorMessage(`Permission Denied: Could not create your login profile. Please contact the administrator to verify your staff record. Details: ${rulesError.message}`);
-                    }
-                    
-                    // Link staff record to UID
-                    try {
-                      await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
-                    } catch (linkError) {
-                      console.warn('AuthContext: Failed to link staff record to UID.', linkError);
-                    }
-                  } else {
-                    console.log('AuthContext: No staff record found for:', user.email);
-                    setProfile(null);
-                    setCompany(null);
-                  }
-                } catch (staffFetchError: any) {
-                  console.error('AuthContext: Staff record lookup failed:', staffFetchError);
-                  setErrorMessage(`Login Error: Failed to verify your staff status. ${staffFetchError.message}`);
-                } finally {
-                  setLoading(false);
+                  });
                 }
               } else {
-                if (localStorage.getItem('ccs_demo_mode') === 'true') {
-                  setProfile({
-                    uid: 'demo_admin_profile_local',
-                    email: 'demo@ccs.com',
-                    displayName: 'Training User (Local Offline)',
-                    role: 'ADMIN',
-                    companyId: 'demo_company_local',
-                    createdAt: new Date().toISOString()
-                  });
-                  setCompany({
-                    id: 'demo_company_local',
-                    name: 'CCS Training Demo (Local Offline)',
-                    ownerEmail: 'demo@ccs.com',
-                    createdAt: new Date().toISOString(),
-                    isApproved: true
-                  });
+                // New User / Pre-registered Staff Logic
+                if (user.email && !isDemoMode) {
+                  console.log('AuthContext: User profile missing, checking staff records for:', user.email);
+                  setLoading(true); // Ensure loading is true while checking staff
+                  try {
+                    const staffQuery = query(
+                      collection(db, 'staff'),
+                      where('email', '==', user.email.toLowerCase())
+                    );
+                    const staffDocs = await getDocs(staffQuery);
+                    
+                    if (!staffDocs.empty) {
+                      const staffData = staffDocs.docs[0].data() as Staff;
+                      console.log('AuthContext: Staff record found. Creating profile for new user...');
+                      const newProfile: any = {
+                        uid: user.uid,
+                        email: user.email.toLowerCase(),
+                        displayName: user.displayName || staffData.name,
+                        role: staffData.role,
+                        companyId: staffData.companyId,
+                        assignedWarehouseId: staffData.assignedWarehouseId,
+                        createdAt: new Date().toISOString(),
+                        lastPasswordUpdate: new Date().toISOString()
+                      };
+                      
+                      Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
+                      
+                      try {
+                        await setDoc(userRef, newProfile);
+                        console.log('AuthContext: Profile created successfully.');
+                        
+                        // Speed up UI update by setting state manually before snapshot catches up
+                        setProfile(newProfile);
+                        
+                        // Note: the onSnapshot will fire again and sync everything
+                      } catch (rulesError: any) {
+                        console.error('AuthContext: Profile creation REJECTED by rules:', rulesError);
+                        setErrorMessage(`Permission Denied: Could not create your login profile. Please contact the administrator to verify your staff record. Details: ${rulesError.message}`);
+                      }
+                      
+                      // Link staff record to UID
+                      try {
+                        await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
+                      } catch (linkError) {
+                        console.warn('AuthContext: Failed to link staff record to UID.', linkError);
+                      }
+                    } else {
+                      console.log('AuthContext: No staff record found for:', user.email);
+                      setProfile(null);
+                      setCompany(null);
+                    }
+                  } catch (staffFetchError: any) {
+                    console.error('AuthContext: Staff record lookup failed:', staffFetchError);
+                    setErrorMessage(`Login Error: Failed to verify your staff status. ${staffFetchError.message}`);
+                  } finally {
+                    setLoading(false);
+                  }
                 } else {
                   setProfile(null);
                   setCompany(null);
+                  setLoading(false);
                 }
-                setLoading(false);
               }
-            }
-          }, (error) => {
-            setErrorMessage(reportFirestoreError(error, OperationType.GET, `users/${user.uid}`));
-            setLoading(false);
-          });
+            }, (error) => {
+              setErrorMessage(reportFirestoreError(error, OperationType.GET, `users/${user.uid}`));
+              setLoading(false);
+            });
+          }
         } else {
           setIsDemoMode(false);
           setProfile(null);
@@ -753,11 +752,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('ccs_demo_mode', 'true');
       localStorage.removeItem('ccs_logged_out');
       
-      const demoCompanyId = 'demo_company';
+      const demoCompanyId = 'demo_company_local';
       const demoProfile: any = {
-        uid: 'demo_admin_profile',
+        uid: 'demo_admin_profile_local',
         email: 'demo@ccs.com',
-        displayName: 'Training User',
+        displayName: 'Training User (Local Offline)',
         role: 'ADMIN',
         companyId: demoCompanyId,
         createdAt: new Date().toISOString()
@@ -765,20 +764,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       const demoCompany: any = {
         id: demoCompanyId,
-        name: 'CCS Training Demo',
+        name: 'CCS Training Demo (Local Offline)',
         ownerEmail: 'demo@ccs.com',
         createdAt: new Date().toISOString(),
         isApproved: true
       };
 
-      // Create/Update demo data in Firestore
-      Object.keys(demoCompany).forEach(key => demoCompany[key] === undefined && delete demoCompany[key]);
-      await setDoc(doc(db, 'companies', demoCompanyId), demoCompany, { merge: true });
-      
-      Object.keys(demoProfile).forEach(key => demoProfile[key] === undefined && delete demoProfile[key]);
-      await setDoc(doc(db, 'users', 'demo_admin_profile'), demoProfile, { merge: true });
+      setProfile(demoProfile);
+      setCompany(demoCompany);
+      setLoading(false);
 
-      // Seed some demo data if it's a fresh demo session
+      // Background writes (merge) - if they fail, no problem
       const demoWarehouseId = 'demo_warehouse_1';
       const demoWarehouse: any = {
         id: demoWarehouseId,
@@ -788,8 +784,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         capacity: 5000,
         createdAt: new Date().toISOString()
       };
-      Object.keys(demoWarehouse).forEach(key => demoWarehouse[key] === undefined && delete demoWarehouse[key]);
-      await setDoc(doc(db, 'warehouses', demoWarehouseId), demoWarehouse, { merge: true });
 
       const demoSupplierId = 'demo_supplier_1';
       const demoSupplier: any = {
@@ -802,11 +796,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         previousBalance: 0,
         createdAt: new Date().toISOString()
       };
-      Object.keys(demoSupplier).forEach(key => demoSupplier[key] === undefined && delete demoSupplier[key]);
-      await setDoc(doc(db, 'suppliers', demoSupplierId), demoSupplier, { merge: true });
+
+      Object.keys(demoCompany).forEach(key => demoCompany[key] === undefined && delete demoCompany[key]);
+      setDoc(doc(db, 'companies', demoCompanyId), demoCompany, { merge: true }).catch(err => console.log('Silent write fail:', err));
       
-      setProfile(demoProfile);
-      setCompany(demoCompany);
+      Object.keys(demoProfile).forEach(key => demoProfile[key] === undefined && delete demoProfile[key]);
+      setDoc(doc(db, 'users', 'demo_admin_profile_local'), demoProfile, { merge: true }).catch(err => console.log('Silent write fail:', err));
+      
+      Object.keys(demoWarehouse).forEach(key => demoWarehouse[key] === undefined && delete demoWarehouse[key]);
+      setDoc(doc(db, 'warehouses', demoWarehouseId), demoWarehouse, { merge: true }).catch(err => console.log('Silent write fail:', err));
+      
+      Object.keys(demoSupplier).forEach(key => demoSupplier[key] === undefined && delete demoSupplier[key]);
+      setDoc(doc(db, 'suppliers', demoSupplierId), demoSupplier, { merge: true }).catch(err => console.log('Silent write fail:', err));
     } catch (error: any) {
       console.warn('Demo sign in failed, calling local offline mock fallback:', error);
       setIsDemoMode(true);

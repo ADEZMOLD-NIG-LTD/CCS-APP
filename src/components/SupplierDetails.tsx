@@ -156,7 +156,14 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       const data = snapshot.docs
         .map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry))
         .filter(j => !j.isDeleted);
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      const sorted = data.sort((a, b) => {
+        const dateA = new Date(a.date || 0).getTime();
+        const dateB = new Date(b.date || 0).getTime();
+        if (dateA !== dateB) return dateA - dateB;
+        const postA = new Date(a.postingDate || a.date || 0).getTime();
+        const postB = new Date(b.postingDate || b.date || 0).getTime();
+        return postA - postB;
+      });
       setJournal(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
@@ -243,7 +250,14 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
           bags: 0
         };
       })
-    ].sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+    ].sort((a, b) => {
+      const dateA = new Date(a.date || 0).getTime();
+      const dateB = new Date(b.date || 0).getTime();
+      if (dateA !== dateB) return dateA - dateB;
+      const postA = new Date(a.originalDoc?.postingDate || a.date || 0).getTime();
+      const postB = new Date(b.originalDoc?.postingDate || b.date || 0).getTime();
+      return postA - postB;
+    });
 
     // Calculate Balance Brought Forward (BBF)
     let bbf = Number(currentSupplier.previousBalance) || 0;
@@ -258,7 +272,14 @@ export default function SupplierDetails({ supplier, onBack }: Props) {
       }
     }
 
-    const sortedEntries = filtered.sort((a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime());
+    const sortedEntries = filtered.sort((a, b) => {
+      const dateA = new Date(a.date || 0).getTime();
+      const dateB = new Date(b.date || 0).getTime();
+      if (dateA !== dateB) return dateA - dateB;
+      const postA = new Date(a.originalDoc?.postingDate || a.date || 0).getTime();
+      const postB = new Date(b.originalDoc?.postingDate || b.date || 0).getTime();
+      return postA - postB;
+    });
     let runningBalance = bbf;
     const entriesWithBalance = sortedEntries.map(entry => {
       runningBalance = roundTo(runningBalance + ((entry.credit || 0) - (entry.debit || 0)), 2);

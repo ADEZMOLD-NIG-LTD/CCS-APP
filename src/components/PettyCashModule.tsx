@@ -85,7 +85,14 @@ export default function PettyCashModule() {
     const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as PettyCashTransaction));
       // Sort: latest date first, fallback to postingDate
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      const sorted = data.sort((a, b) => {
+        const dateA = new Date(a.date || 0).getTime();
+        const dateB = new Date(b.date || 0).getTime();
+        if (dateB !== dateA) return dateB - dateA;
+        const postA = new Date(a.postingDate || a.date || 0).getTime();
+        const postB = new Date(b.postingDate || b.date || 0).getTime();
+        return postB - postA;
+      });
       setTransactions(sorted);
     }, (error) => {
       setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'petty_cash'));

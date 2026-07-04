@@ -306,7 +306,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
 
               <button 
                 type="submit"
-                disabled={!isFirestoreConnected || isSubmitting}
+                disabled={isSubmitting}
                 className="w-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white p-5 rounded-xl font-bold shadow-md flex items-center justify-center gap-4 active:scale-[0.98] transition-all group disabled:opacity-50"
               >
                 {isSubmitting ? (
@@ -344,8 +344,7 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
             <div className="grid grid-cols-2 gap-4">
               <button 
                 onClick={onSignIn}
-                disabled={!isFirestoreConnected}
-                className={`p-5 rounded-xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50`}
+                className={`p-5 rounded-xl font-bold shadow-sm flex items-center justify-center gap-3 active:scale-[0.98] transition-all group bg-white border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)]`}
               >
                 <LogIn size={18} />
                 <span>Google</span>

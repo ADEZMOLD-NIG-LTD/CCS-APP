@@ -47,6 +47,7 @@ const INFLOW_CATEGORIES = [
   'LOAN',
   'SALES PROCEEDS',
   'INVESTMENT',
+  'ADVANCE RECEIPT',
   'OTHER INCOME'
 ];
 
@@ -59,6 +60,9 @@ const OUTFLOW_CATEGORIES = [
   'MAINTENANCE',
   'SUPPLIER CHARGEBACK',
   'OFFICE SUPPLIES',
+  'DRAWINGS',
+  'ADVANCE PAYMENT',
+  'ASSET PURCHASE',
   'OTHER EXPENSE'
 ];
 
@@ -99,7 +103,14 @@ export default function JournalModule() {
     );
     const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      const sorted = data.sort((a, b) => {
+        const dateA = new Date(a.date || 0).getTime();
+        const dateB = new Date(b.date || 0).getTime();
+        if (dateA !== dateB) return dateA - dateB;
+        const postA = new Date(a.postingDate || a.date || 0).getTime();
+        const postB = new Date(b.postingDate || b.date || 0).getTime();
+        return postA - postB;
+      });
       setEntries(sorted);
     }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
 
