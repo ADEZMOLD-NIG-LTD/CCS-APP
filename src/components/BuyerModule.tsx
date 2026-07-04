@@ -6,7 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Search, MapPin, Phone, Trash2, Edit2, ArrowLeft, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Buyer, Transaction, JournalEntry } from '../types';
+import { Buyer, Transaction, JournalEntry, BuyerPayment } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
@@ -25,6 +25,7 @@ export default function BuyerModule() {
   const [buyers, setBuyers] = useState<Buyer[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [buyerPayments, setBuyerPayments] = useState<BuyerPayment[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [editingBuyer, setEditingBuyer] = useState<Buyer | null>(null);
@@ -78,19 +79,33 @@ export default function BuyerModule() {
       setJournal(data);
     }, (error) => console.error('Failed to load journal entries for buyer balance:', error));
 
+    const qBuyerPayments = query(
+      collection(db, 'buyer_payments'),
+      where('companyId', '==', profile.companyId)
+    );
+    const unsubscribeBuyerPayments = onSnapshot(qBuyerPayments, (snapshot) => {
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as BuyerPayment))
+        .filter(bp => !bp.isDeleted);
+      setBuyerPayments(data);
+    }, (error) => console.error('Failed to load buyer payments for buyer balance:', error));
+
     return () => {
       unsubscribeTx();
       unsubscribeJournal();
+      unsubscribeBuyerPayments();
     };
   }, [profile?.companyId]);
 
   const getBuyerBalance = (bId: string, previousBalance: number) => {
     const bTx = transactions.filter(t => t.buyerId === bId);
     const bPay = journal.filter(j => j.buyerId === bId);
+    const bDirectPay = buyerPayments.filter(bp => bp.buyerId === bId);
 
     const totalSales = bTx.filter(t => t.type === 'SALE').reduce((sum, s) => sum + (s.totalValue || 0), 0);
     const totalReturns = bTx.filter(t => (t.type as string) === 'SALES_RETURN').reduce((sum, s) => sum + (s.totalValue || 0), 0);
-    const totalPayments = bPay.filter(p => p.type === 'INFLOW').reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalPayments = bPay.filter(p => p.type === 'INFLOW').reduce((sum, p) => sum + (p.amount || 0), 0) +
+                          bDirectPay.reduce((sum, bp) => sum + (bp.amount || 0), 0);
     const totalCharges = bPay.filter(p => p.type === 'OUTFLOW').reduce((sum, p) => sum + (p.amount || 0), 0);
 
     return roundTo((Number(previousBalance) || 0) + totalSales - totalReturns + totalCharges - totalPayments, 2);

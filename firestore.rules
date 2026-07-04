@@ -137,6 +137,12 @@ service cloud.firestore {
              data.name is string && data.name.size() > 0;
     }
 
+    function isValidBuyerPayment(data) {
+      return data.keys().hasAll(['id', 'companyId', 'warehouseId', 'date', 'buyerId', 'amount']) &&
+             data.id is string && data.companyId is string &&
+             data.buyerId is string && data.amount is number && data.amount >= 0;
+    }
+
     // ===============================================================
     // Match Blocks
     // ===============================================================
@@ -187,6 +193,16 @@ service cloud.firestore {
       allow update: if sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isAccount())
+      );
+    }
+
+    match /buyer_payments/{id} {
+      allow list: if isStaff() && sameCompany(resource.data.companyId);
+      allow get: if isStaff() && sameCompany(existing().companyId);
+      allow create: if isAccount() && sameCompany(incoming().companyId) && isValidBuyerPayment(incoming());
+      allow update: if sameCompany(existing().companyId) && (
+        (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
+        (!existing().get('isDeleted', false) && isAccount() && isValidBuyerPayment(incoming()))
       );
     }
 

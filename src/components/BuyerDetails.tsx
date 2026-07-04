@@ -11,19 +11,20 @@ import {
   TrendingDown, 
   Wallet, 
   Calendar, 
-  Search,
-  Filter,
-  FileText,
-  Phone,
-  MapPin,
-  Package,
-  ArrowUpRight,
-  ArrowDownRight,
-  Plus,
-  Edit2
+  Search, 
+  Filter, 
+  FileText, 
+  Phone, 
+  MapPin, 
+  Package, 
+  ArrowUpRight, 
+  ArrowDownRight, 
+  Plus, 
+  Edit2,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Buyer, Transaction, JournalEntry, Warehouse, CommodityType } from '../types';
+import { Buyer, Transaction, JournalEntry, Warehouse, CommodityType, BuyerPayment } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { db } from '../firebase';
@@ -73,13 +74,19 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
 
   const [isAddingSalesReturn, setIsAddingSalesReturn] = useState(false);
   const [isAddingCustomerCharge, setIsAddingCustomerCharge] = useState(false);
+  const [isAddingDirectPayment, setIsAddingDirectPayment] = useState(false);
+  const [directPayments, setDirectPayments] = useState<BuyerPayment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [returnNetWeight, setReturnNetWeight] = useState<string>('');
   const [returnPricePerKg, setReturnPricePerKg] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<{
+    id: string;
+    entryType: 'TRANSACTION' | 'JOURNAL' | 'DIRECT_PAYMENT';
+  } | null>(null);
   const [editingEntry, setEditingEntry] = useState<{
     id: string;
-    entryType: 'TRANSACTION' | 'JOURNAL';
+    entryType: 'TRANSACTION' | 'JOURNAL' | 'DIRECT_PAYMENT';
     originalDoc: any;
   } | null>(null);
 
@@ -132,10 +139,25 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       setWarehouses(data);
     });
 
+    // Load Direct Payments (direct credit payments to buyer account)
+    const qDirectPayments = query(
+      collection(db, 'buyer_payments'),
+      where('companyId', '==', profile.companyId),
+      where('buyerId', '==', buyer.id)
+    );
+    const unsubscribeDirectPayments = onSnapshot(qDirectPayments, (snapshot) => {
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as BuyerPayment))
+        .filter(e => !e.isDeleted);
+      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+      setDirectPayments(sorted);
+    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyer_payments')));
+
     return () => {
       unsubscribeSales();
       unsubscribePayments();
       unsubscribeWarehouses();
+      unsubscribeDirectPayments();
     };
   }, [profile?.companyId, buyer.id]);
 
@@ -258,6 +280,104 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
       setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `journal/${id}`));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleAddDirectPayment = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!(isAccount || isAdmin) || submitting || !profile?.companyId) return;
+
+    setSubmitting(true);
+    const formData = new FormData(e.currentTarget);
+    const id = crypto.randomUUID();
+    const selectedDate = formData.get('date') as string;
+    const paymentDateIso = selectedDate 
+      ? new Date(selectedDate + 'T12:00:00').toISOString() 
+      : new Date().toISOString();
+
+    const newPayment: BuyerPayment = {
+      id,
+      companyId: profile.companyId,
+      warehouseId: formData.get('warehouseId') as string,
+      date: paymentDateIso,
+      postingDate: new Date().toISOString(),
+      buyerId: buyer.id,
+      amount: Number(formData.get('amount')),
+      method: formData.get('paymentMethod') as any,
+      reference: formData.get('reference') as string || '',
+      description: formData.get('description') as string || 'Direct Payment',
+    };
+
+    try {
+      const writePromise = setDoc(doc(db, 'buyer_payments', id), newPayment);
+      
+      if (!isOnline) {
+        console.log('Working offline, proceeding optimistically');
+      } else {
+        await writePromise;
+      }
+      
+      recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.CREATE,
+        module: 'Buyer Payments',
+        recordId: id,
+        details: `Recorded direct credit payment of ₦${newPayment.amount} to buyer account of ${buyer.name}`,
+        newData: newPayment
+      }).catch(err => console.error('Failed to log audit:', err));
+
+      setIsAddingDirectPayment(false);
+      setSuccessMessage('Payment successfully credited!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.CREATE, `buyer_payments/${id}`));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const confirmDelete = async (reason: string) => {
+    if (!deleteConfirmId || !profile) return;
+    setSubmitting(true);
+    const { id, entryType } = deleteConfirmId;
+    const updateData = {
+      isDeleted: true,
+      deletionReason: reason || 'Deleted by user',
+      deletedBy: profile.email,
+      deletedAt: new Date().toISOString()
+    };
+
+    try {
+      let collectionName = '';
+      if (entryType === 'TRANSACTION') {
+        collectionName = 'transactions';
+      } else if (entryType === 'JOURNAL') {
+        collectionName = 'journal';
+      } else if (entryType === 'DIRECT_PAYMENT') {
+        collectionName = 'buyer_payments';
+      }
+
+      await setDoc(doc(db, collectionName, id), updateData, { merge: true });
+
+      // Record Audit Log
+      await recordAuditLog({
+        companyId: profile.companyId,
+        userId: profile.uid,
+        userEmail: profile.email,
+        action: AuditAction.DELETE,
+        module: entryType === 'DIRECT_PAYMENT' ? 'Buyer Payments' : (entryType === 'TRANSACTION' ? 'Transactions' : 'Journal'),
+        recordId: id,
+        details: `Deleted (Soft) ${entryType.toLowerCase()} entry. Reason: ${reason}`,
+        newData: updateData
+      }).catch(err => console.error('Failed to log audit:', err));
+
+      setSuccessMessage('Entry successfully deleted!');
+    } catch (error) {
+      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `${entryType.toLowerCase()}/${id}`));
+    } finally {
+      setSubmitting(false);
+      setDeleteConfirmId(null);
     }
   };
 
@@ -400,21 +520,33 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         reference: p.category,
         entryType: 'JOURNAL' as const,
         originalDoc: p
+      })),
+      ...directPayments.map(dp => ({
+        id: dp.id,
+        date: dp.date,
+        type: 'DIRECT_PAYMENT' as const,
+        description: `Direct Credit: ${dp.description || 'Direct Payment'} (${dp.method})`,
+        debit: 0,
+        credit: roundTo(dp.amount || 0, 2),
+        reference: dp.reference || '',
+        entryType: 'DIRECT_PAYMENT' as const,
+        originalDoc: dp
       }))
     ];
 
     return entries.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-  }, [sales, payments]);
+  }, [sales, payments, directPayments]);
 
   const stats = useMemo(() => {
     const totalSales = sales.filter(s => s.type === 'SALE').reduce((sum, s) => sum + roundTo(s.totalValue || 0, 2), 0);
     const totalReturns = sales.filter(s => (s.type as string) === 'SALES_RETURN').reduce((sum, s) => sum + roundTo(s.totalValue || 0, 2), 0);
-    const totalPayments = payments.filter(p => p.type === 'INFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
+    const totalPayments = payments.filter(p => p.type === 'INFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0) +
+                          directPayments.reduce((sum, dp) => sum + roundTo(dp.amount || 0, 2), 0);
     const totalCharges = payments.filter(p => p.type === 'OUTFLOW').reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
     const currentBalance = roundTo((Number(currentBuyer.previousBalance) || 0) + totalSales - totalReturns + totalCharges - totalPayments, 2);
 
     return { totalSales, totalPayments, currentBalance, totalReturns, totalCharges };
-  }, [sales, payments, currentBuyer.previousBalance]);
+  }, [sales, payments, directPayments, currentBuyer.previousBalance]);
 
   const exportPDF = () => {
     const doc = new jsPDF('landscape');
@@ -569,22 +701,30 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         </div>
 
         {/* Quick Actions */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {canPostTransactions && (
             <button
               onClick={() => setIsAddingSalesReturn(true)}
-              className="flex-1 bg-rose-50 text-rose-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-rose-100"
+              className="flex-1 min-w-[120px] bg-rose-50 text-rose-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-rose-100"
             >
               <Plus size={16} /> Sales Return
             </button>
           )}
           {(isAccount || isAdmin) && (
-            <button
-              onClick={() => setIsAddingCustomerCharge(true)}
-              className="flex-1 bg-amber-50 text-amber-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-amber-100"
-            >
-              <Plus size={16} /> Charge Customer
-            </button>
+            <>
+              <button
+                onClick={() => setIsAddingDirectPayment(true)}
+                className="flex-1 min-w-[120px] bg-emerald-50 text-emerald-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-emerald-100"
+              >
+                <Plus size={16} /> Direct Credit
+              </button>
+              <button
+                onClick={() => setIsAddingCustomerCharge(true)}
+                className="flex-1 min-w-[120px] bg-amber-50 text-amber-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-amber-100"
+              >
+                <Plus size={16} /> Charge Customer
+              </button>
+            </>
           )}
         </div>
 
@@ -661,15 +801,14 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
                         </p>
                         {isAdmin && (
                           <button
-                            onClick={() => setEditingEntry({
+                            onClick={() => setDeleteConfirmId({
                               id: entry.id,
-                              entryType: entry.entryType,
-                              originalDoc: entry.originalDoc
+                              entryType: entry.entryType
                             })}
-                            className="mt-2 text-[10px] text-blue-600 font-black hover:text-blue-700 hover:underline flex items-center gap-1 justify-end ml-auto"
-                            title="Adjust Entry"
+                            className="mt-2 text-[10px] text-rose-600 font-black hover:text-rose-700 hover:underline flex items-center gap-1 justify-end ml-auto"
+                            title="Delete Entry"
                           >
-                            <Edit2 size={10} /> Adjust
+                            <Trash2 size={10} /> Delete
                           </button>
                         )}
                       </div>
@@ -842,6 +981,115 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
                     className="flex-2 bg-amber-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                   >
                     {submitting ? 'Recording...' : 'Record Charge'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {isAddingDirectPayment && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl my-auto"
+            >
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-emerald-600">
+                <Plus className="rotate-45" size={24} /> Direct Credit Payment
+              </h2>
+              <form onSubmit={handleAddDirectPayment} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</label>
+                  <input 
+                    name="date" 
+                    type="date" 
+                    required 
+                    defaultValue={new Date().toISOString().substring(0, 10)} 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
+                  <select name="warehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="">Select Warehouse</option>
+                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Amount (₦)</label>
+                  <DigitFormattedInput name="amount" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" prefix="₦" placeholder="0" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Payment Method</label>
+                  <select name="paymentMethod" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm">
+                    <option value="CASH">Cash</option>
+                    <option value="BANK_TRANSFER">Bank Transfer</option>
+                    <option value="CHEQUE">Cheque</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reference / Receipt #</label>
+                  <input name="reference" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" placeholder="Optional txn reference..." />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Description / Notes</label>
+                  <input name="description" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" placeholder="Direct Payment to Buyer Account" />
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setIsAddingDirectPayment(false)} className="flex-1 py-4 text-slate-500 font-bold text-sm">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {submitting ? 'Crediting...' : 'Credit Account'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {deleteConfirmId && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }}
+              className="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl my-auto"
+            >
+              <h2 className="text-xl font-bold mb-4 text-rose-600 flex items-center gap-2">
+                <Trash2 size={24} /> Delete Entry
+              </h2>
+              <p className="text-sm text-slate-500 mb-6">
+                Are you sure you want to delete this ledger entry? This action cannot be undone, and will require a reason for audit tracking.
+              </p>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const reason = new FormData(e.currentTarget).get('reason') as string;
+                if (!reason) return;
+                await confirmDelete(reason);
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reason for deletion</label>
+                  <input 
+                    name="reason" 
+                    required 
+                    placeholder="e.g. Typo in amount, incorrect customer" 
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
+                  />
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button type="button" onClick={() => setDeleteConfirmId(null)} className="flex-1 py-4 text-slate-500 font-bold text-sm">Cancel</button>
+                  <button 
+                    type="submit" 
+                    disabled={submitting}
+                    className="flex-2 bg-rose-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                  >
+                    {submitting ? 'Deleting...' : 'Confirm Delete'}
                   </button>
                 </div>
               </form>

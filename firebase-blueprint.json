@@ -364,6 +364,28 @@
         "deletedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "companyId", "warehouseId", "date", "postingDate", "type", "amount", "category", "status", "createdBy", "creatorEmail"]
+    },
+    "BuyerPayment": {
+      "title": "BuyerPayment",
+      "description": "Payment credited directly to a buyer's account without journal footprint",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string" },
+        "warehouseId": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "postingDate": { "type": "string", "format": "date-time" },
+        "buyerId": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["CASH", "BANK_TRANSFER", "CHECK"] },
+        "reference": { "type": "string" },
+        "description": { "type": "string" },
+        "isDeleted": { "type": "boolean" },
+        "deletedBy": { "type": "string" },
+        "deletionReason": { "type": "string" },
+        "deletedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "companyId", "warehouseId", "date", "buyerId", "amount"]
     }
   },
   "firestore": {
@@ -434,6 +456,10 @@
     "petty_cash": {
       "schema": "PettyCashTransaction",
       "description": "Collection of petty cash transactions"
+    },
+    "buyer_payments": {
+      "schema": "BuyerPayment",
+      "description": "Collection of direct customer payments credited to buyer accounts"
     }
   }
 }
