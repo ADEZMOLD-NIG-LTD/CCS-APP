@@ -80,6 +80,14 @@ export default function SalesModule() {
   const [manualNetWeight, setManualNetWeight] = useState<number | string>('');
   const [manualTotalValue, setManualTotalValue] = useState<number | string>('');
 
+  const [transactionDate, setTransactionDate] = useState<string>(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  });
+
   const handleEditSaleClick = (tx: Transaction) => {
     setEditingTransaction(tx);
     setCommodity(tx.commodity);
@@ -95,6 +103,12 @@ export default function SalesModule() {
     setIsSupplierBuyer(!!tx.supplierId && !tx.isDirectDelivery && !tx.buyerId);
     setManualNetWeight(tx.netWeight ?? '');
     setManualTotalValue(tx.totalValue ?? '');
+    if (tx.date) {
+      setTransactionDate(tx.date.substring(0, 10));
+    } else {
+      const d = new Date();
+      setTransactionDate(d.toISOString().substring(0, 10));
+    }
     setIsAddingSale(true);
   };
 
@@ -336,10 +350,14 @@ export default function SalesModule() {
     const formData = new FormData(e.currentTarget);
     const id = editingTransaction?.id || crypto.randomUUID();
     
+    const transactionDateIso = transactionDate 
+      ? new Date(transactionDate + 'T12:00:00').toISOString() 
+      : (editingTransaction?.date || new Date().toISOString());
+
     const newTx: any = {
       id,
       companyId: profile.companyId,
-      date: editingTransaction?.date || new Date().toISOString(),
+      date: transactionDateIso,
       type: 'SALE',
       commodity,
       buyerId: isSupplierBuyer ? undefined : (formData.get('buyerId') as string),
@@ -421,6 +439,11 @@ export default function SalesModule() {
     setPrice('');
     setManualNetWeight('');
     setManualTotalValue('');
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    setTransactionDate(`${year}-${month}-${day}`);
   };
 
   const handleDeleteSale = async (txId: string) => {
@@ -566,6 +589,8 @@ export default function SalesModule() {
                 setManualNetWeight={setManualNetWeight}
                 manualTotalValue={manualTotalValue}
                 setManualTotalValue={setManualTotalValue}
+                transactionDate={transactionDate}
+                setTransactionDate={setTransactionDate}
                 submitting={submitting}
                 onSubmit={handleAddSale}
                 onCancel={() => { setIsAddingSale(false); resetForm(); }}

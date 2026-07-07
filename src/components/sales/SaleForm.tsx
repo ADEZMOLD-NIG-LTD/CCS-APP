@@ -44,6 +44,8 @@ interface SaleFormProps {
   setManualNetWeight: (w: number | string) => void;
   manualTotalValue: number | string;
   setManualTotalValue: (v: number | string) => void;
+  transactionDate: string;
+  setTransactionDate: (d: string) => void;
   submitting: boolean;
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   onCancel: () => void;
@@ -85,6 +87,8 @@ export default function SaleForm({
   setManualNetWeight,
   manualTotalValue,
   setManualTotalValue,
+  transactionDate,
+  setTransactionDate,
   submitting,
   onSubmit,
   onCancel,
@@ -204,7 +208,7 @@ export default function SaleForm({
               </select>
             )}
           </div>
-          <div className="col-span-2">
+          <div className="col-span-1">
             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Store Record ID (Tranx ID)</label>
             <input 
               name="storeRecordId" 
@@ -212,6 +216,17 @@ export default function SaleForm({
               defaultValue={editingTransaction?.storeRecordId || ''}
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
               placeholder="Quote Tranx ID from Store Keeper" 
+            />
+          </div>
+          <div className="col-span-1">
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Transaction Date</label>
+            <input 
+              name="transactionDate"
+              type="date"
+              required
+              value={transactionDate}
+              onChange={(e) => setTransactionDate(e.target.value)}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
             />
           </div>
           <div className={isCustomCommodity ? "col-span-2" : "col-span-1"}>

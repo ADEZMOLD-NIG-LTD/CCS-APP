@@ -25,9 +25,10 @@ service cloud.firestore {
     }
 
     function getUserData() {
-      let uid = request.auth.token.firebase.sign_in_provider == 'anonymous' ? 'demo_admin_profile' : request.auth.uid;
+      let uid = request.auth.token.firebase.sign_in_provider == 'anonymous' ? 'demo_admin_profile_local' : request.auth.uid;
       let path = /databases/$(database)/documents/users/$(uid);
-      return exists(path) ? get(path).data : null;
+      let legacyPath = /databases/$(database)/documents/users/demo_admin_profile;
+      return exists(path) ? get(path).data : (exists(legacyPath) ? get(legacyPath).data : null);
     }
 
     function isAnonymous() {
@@ -38,7 +39,7 @@ service cloud.firestore {
       let data = getUserData();
       return isSignedIn() && (
         isSuperAdmin() || 
-        (isAnonymous() && companyId == 'demo_company') || 
+        (isAnonymous() && (companyId == 'demo_company' || companyId == 'demo_company_local')) || 
         (data != null && data.companyId == companyId)
       );
     }
@@ -176,12 +177,12 @@ service cloud.firestore {
     }
 
     match /journal/{id} {
-      allow list: if isAccount() && sameCompany(resource.data.companyId);
-      allow get: if isAccount() && sameCompany(existing().companyId);
-      allow create: if isAccount() && sameCompany(incoming().companyId) && isValidJournalEntry(incoming());
+      allow list: if isStaff() && sameCompany(resource.data.companyId);
+      allow get: if isStaff() && sameCompany(existing().companyId);
+      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidJournalEntry(incoming());
       allow update: if sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
-        (!existing().get('isDeleted', false) && isAccount() && isValidJournalEntry(incoming()))
+        (!existing().get('isDeleted', false) && isStaff() && isValidJournalEntry(incoming()))
       );
       allow delete: if false;
     }
@@ -189,20 +190,20 @@ service cloud.firestore {
     match /payments/{id} {
       allow list: if isStaff() && sameCompany(resource.data.companyId);
       allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isAccount() && sameCompany(incoming().companyId);
+      allow create: if isStaff() && sameCompany(incoming().companyId);
       allow update: if sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
-        (!existing().get('isDeleted', false) && isAccount())
+        (!existing().get('isDeleted', false) && isStaff())
       );
     }
 
     match /buyer_payments/{id} {
       allow list: if isStaff() && sameCompany(resource.data.companyId);
       allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isAccount() && sameCompany(incoming().companyId) && isValidBuyerPayment(incoming());
+      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidBuyerPayment(incoming());
       allow update: if sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
-        (!existing().get('isDeleted', false) && isAccount() && isValidBuyerPayment(incoming()))
+        (!existing().get('isDeleted', false) && isStaff() && isValidBuyerPayment(incoming()))
       );
     }
 

@@ -30,7 +30,7 @@ import {
   getDocs,
   getDocFromServer
 } from 'firebase/firestore';
-import { auth, db, firebaseConfig } from '../firebase';
+import { auth, db, firebaseConfig, isMockFallback } from '../firebase';
 import { UserProfile, Company, Staff } from '../types';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 
@@ -195,8 +195,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     async function testConnection() {
+      if (isMockFallback) {
+        console.log("AuthContext: Operating in Local / Offline Mock Mode. Bypassing connection test.");
+        setIsFirestoreConnected(true);
+        setConnectionError(null);
+        return;
+      }
+
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection test timeout')), 20000)
+        setTimeout(() => reject(new Error('Connection test timeout')), 4000) // 4 seconds
       );
       
       try {
@@ -212,8 +219,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.warn(`Auth Domain Warning: Your authDomain is set to "${configAuthDomain}". This may cause issues in production. It usually should be your "*.firebaseapp.com" domain.`);
         }
 
+        // Ping the publicly accessible path '_health_check_/ping' instead of authenticated 'test/connection'
         await Promise.race([
-          getDocFromServer(doc(db, 'test', 'connection')),
+          getDocFromServer(doc(db, '_health_check_', 'ping')),
           timeoutPromise
         ]);
         console.log("Firestore connection successful.");
@@ -408,60 +416,105 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               } else {
                 // New User / Pre-registered Staff Logic
                 if (user.email && !isDemoMode) {
-                  console.log('AuthContext: User profile missing, checking staff records for:', user.email);
-                  setLoading(true); // Ensure loading is true while checking staff
-                  try {
-                    const staffQuery = query(
-                      collection(db, 'staff'),
-                      where('email', '==', user.email.toLowerCase())
-                    );
-                    const staffDocs = await getDocs(staffQuery);
-                    
-                    if (!staffDocs.empty) {
-                      const staffData = staffDocs.docs[0].data() as Staff;
-                      console.log('AuthContext: Staff record found. Creating profile for new user...');
-                      const newProfile: any = {
+                  const isSuperAdminEmail = [
+                    'wasiuadebisi89@gmail.com',
+                    'adezmoldent@gmail.com',
+                    'abdullahiwasiu07@gmail.com'
+                  ].includes(user.email.toLowerCase());
+
+                  if (isSuperAdminEmail) {
+                    console.log('AuthContext: Super Admin logged in. Ensuring profile and HQ company exist...');
+                    setLoading(true);
+                    try {
+                      const superCompanyId = 'super_admin_hq';
+                      const superCompany: Company = {
+                        id: superCompanyId,
+                        name: 'Adezmold Consulting HQ',
+                        ownerEmail: user.email.toLowerCase(),
+                        createdAt: new Date().toISOString(),
+                        isApproved: true
+                      };
+                      
+                      const superProfile: UserProfile = {
                         uid: user.uid,
                         email: user.email.toLowerCase(),
-                        displayName: user.displayName || staffData.name,
-                        role: staffData.role,
-                        companyId: staffData.companyId,
-                        assignedWarehouseId: staffData.assignedWarehouseId,
+                        displayName: user.displayName || 'Super Admin',
+                        role: 'ADMIN',
+                        companyId: superCompanyId,
                         createdAt: new Date().toISOString(),
                         lastPasswordUpdate: new Date().toISOString()
                       };
+
+                      // Create HQ company first
+                      await setDoc(doc(db, 'companies', superCompanyId), superCompany, { merge: true });
+                      // Create user profile
+                      await setDoc(userRef, superProfile, { merge: true });
                       
-                      Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
-                      
-                      try {
-                        await setDoc(userRef, newProfile);
-                        console.log('AuthContext: Profile created successfully.');
-                        
-                        // Speed up UI update by setting state manually before snapshot catches up
-                        setProfile(newProfile);
-                        
-                        // Note: the onSnapshot will fire again and sync everything
-                      } catch (rulesError: any) {
-                        console.error('AuthContext: Profile creation REJECTED by rules:', rulesError);
-                        setErrorMessage(`Permission Denied: Could not create your login profile. Please contact the administrator to verify your staff record. Details: ${rulesError.message}`);
-                      }
-                      
-                      // Link staff record to UID
-                      try {
-                        await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
-                      } catch (linkError) {
-                        console.warn('AuthContext: Failed to link staff record to UID.', linkError);
-                      }
-                    } else {
-                      console.log('AuthContext: No staff record found for:', user.email);
-                      setProfile(null);
-                      setCompany(null);
+                      setProfile(superProfile);
+                      setCompany(superCompany);
+                      console.log('AuthContext: Super Admin profile and HQ company initialized successfully.');
+                    } catch (superError: any) {
+                      console.error('AuthContext: Failed to initialize Super Admin profile:', superError);
+                      setErrorMessage(`Super Admin Initialization Error: ${superError.message}`);
+                    } finally {
+                      setLoading(false);
                     }
-                  } catch (staffFetchError: any) {
-                    console.error('AuthContext: Staff record lookup failed:', staffFetchError);
-                    setErrorMessage(`Login Error: Failed to verify your staff status. ${staffFetchError.message}`);
-                  } finally {
-                    setLoading(false);
+                  } else {
+                    console.log('AuthContext: User profile missing, checking staff records for:', user.email);
+                    setLoading(true); // Ensure loading is true while checking staff
+                    try {
+                      const staffQuery = query(
+                        collection(db, 'staff'),
+                        where('email', '==', user.email.toLowerCase())
+                      );
+                      const staffDocs = await getDocs(staffQuery);
+                      
+                      if (!staffDocs.empty) {
+                        const staffData = staffDocs.docs[0].data() as Staff;
+                        console.log('AuthContext: Staff record found. Creating profile for new user...');
+                        const newProfile: any = {
+                          uid: user.uid,
+                          email: user.email.toLowerCase(),
+                          displayName: user.displayName || staffData.name,
+                          role: staffData.role,
+                          companyId: staffData.companyId,
+                          assignedWarehouseId: staffData.assignedWarehouseId,
+                          createdAt: new Date().toISOString(),
+                          lastPasswordUpdate: new Date().toISOString()
+                        };
+                        
+                        Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
+                        
+                        try {
+                          await setDoc(userRef, newProfile);
+                          console.log('AuthContext: Profile created successfully.');
+                          
+                          // Speed up UI update by setting state manually before snapshot catches up
+                          setProfile(newProfile);
+                          
+                          // Note: the onSnapshot will fire again and sync everything
+                        } catch (rulesError: any) {
+                          console.error('AuthContext: Profile creation REJECTED by rules:', rulesError);
+                          setErrorMessage(`Permission Denied: Could not create your login profile. Please contact the administrator to verify your staff record. Details: ${rulesError.message}`);
+                        }
+                        
+                        // Link staff record to UID
+                        try {
+                          await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
+                        } catch (linkError) {
+                          console.warn('AuthContext: Failed to link staff record to UID.', linkError);
+                        }
+                      } else {
+                        console.log('AuthContext: No staff record found for:', user.email);
+                        setProfile(null);
+                        setCompany(null);
+                      }
+                    } catch (staffFetchError: any) {
+                      console.error('AuthContext: Staff record lookup failed:', staffFetchError);
+                      setErrorMessage(`Login Error: Failed to verify your staff status. ${staffFetchError.message}`);
+                    } finally {
+                      setLoading(false);
+                    }
                   }
                 } else {
                   setProfile(null);
@@ -747,7 +800,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setErrorMessage(null);
       setLoading(true);
-      const { user } = await signInAnonymously(auth);
+      
+      let demoUser: any = null;
+      try {
+        const { user } = await signInAnonymously(auth);
+        demoUser = user;
+      } catch (authError) {
+        console.warn("AuthContext: Could not connect to Firebase Auth for anonymous sign-in, using local offline mock auth instead:", authError);
+        demoUser = {
+          uid: 'demo_user_local',
+          email: 'demo@ccs.com',
+          displayName: 'Training User (Local Offline)',
+          isAnonymous: true,
+          emailVerified: true,
+          providerData: []
+        };
+      }
+
+      setUser(demoUser);
       setIsDemoMode(true);
       localStorage.setItem('ccs_demo_mode', 'true');
       localStorage.removeItem('ccs_logged_out');

@@ -10,9 +10,14 @@ export default defineConfig(({mode}) => {
   const isProd = mode === 'production';
   const hasConfigJson = fs.existsSync(path.resolve(__dirname, './firebase-applet-config.json'));
   
-  // Only use real Firebase in development if the config JSON file was successfully generated/provisioned.
-  // In production builds, we also allow falling back to environment variables.
-  const hasRealFirebase = hasConfigJson || (isProd && (!!env.VITE_FIREBASE_API_KEY || !!env.FIREBASE_API_KEY));
+  // Check if we are running in the AI Studio preview/developer environment.
+  // In this environment, we strictly require hasConfigJson to be true to use real Firebase.
+  // This prevents the production build from mistakenly using default platform environment variables when the project hasn't been provisioned yet.
+  const isAIStudioPreview = !!process.env.APPLET_ID || !!env.APPLET_ID || (process.env.K_SERVICE && process.env.K_SERVICE.startsWith('ais-'));
+  
+  const hasRealFirebase = isAIStudioPreview 
+    ? hasConfigJson 
+    : (hasConfigJson || (isProd && (!!env.VITE_FIREBASE_API_KEY || !!env.FIREBASE_API_KEY)));
 
   const aliases: Record<string, string> = {
     '@': path.resolve(__dirname, '.'),

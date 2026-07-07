@@ -29,8 +29,17 @@ const sanitize = (val: any) => typeof val === 'string' ? val.replace(/['"]/g, ''
 const rawApiKey = sanitize(import.meta.env.VITE_FIREBASE_API_KEY || configJson.apiKey);
 const rawProjectId = sanitize(import.meta.env.VITE_FIREBASE_PROJECT_ID || configJson.projectId);
 
-// If real credentials are missing, we fall back to mock credentials so that the app stays functional.
-export const isMockFallback = !rawApiKey || !rawProjectId;
+// Detect if we are running in the AI Studio preview/developer environment
+const isAIStudioPreview = typeof window !== 'undefined' && (
+  window.location.hostname.includes('.run.app') || 
+  window.location.hostname.includes('localhost')
+);
+
+// If real credentials are missing or if we are inside the AI Studio preview but lack config JSON, fall back to mock.
+export const isMockFallback = !rawApiKey || !rawProjectId || 
+  rawApiKey === "mock-api-key-safe-fallback" || 
+  rawProjectId === "mock-project-safe-fallback" || 
+  (isAIStudioPreview && Object.keys(configJson).length === 0);
 
 export const firebaseConfig: FirebaseOptions & { firestoreDatabaseId?: string } = {
   apiKey: rawApiKey || "mock-api-key-safe-fallback",
@@ -107,7 +116,11 @@ try {
 export { app, auth, db };
 
 // Test connection to Firestore with retries
-async function testConnection(retries = 5) {
+async function testConnection(retries = 2) {
+  if (isMockFallback) {
+    console.log("Firestore connection test skipped: Operating in Local / Offline Mock Mode.");
+    return;
+  }
   for (let i = 0; i < retries; i++) {
     try {
       if (!db) {
@@ -115,12 +128,12 @@ async function testConnection(retries = 5) {
         return;
       }
       console.log(`Testing Firestore connection (attempt ${i + 1})...`);
-      // Use a simple collection reference for the test
+      // Use the publicly readable ping document from our firestore.rules
       const testDoc = doc(db, '_health_check_', 'ping');
       
-      // Use a timeout for the health check
+      // Short 4-second timeout to avoid page loading hangs
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error("Connection test timeout")), 20000)
+        setTimeout(() => reject(new Error("Connection test timeout")), 4000)
       );
       
       const snapshot = await Promise.race([
@@ -128,7 +141,7 @@ async function testConnection(retries = 5) {
         timeoutPromise
       ]) as any;
       
-      console.log("Firestore connection successful. Document exists:", snapshot.exists());
+      console.log("Firestore connection successful. Health check completed.");
       return;
     } catch (error: any) {
       // Permission denied is actually a success! It means we reached the server.
@@ -139,16 +152,14 @@ async function testConnection(retries = 5) {
       
       console.warn(`Firestore Connection Attempt ${i + 1} failed:`, {
         code: error.code,
-        message: error.message,
-        name: error.name,
-        stack: error.stack
+        message: error.message
       });
       
       if (i === retries - 1) {
-        console.warn("All Firestore connection attempts failed. This might be due to network restrictions or a pending database provisioning. Please try refreshing in a few minutes.");
+        console.warn("All Firestore connection attempts failed. Proceeding with caution.");
       } else {
-        // Wait longer between retries
-        const delay = (i + 1) * 3000;
+        // Wait shorter delay between retries
+        const delay = 1000;
         console.log(`Waiting ${delay}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));
       }

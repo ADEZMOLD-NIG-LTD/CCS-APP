@@ -213,7 +213,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
 
   const handleAddCustomerCharge = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!(isAccount || isAdmin) || submitting || !profile?.companyId) return;
+    if (!canPostTransactions || submitting || !profile?.companyId) return;
 
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
@@ -269,7 +269,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
 
   const handleAddDirectPayment = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!(isAccount || isAdmin) || submitting || !profile?.companyId) return;
+    if (!canPostTransactions || submitting || !profile?.companyId) return;
 
     setSubmitting(true);
     const formData = new FormData(e.currentTarget);
@@ -687,15 +687,13 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
         {/* Quick Actions */}
         <div className="flex gap-2 flex-wrap">
           {canPostTransactions && (
-            <button
-              onClick={() => setIsAddingSalesReturn(true)}
-              className="flex-1 min-w-[120px] bg-rose-50 text-rose-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-rose-100"
-            >
-              <Plus size={16} /> Sales Return
-            </button>
-          )}
-          {(isAccount || isAdmin) && (
             <>
+              <button
+                onClick={() => setIsAddingSalesReturn(true)}
+                className="flex-1 min-w-[120px] bg-rose-50 text-rose-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-rose-100"
+              >
+                <Plus size={16} /> Sales Return
+              </button>
               <button
                 onClick={() => setIsAddingDirectPayment(true)}
                 className="flex-1 min-w-[120px] bg-emerald-50 text-emerald-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-xs shadow-sm hover:bg-emerald-100"

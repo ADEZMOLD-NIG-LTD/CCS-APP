@@ -16,7 +16,9 @@ import {
   ArrowDownRight,
   Plus,
   History,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { db } from '../firebase';
@@ -25,6 +27,46 @@ import { Transaction, Payment, JournalEntry, Supplier } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { handleFirestoreError, OperationType } from '../lib/firestore';
 import { roundTo, formatCurrency } from '../lib/utils';
+
+const getLocalDateString = (dateObj: Date = new Date()) => {
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const parseLocalDate = (dateStr: string) => {
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    return new Date(year, month, day);
+  }
+  return new Date(dateStr);
+};
+
+const isSameDay = (recordDateStr: string, selectedDateStr: string) => {
+  if (!recordDateStr || !selectedDateStr) return false;
+  try {
+    const d1 = new Date(recordDateStr);
+    const d2 = parseLocalDate(selectedDateStr);
+    return d1.getFullYear() === d2.getFullYear() &&
+           d1.getMonth() === d2.getMonth() &&
+           d1.getDate() === d2.getDate();
+  } catch (e) {
+    return false;
+  }
+};
+
+const formatFriendlyDate = (dateStr: string) => {
+  try {
+    const d = parseLocalDate(dateStr);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch (e) {
+    return dateStr;
+  }
+};
 
 interface DashboardProps {
   onNavigate: (module: any) => void;
@@ -36,6 +78,17 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [journal, setJournal] = useState<JournalEntry[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString());
+
+  const handleNavigateDate = (days: number) => {
+    try {
+      const current = parseLocalDate(selectedDate);
+      current.setDate(current.getDate() + days);
+      setSelectedDate(getLocalDateString(current));
+    } catch (e) {
+      console.error('Error navigating date:', e);
+    }
+  };
 
   React.useEffect(() => {
     if (!profile?.companyId || (company && !company.isApproved && !isSuperAdmin)) return;
@@ -98,13 +151,17 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     const activePayments = payments.filter(p => !p.isDeleted);
     const activeJournal = journal.filter(e => !e.isDeleted);
 
-    const totalPurchases = activeTransactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
-    const totalSales = activeTransactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
-    const totalPayments = activePayments.reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
-    const totalInflow = activeJournal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
-    const totalOutflow = activeJournal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
+    // Filter transactions and journal entries specifically for the selected date
+    const dailyTransactions = activeTransactions.filter(t => isSameDay(t.date, selectedDate));
+    const dailyJournal = activeJournal.filter(e => isSameDay(e.date, selectedDate));
 
-    // Calculate total supplier balance
+    const totalPurchases = dailyTransactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
+    const totalSales = dailyTransactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
+    const totalPayments = activePayments.filter(p => isSameDay(p.date, selectedDate)).reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
+    const totalInflow = dailyJournal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
+    const totalOutflow = dailyJournal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
+
+    // Calculate total supplier balance (cumulative outstanding balance)
     const totalSupplierBalance = suppliers.reduce((sum, s) => {
       const sTx = activeTransactions.filter(t => t.supplierId === s.id);
       const sPay = activePayments.filter(p => p.supplierId === s.id);
@@ -131,7 +188,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       totalOutflow,
       totalSupplierBalance
     };
-  }, [transactions, payments, journal, suppliers]);
+  }, [transactions, payments, journal, suppliers, selectedDate]);
 
   const recentActivity = React.useMemo(() => {
     const activeTransactions = transactions.filter(t => !t.isDeleted);
@@ -176,6 +233,53 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
 
   return (
     <div className="p-4 space-y-6 bg-[var(--bg-app)] min-h-full pb-24">
+      {/* Date Navigator Header */}
+      <div className="google-card p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="bg-blue-100 w-10 h-10 rounded-xl flex items-center justify-center text-[var(--accent)]">
+            <LayoutDashboard size={20} />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-[var(--text-primary)]">Daily Report</h1>
+            <p className="text-xs text-[var(--text-secondary)]">
+              Daily metrics of sales, purchases, inflows, and outflows
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleNavigateDate(-1)}
+            className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            title="Previous Day"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-bold bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] text-center cursor-pointer"
+          />
+
+          <button
+            onClick={() => handleNavigateDate(1)}
+            className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            title="Next Day"
+          >
+            <ChevronRight size={16} />
+          </button>
+
+          <button
+            onClick={() => setSelectedDate(getLocalDateString())}
+            className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-bold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+          >
+            Today
+          </button>
+        </div>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4">
         <motion.div
@@ -186,8 +290,9 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
           <div className="bg-blue-100 w-8 h-8 rounded-lg flex items-center justify-center text-[var(--accent)] mb-3">
             <TrendingUp size={18} />
           </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Sales</p>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Daily Sales</p>
           <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalSales || 0)}</p>
+          <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{formatFriendlyDate(selectedDate)}</p>
         </motion.div>
 
         <motion.div
@@ -199,8 +304,9 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
           <div className="bg-rose-100 w-8 h-8 rounded-lg flex items-center justify-center text-rose-600 mb-3">
             <TrendingDown size={18} />
           </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Purchases</p>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Daily Purchases</p>
           <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalPurchases || 0)}</p>
+          <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{formatFriendlyDate(selectedDate)}</p>
         </motion.div>
 
         <motion.div
@@ -212,8 +318,9 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
           <div className="bg-emerald-100 w-8 h-8 rounded-lg flex items-center justify-center text-emerald-600 mb-3">
             <TrendingUp size={18} />
           </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Inflow</p>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Daily Inflow</p>
           <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalInflow || 0)}</p>
+          <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{formatFriendlyDate(selectedDate)}</p>
         </motion.div>
 
         <motion.div
@@ -225,8 +332,9 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
           <div className="bg-rose-100 w-8 h-8 rounded-lg flex items-center justify-center text-rose-600 mb-3">
             <TrendingDown size={18} />
           </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Total Outflow</p>
+          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Daily Outflow</p>
           <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalOutflow || 0)}</p>
+          <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{formatFriendlyDate(selectedDate)}</p>
         </motion.div>
       </div>
 

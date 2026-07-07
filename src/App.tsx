@@ -38,7 +38,7 @@ function AppContent() {
   const { 
     user, profile, company, loading, signIn, logout, registerCompany, resetProfileCompany,
     signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode,
-    mustChangePassword, can, isOnline,
+    mustChangePassword, can, isOnline, isFirestoreConnected, connectionError,
     errorMessage, setErrorMessage, successMessage, setSuccessMessage
   } = useAuth();
   const [activeModule, setActiveModule] = useState<Module>('dashboard');
@@ -55,13 +55,54 @@ function AppContent() {
 
   // Render a safety screen if we've been loading too long or have a fatal boot error
   if (loading || bootError) {
+    const isOfflineOrError = !isFirestoreConnected || !!connectionError;
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-6 text-center">
-        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mb-2">
-          {bootError ? "System Configuration Error" : "Connecting to secure database..."}
+        {isOfflineOrError ? (
+          <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center text-amber-600 mb-6 border border-amber-200 shadow-sm animate-pulse">
+            <WifiOff size={32} />
+          </div>
+        ) : (
+          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4" />
+        )}
+        
+        <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest mb-2">
+          {bootError ? "System Configuration Error" : isOfflineOrError ? "Database Connection Issue" : "Connecting to secure database..."}
         </p>
         
+        {isOfflineOrError && !bootError && (
+          <div className="mt-4 p-6 bg-amber-50 rounded-2xl border border-amber-200 text-left max-w-md shadow-sm">
+            <h2 className="text-amber-800 font-bold text-sm mb-2 flex items-center gap-2">
+              <WifiOff size={16} /> Could not connect to the database
+            </h2>
+            <p className="text-amber-700 text-xs leading-relaxed bg-white/50 p-3 rounded-lg border border-amber-100 font-mono mb-6">
+              {connectionError || "The database connection timed out or was refused. This can happen if you have network restrictions, if your Firebase project is not active, or if Firestore is pending setup."}
+            </p>
+            <div className="space-y-3">
+              <button 
+                onClick={() => window.location.reload()}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl text-xs transition-colors shadow-md active:scale-[0.98]"
+              >
+                Retry Connection
+              </button>
+              
+              <button 
+                onClick={signInAsDemo}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl text-xs transition-colors shadow-md active:scale-[0.98]"
+              >
+                Launch Offline Training Demo
+              </button>
+              
+              <button 
+                onClick={logout}
+                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-2 px-4 rounded-xl text-[10px] transition-colors active:scale-[0.98]"
+              >
+                Clear Session & Sign Out
+              </button>
+            </div>
+          </div>
+        )}
+
         {bootError && (
           <div className="mt-4 p-6 bg-rose-50 rounded-2xl border border-rose-200 text-left max-w-md shadow-sm">
             <h2 className="text-rose-800 font-bold text-sm mb-2 flex items-center gap-2">
@@ -92,7 +133,7 @@ function AppContent() {
             <p className="text-[10px] text-slate-500 font-mono">Project: <span className="text-indigo-600 font-bold truncate block">{import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId || "not set"}</span></p>
             <p className="text-[10px] text-slate-500 font-mono">Environment: <span className="text-indigo-600 font-bold uppercase">{import.meta.env.VITE_APP_ENV || (import.meta.env.PROD ? "production" : "development")}</span></p>
             <p className="text-[10px] text-slate-500 font-mono">DB Ver: <span className="text-indigo-600 font-bold">1.2.0-secure</span></p>
-            <p className="text-[10px] text-slate-500 font-mono">Status: <span className={bootError ? "text-rose-600 font-bold" : "text-emerald-600 font-bold"}>{bootError ? "ERROR" : "INITIALIZING"}</span></p>
+            <p className="text-[10px] text-slate-500 font-mono">Status: <span className={bootError ? "text-rose-600 font-bold" : isOfflineOrError ? "text-amber-600 font-bold" : "text-emerald-600 font-bold"}>{bootError ? "ERROR" : isOfflineOrError ? "CONNECTION_ISSUE" : "INITIALIZING"}</span></p>
           </div>
         </div>
       </div>
@@ -107,7 +148,7 @@ function AppContent() {
     return <LoginPage onSignIn={signIn} onSignInAsDemo={signInAsDemo} />;
   }
 
-  if (user && (!profile || !profile.companyId)) {
+  if (user && (!profile || !profile.companyId) && !isSuperAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-6 text-center">
         <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl w-full max-w-md">
@@ -132,7 +173,7 @@ function AppContent() {
             <button 
               onClick={() => registerCompany(newCompanyName)}
               disabled={!newCompanyName.trim() || loading}
-              className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
+              className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 animate-pulse"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -141,6 +182,13 @@ function AppContent() {
               )}
             </button>
             
+            <button 
+              onClick={signInAsDemo}
+              className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-4 rounded-2xl font-bold active:scale-95 transition-all text-sm mb-2"
+            >
+              Switch to Training Demo Mode
+            </button>
+
             <button 
               onClick={logout}
               className="w-full text-slate-400 py-2 text-sm font-bold hover:text-slate-600 transition-colors"
