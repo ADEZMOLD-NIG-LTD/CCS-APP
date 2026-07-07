@@ -178,7 +178,7 @@ export default function JournalForm({
               </label>
               <select name="buyerId" className="w-full px-4 py-2 bg-white border border-emerald-200 rounded-lg outline-none text-sm">
                 <option value="">No - General Income</option>
-                {buyers.map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
+                {buyers.filter(b => !b.isDeleted).map(b => <option key={b.id} value={b.id}>{b.name} ({b.location})</option>)}
               </select>
               <p className="text-[9px] text-emerald-400 mt-2 italic">
                 * If selected, this amount will be credited to the customer's ledger balance.
