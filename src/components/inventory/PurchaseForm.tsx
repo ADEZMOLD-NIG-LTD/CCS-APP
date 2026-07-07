@@ -210,7 +210,7 @@ export default function PurchaseForm({
             {!isWalkIn ? (
               <select name="supplierId" required={!isWalkIn} defaultValue={editingTransaction?.supplierId || ''} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500">
                 <option value="">Select Supplier</option>
-                {suppliers.filter(s => !s.isDeleted).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {suppliers.filter(s => !s.isDeleted || s.id === editingTransaction?.supplierId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             ) : (
               <div className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-slate-500 font-bold text-sm">
