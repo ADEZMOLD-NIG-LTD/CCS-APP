@@ -163,7 +163,7 @@ export default function ReportsModule() {
     const activePayments = payments.filter(p => !p.isDeleted);
     const activeJournal = journal.filter(e => !e.isDeleted);
 
-    return suppliers.map(s => {
+    return suppliers.filter(s => !s.isDeleted).map(s => {
       const sPurchases = activeTransactions.filter(t => 
         t.supplierId === s.id && 
         t.type === 'PURCHASE' && 
@@ -219,7 +219,7 @@ export default function ReportsModule() {
     const activeTransactions = transactions.filter(t => !t.isDeleted);
     const activeJournal = journal.filter(e => !e.isDeleted);
 
-    return buyers.map(b => {
+    return buyers.filter(b => !b.isDeleted).map(b => {
       const bSales = activeTransactions.filter(t => 
         t.buyerId === b.id && 
         t.type === 'SALE' && 
