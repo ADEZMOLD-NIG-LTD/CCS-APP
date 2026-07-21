@@ -23,16 +23,25 @@ export default function SuperAdminModule() {
 
   const handleDeleteCompany = async (companyId: string) => {
     try {
+      // First, delete the company itself
       await deleteDoc(doc(db, 'companies', companyId));
       
-      // Also delete any user profiles associated with this company
-      const q = query(collection(db, 'users'), where('companyId', '==', companyId));
-      const snapshot = await getDocs(q);
-      const batch = writeBatch(db);
-      snapshot.docs.forEach((uDoc) => {
-        batch.delete(uDoc.ref);
-      });
-      await batch.commit();
+      try {
+        // Also try to delete any user profiles associated with this company
+        const q = query(collection(db, 'users'), where('companyId', '==', companyId));
+        const snapshot = await getDocs(q);
+        if (!snapshot.empty) {
+          const batch = writeBatch(db);
+          snapshot.docs.forEach((uDoc) => {
+            batch.delete(uDoc.ref);
+          });
+          await batch.commit();
+        }
+      } catch (userErr: any) {
+        console.warn('Company was deleted, but associated users could not be cleared automatically:', userErr);
+      }
+      
+      alert('Company deleted successfully!');
     } catch (error: any) {
       console.error('Failed to delete company:', error);
       alert(`Failed to delete company: ${error.message}`);
