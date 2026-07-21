@@ -633,8 +633,8 @@ export default function InventoryModule() {
     try {
       const updateData = {
         isDeleted: true,
-        deletedBy: profile.email,
-        deletionReason: reason,
+        deletedBy: profile?.email || profile?.uid || 'Unknown',
+        deletionReason: reason || 'No reason provided',
         deletedAt: new Date().toISOString()
       };
       
@@ -684,7 +684,7 @@ export default function InventoryModule() {
       const updateData = {
         isDeleted: true,
         deletionReason: reason || 'No reason provided',
-        deletedBy: profile.email,
+        deletedBy: profile?.email || profile?.uid || 'Unknown',
         deletedAt: new Date().toISOString()
       };
 

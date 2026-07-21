@@ -335,7 +335,7 @@ export default function BuyerDetails({ buyer, onBack }: BuyerDetailsProps) {
     const updateData = {
       isDeleted: true,
       deletionReason: reason || 'Deleted by user',
-      deletedBy: profile.email,
+      deletedBy: profile?.email || profile?.uid || 'Unknown',
       deletedAt: new Date().toISOString()
     };
 

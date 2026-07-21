@@ -369,7 +369,7 @@ export default function PettyCashModule() {
     const updatedTx = {
       ...tx,
       isDeleted: true,
-      deletedBy: profile?.uid || 'Unknown',
+      deletedBy: profile?.email || profile?.uid || 'Unknown',
       deletedAt: new Date().toISOString(),
       deletionReason: 'User deleted petty cash entry'
     };

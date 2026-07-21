@@ -230,7 +230,7 @@ export default function JournalModule() {
       const updateData = {
         isDeleted: true,
         deletionReason: reason || 'No reason provided',
-        deletedBy: profile.email,
+        deletedBy: profile?.email || profile?.uid || 'Unknown',
         deletedAt: new Date().toISOString()
       };
       await updateDoc(doc(db, 'journal', deleteConfirmId), updateData);

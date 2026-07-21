@@ -1099,20 +1099,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setErrorMessage(null);
     try {
-      const { deleteDoc } = await import('firebase/firestore');
+      const { deleteDoc, collection, query, where, getDocs, writeBatch } = await import('firebase/firestore');
+
+      // 1. Delete company document
       await deleteDoc(doc(db, 'companies', companyId));
-      
+
+      // 2. Clear companyId & reset role for associated users
+      try {
+        const uQ = query(collection(db, 'users'), where('companyId', '==', companyId));
+        const uSnap = await getDocs(uQ);
+        if (!uSnap.empty) {
+          const batch = writeBatch(db);
+          uSnap.docs.forEach((uDoc) => {
+            batch.update(uDoc.ref, { companyId: '', role: 'ADMIN' });
+          });
+          await batch.commit();
+        }
+      } catch (uErr) {
+        console.warn('Non-fatal cleanup warning for company users:', uErr);
+      }
+
+      // 3. Delete staff records for this company
+      try {
+        const sQ = query(collection(db, 'staff'), where('companyId', '==', companyId));
+        const sSnap = await getDocs(sQ);
+        if (!sSnap.empty) {
+          const batch = writeBatch(db);
+          sSnap.docs.forEach((sDoc) => batch.delete(sDoc.ref));
+          await batch.commit();
+        }
+      } catch (sErr) {
+        console.warn('Non-fatal cleanup warning for company staff:', sErr);
+      }
+
       if (company?.id === companyId || profile?.companyId === companyId) {
-        const userRef = doc(db, 'users', user.uid);
-        await setDoc(userRef, {
-          companyId: "",
-          role: "ADMIN"
-        }, { merge: true });
         setCompany(null);
         if (profile) {
           setProfile({
             ...profile,
-            companyId: ""
+            companyId: '',
+            role: 'ADMIN'
           });
         }
       }
@@ -1130,10 +1156,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     setErrorMessage(null);
     try {
-      const { deleteDoc } = await import('firebase/firestore');
-      await deleteDoc(doc(db, 'users', user.uid));
+      const { deleteDoc, collection, query, where, getDocs } = await import('firebase/firestore');
+      const userEmail = (user.email || profile?.email || '').toLowerCase().trim();
+
+      if (userEmail) {
+        // 1. Delete companies owned by this email
+        try {
+          const compQ = query(collection(db, 'companies'), where('ownerEmail', '==', userEmail));
+          const compSnap = await getDocs(compQ);
+          for (const cDoc of compSnap.docs) {
+            await deleteDoc(cDoc.ref);
+
+            // Delete staff associated with this company
+            const sQ = query(collection(db, 'staff'), where('companyId', '==', cDoc.id));
+            const sSnap = await getDocs(sQ);
+            for (const sDoc of sSnap.docs) {
+              await deleteDoc(sDoc.ref);
+            }
+          }
+        } catch (compErr) {
+          console.warn('Non-fatal company cleanup error during account deletion:', compErr);
+        }
+
+        // 2. Delete staff records matching email
+        try {
+          const staffQ = query(collection(db, 'staff'), where('email', '==', userEmail));
+          const staffSnap = await getDocs(staffQ);
+          for (const sDoc of staffSnap.docs) {
+            await deleteDoc(sDoc.ref);
+          }
+        } catch (staffErr) {
+          console.warn('Non-fatal staff cleanup error during account deletion:', staffErr);
+        }
+
+        // 3. Delete user profiles matching email
+        try {
+          const uQ = query(collection(db, 'users'), where('email', '==', userEmail));
+          const uSnap = await getDocs(uQ);
+          for (const uDoc of uSnap.docs) {
+            await deleteDoc(uDoc.ref);
+          }
+        } catch (uErr) {
+          console.warn('Non-fatal user email cleanup error during account deletion:', uErr);
+        }
+      }
+
+      // 4. Ensure user profile document by UID is deleted
+      try {
+        await deleteDoc(doc(db, 'users', user.uid));
+      } catch (uidErr) {
+        console.warn('User UID profile cleanup error:', uidErr);
+      }
+
       setProfile(null);
       setCompany(null);
+      setUserCompanies([]);
       setSuccessMessage('Account profile deleted successfully. You can now register again.');
       await logout();
     } catch (error: any) {
