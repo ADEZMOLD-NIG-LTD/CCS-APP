@@ -283,8 +283,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const email = user?.email?.toLowerCase();
     return email === 'wasiuadebisi89@gmail.com' || 
            email === 'adezmoldent@gmail.com' ||
-           email === 'abdullahiwasiu07@gmail.com';
-  }, [user?.email]);
+           email === 'abdullahiwasiu07@gmail.com' ||
+           profile?.role === 'SUPER_ADMIN';
+  }, [user?.email, profile?.role]);
 
   const isAdmin = useMemo(() => profile?.role === 'ADMIN' || isSuperAdmin, [profile?.role, isSuperAdmin]);
   const isManager = useMemo(() => profile?.role === 'MANAGER' || isAdmin, [profile?.role, isAdmin]);

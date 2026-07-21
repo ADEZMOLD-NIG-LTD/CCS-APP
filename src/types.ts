@@ -7,7 +7,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
-  role: 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR' | 'STORE_KEEPER';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR' | 'STORE_KEEPER';
   companyId: string;
   assignedWarehouseId?: string; // For staff assigned to specific warehouse
   createdAt: string;

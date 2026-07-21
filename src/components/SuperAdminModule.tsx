@@ -25,25 +25,54 @@ export default function SuperAdminModule() {
 
   const handleDeleteCompany = async (companyId: string) => {
     try {
-      // First, delete the company itself
+      const compTarget = companies.find(c => c.id === companyId);
+      const ownerEmail = compTarget?.ownerEmail?.toLowerCase().trim();
+
+      // 1. Delete company document
       await deleteDoc(doc(db, 'companies', companyId));
-      
+
+      // 2. Clear associated user profiles
       try {
-        // Also try to delete any user profiles associated with this company
-        const q = query(collection(db, 'users'), where('companyId', '==', companyId));
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
-          const batch = writeBatch(db);
-          snapshot.docs.forEach((uDoc) => {
-            batch.delete(uDoc.ref);
+        const uQ = query(collection(db, 'users'), where('companyId', '==', companyId));
+        const uSnap = await getDocs(uQ);
+        const batch = writeBatch(db);
+        let batchCount = 0;
+
+        uSnap.docs.forEach((uDoc) => {
+          batch.delete(uDoc.ref);
+          batchCount++;
+        });
+
+        if (ownerEmail) {
+          const ownerQ = query(collection(db, 'users'), where('email', '==', ownerEmail));
+          const ownerSnap = await getDocs(ownerQ);
+          ownerSnap.docs.forEach((oDoc) => {
+            batch.delete(oDoc.ref);
+            batchCount++;
           });
+        }
+
+        if (batchCount > 0) {
           await batch.commit();
         }
       } catch (userErr: any) {
-        console.warn('Company was deleted, but associated users could not be cleared automatically:', userErr);
+        console.warn('Company deleted, but associated users cleanup warning:', userErr);
       }
-      
-      alert('Company deleted successfully!');
+
+      // 3. Clear staff records
+      try {
+        const sQ = query(collection(db, 'staff'), where('companyId', '==', companyId));
+        const sSnap = await getDocs(sQ);
+        if (!sSnap.empty) {
+          const sBatch = writeBatch(db);
+          sSnap.docs.forEach((sDoc) => sBatch.delete(sDoc.ref));
+          await sBatch.commit();
+        }
+      } catch (sErr: any) {
+        console.warn('Company deleted, but staff records cleanup warning:', sErr);
+      }
+
+      alert('Company profile and all associated account records deleted successfully!');
     } catch (error: any) {
       console.error('Failed to delete company:', error);
       alert(`Failed to delete company: ${error.message}`);

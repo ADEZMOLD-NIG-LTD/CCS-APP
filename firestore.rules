@@ -13,14 +13,17 @@ service cloud.firestore {
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isSignedIn() { return request.auth != null; }
-    function getEmail() { return request.auth.token.get('email', '').lower(); }
+    function getEmail() {
+      return (request.auth != null && 'email' in request.auth.token) ? request.auth.token.email.lower() : '';
+    }
     
     // Super Admins bypass many checks
     function isSuperAdmin() {
       return isSignedIn() && (
         getEmail() == "wasiuadebisi89@gmail.com" || 
         getEmail() == "adezmoldent@gmail.com" || 
-        getEmail() == "abdullahiwasiu07@gmail.com"
+        getEmail() == "abdullahiwasiu07@gmail.com" ||
+        (getUserData() != null && getUserData().get('role', '') == 'SUPER_ADMIN')
       );
     }
 
@@ -174,152 +177,159 @@ service cloud.firestore {
     }
 
     match /transactions/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId); // Enforced query
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidTransaction(incoming());
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStaff() && sameCompany(incoming().companyId) && isValidTransaction(incoming()));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidTransaction(incoming()))
-      );
-      allow delete: if false; // Prefer soft delete
+      ));
+      allow delete: if isSuperAdmin();
     }
 
     match /journal/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId);
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidJournalEntry(incoming());
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStaff() && sameCompany(incoming().companyId) && isValidJournalEntry(incoming()));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidJournalEntry(incoming()))
-      );
-      allow delete: if false;
+      ));
+      allow delete: if isSuperAdmin();
     }
 
     match /payments/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId);
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isStaff() && sameCompany(incoming().companyId);
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStaff() && sameCompany(incoming().companyId));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff())
-      );
+      ));
+      allow delete: if isSuperAdmin();
     }
 
     match /buyer_payments/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId);
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidBuyerPayment(incoming());
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStaff() && sameCompany(incoming().companyId) && isValidBuyerPayment(incoming()));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidBuyerPayment(incoming()))
-      );
+      ));
+      allow delete: if isSuperAdmin();
     }
 
     match /bag_transactions/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId);
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isStaff() && sameCompany(incoming().companyId);
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStaff() && sameCompany(incoming().companyId));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff())
-      );
+      ));
+      allow delete: if isSuperAdmin();
     }
 
     match /suppliers/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId);
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidSupplier(incoming());
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStaff() && sameCompany(incoming().companyId) && isValidSupplier(incoming()));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidSupplier(incoming()))
-      );
+      ));
+      allow delete: if isSuperAdmin();
     }
 
     match /buyers/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId);
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidBuyer(incoming());
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStaff() && sameCompany(incoming().companyId) && isValidBuyer(incoming()));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidBuyer(incoming()))
-      );
+      ));
+      allow delete: if isSuperAdmin();
     }
 
     match /store_records/{id} {
-      allow list: if (isStoreKeeper() || isManager()) && sameCompany(resource.data.companyId);
-      allow get: if (isStoreKeeper() || isManager()) && sameCompany(existing().companyId);
-      allow create: if isStoreKeeper() && sameCompany(incoming().companyId) && isValidStoreRecord(incoming());
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || ((isStoreKeeper() || isManager()) && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || ((isStoreKeeper() || isManager()) && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStoreKeeper() && sameCompany(incoming().companyId) && isValidStoreRecord(incoming()));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isManager() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStoreKeeper() && isValidStoreRecord(incoming()))
-      );
+      ));
+      allow delete: if isSuperAdmin();
     }
 
     match /staff/{id} {
-      allow list: if (isManager() && sameCompany(resource.data.companyId)) || (isSignedIn() && resource.data.email.lower() == getEmail());
-      allow get: if (isManager() && sameCompany(existing().companyId)) || (isSignedIn() && existing().email.lower() == getEmail());
-      allow create: if isManager() && sameCompany(incoming().companyId);
-      allow update: if (isManager() && sameCompany(existing().companyId)) || (isSignedIn() && existing().email.lower() == getEmail() && (incoming().diff(existing()).affectedKeys().hasOnly(['uid'])));
-      allow delete: if isManager() && sameCompany(existing().companyId);
+      allow list: if isSuperAdmin() || (isManager() && sameCompany(resource.data.companyId)) || (isSignedIn() && resource.data.email.lower() == getEmail());
+      allow get: if isSuperAdmin() || (isManager() && sameCompany(existing().companyId)) || (isSignedIn() && existing().email.lower() == getEmail());
+      allow create: if isSuperAdmin() || (isManager() && sameCompany(incoming().companyId));
+      allow update: if isSuperAdmin() || (isManager() && sameCompany(existing().companyId)) || (isSignedIn() && existing().email.lower() == getEmail() && (incoming().diff(existing()).affectedKeys().hasOnly(['uid'])));
+      allow delete: if isSuperAdmin() || (isManager() && sameCompany(existing().companyId));
     }
 
     match /warehouses/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId);
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isAdmin() && sameCompany(incoming().companyId);
-      allow update: if (isAdmin() && sameCompany(existing().companyId)) || (isAnonymous() && id == 'demo_warehouse_1');
-      allow delete: if isAdmin() && sameCompany(existing().companyId);
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isAdmin() && sameCompany(incoming().companyId));
+      allow update: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || (isAnonymous() && id == 'demo_warehouse_1');
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId));
     }
 
     match /attendance/{id} {
-      allow list: if (isManager() || isStaff()) && sameCompany(resource.data.companyId);
-      allow get: if (isManager() || isStaff()) && sameCompany(existing().companyId);
-      allow create: if isManager() && sameCompany(incoming().companyId);
-      allow update: if isManager() && sameCompany(existing().companyId);
-      allow delete: if isAdmin() && sameCompany(existing().companyId);
+      allow list: if isSuperAdmin() || ((isManager() || isStaff()) && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || ((isManager() || isStaff()) && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isManager() && sameCompany(incoming().companyId));
+      allow update: if isSuperAdmin() || (isManager() && sameCompany(existing().companyId));
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId));
     }
 
     match /rosters/{id} {
-      allow list: if (isManager() || isStaff()) && sameCompany(resource.data.companyId);
-      allow get: if (isManager() || isStaff()) && sameCompany(existing().companyId);
-      allow create: if isManager() && sameCompany(incoming().companyId);
-      allow update: if isManager() && sameCompany(existing().companyId);
-      allow delete: if isAdmin() && sameCompany(existing().companyId);
+      allow list: if isSuperAdmin() || ((isManager() || isStaff()) && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || ((isManager() || isStaff()) && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isManager() && sameCompany(incoming().companyId));
+      allow update: if isSuperAdmin() || (isManager() && sameCompany(existing().companyId));
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId));
     }
 
     match /payrolls/{id} {
-      allow list: if (isAdmin() || isAccount()) && sameCompany(resource.data.companyId);
-      allow get: if (isAdmin() || isAccount()) && sameCompany(existing().companyId);
-      allow create: if (isAdmin() || isAccount()) && sameCompany(incoming().companyId);
-      allow update: if (isAdmin() || isAccount()) && sameCompany(existing().companyId);
-      allow delete: if isAdmin() && sameCompany(existing().companyId);
+      allow list: if isSuperAdmin() || ((isAdmin() || isAccount()) && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || ((isAdmin() || isAccount()) && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || ((isAdmin() || isAccount()) && sameCompany(incoming().companyId));
+      allow update: if isSuperAdmin() || ((isAdmin() || isAccount()) && sameCompany(existing().companyId));
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId));
     }
 
     match /audit_logs/{id} {
-      allow list: if (isManager() || isAuditor()) && sameCompany(resource.data.companyId);
-      allow create: if isSignedIn() && sameCompany(incoming().companyId);
+      allow list: if isSuperAdmin() || ((isManager() || isAuditor()) && sameCompany(resource.data.companyId));
+      allow create: if isSuperAdmin() || (isSignedIn() && sameCompany(incoming().companyId));
+      allow delete: if isSuperAdmin();
     }
 
     match /inventory_adjustments/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId);
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidInventoryAdjustment(incoming());
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStaff() && sameCompany(incoming().companyId) && isValidInventoryAdjustment(incoming()));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidInventoryAdjustment(incoming()))
-      );
-      allow delete: if false;
+      ));
+      allow delete: if isSuperAdmin();
     }
 
     match /petty_cash/{id} {
-      allow list: if isStaff() && sameCompany(resource.data.companyId);
-      allow get: if isStaff() && sameCompany(existing().companyId);
-      allow create: if isStaff() && sameCompany(incoming().companyId) && isValidPettyCash(incoming());
-      allow update: if sameCompany(existing().companyId) && (
+      allow list: if isSuperAdmin() || (isStaff() && sameCompany(resource.data.companyId));
+      allow get: if isSuperAdmin() || (isStaff() && sameCompany(existing().companyId));
+      allow create: if isSuperAdmin() || (isStaff() && sameCompany(incoming().companyId) && isValidPettyCash(incoming()));
+      allow update: if isSuperAdmin() || (sameCompany(existing().companyId) && (
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidPettyCash(incoming()))
-      );
-      allow delete: if false;
+      ));
+      allow delete: if isSuperAdmin();
     }
     
     // Test helper
