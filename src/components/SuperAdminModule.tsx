@@ -14,11 +14,32 @@ export default function SuperAdminModule() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'companies' | 'users' | 'health' | 'infrastructure'>('companies');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteCompanyConfirmId, setDeleteCompanyConfirmId] = useState<string | null>(null);
   const [isPurging, setIsPurging] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleDeleteCompany = async (companyId: string) => {
+    try {
+      await deleteDoc(doc(db, 'companies', companyId));
+      
+      // Also delete any user profiles associated with this company
+      const q = query(collection(db, 'users'), where('companyId', '==', companyId));
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((uDoc) => {
+        batch.delete(uDoc.ref);
+      });
+      await batch.commit();
+    } catch (error: any) {
+      console.error('Failed to delete company:', error);
+      alert(`Failed to delete company: ${error.message}`);
+    } finally {
+      setDeleteCompanyConfirmId(null);
+    }
+  };
 
   React.useEffect(() => {
     const q = query(collection(db, 'companies'), orderBy('createdAt', 'desc'));
@@ -132,6 +153,20 @@ export default function SuperAdminModule() {
           }
         }}
         onCancel={() => setDeleteConfirmId(null)}
+        confirmText="Delete"
+        type="danger"
+      />
+
+      <ConfirmModal
+        isOpen={!!deleteCompanyConfirmId}
+        title="Delete Company Registration"
+        message="Are you sure you want to delete this company registration? This will completely remove the company record and all associated user profiles from the database."
+        onConfirm={() => {
+          if (deleteCompanyConfirmId) {
+            handleDeleteCompany(deleteCompanyConfirmId);
+          }
+        }}
+        onCancel={() => setDeleteCompanyConfirmId(null)}
         confirmText="Delete"
         type="danger"
       />
@@ -272,25 +307,31 @@ export default function SuperAdminModule() {
                     )}
                   </div>
 
-                  {company.isApproved ? (
-                    <div className="mt-4 pt-4 border-t border-slate-50">
+                  <div className="mt-4 pt-4 border-t border-slate-50 flex gap-2">
+                    {company.isApproved ? (
                       <button 
                         onClick={() => disapproveCompany(company.id)}
-                        className="w-full bg-rose-50 text-rose-600 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
+                        className="flex-1 bg-rose-50 text-rose-600 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
                       >
                         <XCircle size={18} /> Disapprove Registration
                       </button>
-                    </div>
-                  ) : (
-                    <div className="mt-4 pt-4 border-t border-slate-50">
+                    ) : (
                       <button 
                         onClick={() => approveCompany(company.id)}
-                        className="w-full bg-[var(--accent)] text-white py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
+                        className="flex-1 bg-[var(--accent)] text-white py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
                       >
                         <CheckCircle2 size={18} /> Approve Registration
                       </button>
-                    </div>
-                  )}
+                    )}
+
+                    <button 
+                      onClick={() => setDeleteCompanyConfirmId(company.id)}
+                      className="px-4 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-rose-50 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
+                      title="Delete Company Registration"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </motion.div>
