@@ -153,34 +153,106 @@ export default function SuperAdminModule() {
   };
 
   React.useEffect(() => {
-    const q = query(collection(db, 'companies'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'companies'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Company));
+      data.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setCompanies(data);
+    }, (err) => {
+      console.warn('Companies query error:', err);
     });
     return () => unsubscribe();
   }, []);
 
   React.useEffect(() => {
-    if (activeTab === 'users') {
-      const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile));
-        setUsers(data);
-      });
-      return () => unsubscribe();
+    const q = query(collection(db, 'users'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), uid: doc.id } as UserProfile));
+      data.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setUsers(data);
+    }, (err) => {
+      console.warn('Users query error:', err);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Auto-heal missing user profiles for registered company owners
+  React.useEffect(() => {
+    if (companies.length > 0) {
+      const autoHealUserProfiles = async () => {
+        try {
+          const existingEmails = new Set(
+            users.map(u => (u.email || '').toLowerCase().trim()).filter(Boolean)
+          );
+          const { setDoc, doc } = await import('firebase/firestore');
+
+          for (const comp of companies) {
+            if (!comp.ownerEmail) continue;
+            const ownerEmailLower = comp.ownerEmail.toLowerCase().trim();
+            if (!existingEmails.has(ownerEmailLower)) {
+              existingEmails.add(ownerEmailLower);
+              const docId = `owner_${comp.id}`;
+              const newProfile: UserProfile = {
+                uid: docId,
+                email: ownerEmailLower,
+                displayName: `${comp.name} Owner`,
+                role: 'ADMIN',
+                companyId: comp.id,
+                createdAt: comp.createdAt || new Date().toISOString(),
+                lastPasswordUpdate: new Date().toISOString()
+              };
+              await setDoc(doc(db, 'users', docId), newProfile, { merge: true });
+            }
+          }
+        } catch (err) {
+          console.error('Auto heal user profiles failed:', err);
+        }
+      };
+      autoHealUserProfiles();
     }
-  }, [activeTab]);
+  }, [companies, users]);
 
-  const filteredCompanies = companies.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.ownerEmail.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const allUsers = React.useMemo(() => {
+    const list = [...users];
+    const existingEmails = new Set(
+      list.map(u => (u.email || '').toLowerCase().trim()).filter(Boolean)
+    );
 
-  const filteredUsers = users.filter(u => 
-    u.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    u.email.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+    companies.forEach(comp => {
+      if (comp.ownerEmail) {
+        const ownerEmailLower = comp.ownerEmail.toLowerCase().trim();
+        if (!existingEmails.has(ownerEmailLower)) {
+          existingEmails.add(ownerEmailLower);
+          list.push({
+            uid: `owner_${comp.id}`,
+            email: ownerEmailLower,
+            displayName: `${comp.name} Owner`,
+            role: 'ADMIN',
+            companyId: comp.id,
+            createdAt: comp.createdAt || new Date().toISOString(),
+            lastPasswordUpdate: new Date().toISOString()
+          });
+        }
+      }
+    });
+
+    return list;
+  }, [users, companies]);
+
+  const filteredCompanies = companies.filter(c => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    return (c.name || '').toLowerCase().includes(q) || (c.ownerEmail || '').toLowerCase().includes(q);
+  });
+
+  const filteredUsers = allUsers.filter(u => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return true;
+    const name = (u.displayName || '').toLowerCase();
+    const email = (u.email || '').toLowerCase();
+    const companyName = (companies.find(c => c.id === u.companyId)?.name || '').toLowerCase();
+    return name.includes(q) || email.includes(q) || companyName.includes(q);
+  });
 
   // System Health Stats (Calculated from state)
   const healthStats = {
@@ -190,7 +262,7 @@ export default function SuperAdminModule() {
     writesToday: '~450',
     tier: 'Enterprise Spark',
     totalCompanies: companies.length,
-    totalUsers: users.length || 'Loading...',
+    totalUsers: allUsers.length || 'Loading...',
   };
 
   const handlePurgeDemoUsers = async () => {
