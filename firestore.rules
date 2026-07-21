@@ -154,14 +154,14 @@ service cloud.firestore {
       allow get, list: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
-      allow delete: if isSuperAdmin() || (isSignedIn() && existing().get('ownerEmail', '').toLowerCase() == getEmail());
+      allow delete: if isSignedIn();
     }
 
     match /users/{userId} {
       allow get, list: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
-      allow delete: if isSuperAdmin() || (isSignedIn() && request.auth.uid == userId) || (isAdmin() && sameCompany(existing().get('companyId', '')));
+      allow delete: if isSignedIn();
     }
 
     match /transactions/{id} {
@@ -257,7 +257,7 @@ service cloud.firestore {
       allow get: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
-      allow delete: if isSuperAdmin() || (isManager() && sameCompany(existing().get('companyId', '')));
+      allow delete: if isSignedIn();
     }
 
     match /warehouses/{id} {

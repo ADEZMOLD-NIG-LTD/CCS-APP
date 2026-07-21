@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle, Trash2, UserMinus, Mail, UserPlus, RefreshCw, Plus } from 'lucide-react';
-import { collection, onSnapshot, query, orderBy, getDocs, doc, deleteDoc, writeBatch, where } from 'firebase/firestore';
+import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle, Trash2, UserMinus, Mail, UserPlus, RefreshCw, Plus, Pencil } from 'lucide-react';
+import { collection, onSnapshot, query, orderBy, getDocs, doc, deleteDoc, writeBatch, where, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Company, UserProfile } from '../types';
 import { useAuth } from '../contexts/AuthContext';
@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import ConfirmModal from './ConfirmModal';
 
 export default function SuperAdminModule() {
-  const { user, approveCompany, disapproveCompany, toggleUserSuspension, deleteUser, isFirestoreConnected } = useAuth();
+  const { user, isSuperAdmin, approveCompany, disapproveCompany, toggleUserSuspension, deleteUser, isFirestoreConnected } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -19,6 +19,8 @@ export default function SuperAdminModule() {
   const [purgeConfirm, setPurgeConfirm] = useState(false);
   const [isSyncingUsers, setIsSyncingUsers] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [editUserTarget, setEditUserTarget] = useState<UserProfile | null>(null);
+  const [editCompanyTarget, setEditCompanyTarget] = useState<Company | null>(null);
   const [testEmail, setTestEmail] = useState('');
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -324,6 +326,71 @@ export default function SuperAdminModule() {
     }
   };
 
+  const handleUpdateUserSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editUserTarget) return;
+
+    const formData = new FormData(e.currentTarget);
+    const email = (formData.get('email') as string)?.toLowerCase().trim();
+    const displayName = (formData.get('displayName') as string)?.trim();
+    const role = (formData.get('role') as UserProfile['role']) || 'ADMIN';
+    const companyId = (formData.get('companyId') as string) || '';
+
+    if (!email || !displayName) {
+      alert('Email and Name are required');
+      return;
+    }
+
+    try {
+      const updatedData: Partial<UserProfile> = {
+        email,
+        displayName,
+        role,
+        companyId: companyId || ''
+      };
+
+      await setDoc(doc(db, 'users', editUserTarget.uid), updatedData, { merge: true });
+
+      // If assigning email to a company owner account, update company ownerEmail as well
+      if (companyId) {
+        await setDoc(doc(db, 'companies', companyId), { ownerEmail: email }, { merge: true });
+      }
+
+      alert(`User profile for ${displayName} updated successfully!\nAssigned Email: ${email}`);
+      setEditUserTarget(null);
+    } catch (err: any) {
+      console.error('Failed to update user profile:', err);
+      alert(`Failed to update user profile: ${err.message}`);
+    }
+  };
+
+  const handleUpdateCompanySubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!editCompanyTarget) return;
+
+    const formData = new FormData(e.currentTarget);
+    const name = (formData.get('name') as string)?.trim();
+    const ownerEmail = (formData.get('ownerEmail') as string)?.toLowerCase().trim();
+
+    if (!name || !ownerEmail) {
+      alert('Company Name and Owner Email are required');
+      return;
+    }
+
+    try {
+      await setDoc(doc(db, 'companies', editCompanyTarget.id), {
+        name,
+        ownerEmail
+      }, { merge: true });
+
+      alert(`Company updated successfully!\nName: ${name}\nOwner Email: ${ownerEmail}`);
+      setEditCompanyTarget(null);
+    } catch (err: any) {
+      console.error('Failed to update company:', err);
+      alert(`Failed to update company: ${err.message}`);
+    }
+  };
+
   // System Health Mock Data (Calculated from state)
   const handleTestEmail = async () => {
     if (!testEmail) return;
@@ -525,8 +592,8 @@ export default function SuperAdminModule() {
                         <div className="flex items-center gap-3 mt-1">
                           <p className="text-[10px] text-[var(--text-secondary)]">Registered: {new Date(company.createdAt).toLocaleDateString()}</p>
                           
-                          {/* Onboarding Counter - Restricted Visibility */}
-                          {(user?.email?.toLowerCase() === 'wasiuadebisi89@gmail.com' || user?.email?.toLowerCase() === 'adezmoldent@gmail.com') && (
+                          {/* Onboarding Counter - Super Admin Visibility */}
+                          {isSuperAdmin && (
                             <div className="flex items-center gap-1.5 px-2 py-0.5 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100">
                               <Clock size={10} className="shrink-0" />
                               <span className="text-[10px] font-bold">
@@ -573,6 +640,14 @@ export default function SuperAdminModule() {
                     )}
 
                     <button 
+                      onClick={() => setEditCompanyTarget(company)}
+                      className="px-4 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
+                      title="Edit Company Details & Owner Email"
+                    >
+                      <Pencil size={18} />
+                    </button>
+
+                    <button 
                       onClick={() => setDeleteCompanyConfirmId(company.id)}
                       className="px-4 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-rose-50 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
                       title="Delete Company Registration"
@@ -593,28 +668,28 @@ export default function SuperAdminModule() {
               exit={{ opacity: 0, y: -10 }}
               className="space-y-3"
             >
-              {filteredUsers.map(user => (
-                <div key={user.uid} className="google-card p-4">
+              {filteredUsers.map(userItem => (
+                <div key={userItem.uid} className="google-card p-4">
                   <div className="flex justify-between items-start">
                     <div className="flex gap-3">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${user.suspended ? 'bg-rose-50 text-rose-400' : 'bg-blue-50 text-[var(--accent)]'}`}>
-                        {user.displayName.charAt(0)}
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${userItem.suspended ? 'bg-rose-50 text-rose-400' : 'bg-blue-50 text-[var(--accent)]'}`}>
+                        {userItem.displayName ? userItem.displayName.charAt(0) : 'U'}
                       </div>
                       <div>
-                        <h3 className="font-bold text-[var(--text-primary)]">{user.displayName}</h3>
-                        <p className="text-xs text-[var(--text-secondary)]">{user.email}</p>
+                        <h3 className="font-bold text-[var(--text-primary)]">{userItem.displayName || 'Unnamed User'}</h3>
+                        <p className="text-xs text-[var(--text-secondary)] font-medium">{userItem.email || 'No email assigned'}</p>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[10px] font-bold bg-slate-100 text-[var(--text-secondary)] px-2 py-0.5 rounded uppercase">
-                            {user.role}
+                            {userItem.role}
                           </span>
                           <span className="text-[10px] text-[var(--text-secondary)]">
-                            {companies.find(c => c.id === user.companyId)?.name || 'No Company'}
+                            {companies.find(c => c.id === userItem.companyId)?.name || 'No Company'}
                           </span>
                         </div>
                       </div>
                     </div>
                     
-                    {user.suspended ? (
+                    {userItem.suspended ? (
                       <div className="flex items-center gap-1 text-rose-600 bg-rose-50 px-3 py-1 rounded-full text-[10px] font-bold uppercase">
                         <ShieldAlert size={12} /> Suspended
                       </div>
@@ -627,26 +702,27 @@ export default function SuperAdminModule() {
 
                   <div className="mt-4 pt-4 border-t border-slate-50 flex gap-2">
                     <button 
-                      onClick={() => toggleUserSuspension(user.uid, !user.suspended)}
-                      className={`flex-1 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2 ${
-                        user.suspended 
+                      onClick={() => setEditUserTarget(userItem)}
+                      className="flex-1 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
+                      title="Edit Account Details or Assign Email"
+                    >
+                      <Pencil size={18} /> Edit / Assign Email
+                    </button>
+
+                    <button 
+                      onClick={() => toggleUserSuspension(userItem.uid, !userItem.suspended)}
+                      className={`px-4 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2 ${
+                        userItem.suspended 
                           ? 'bg-emerald-50 text-emerald-600' 
                           : 'bg-rose-50 text-rose-600'
                       }`}
+                      title={userItem.suspended ? "Unsuspend User" : "Suspend User"}
                     >
-                      {user.suspended ? (
-                        <>
-                          <ShieldCheck size={18} /> Unsuspend
-                        </>
-                      ) : (
-                        <>
-                          <ShieldAlert size={18} /> Suspend
-                        </>
-                      )}
+                      {userItem.suspended ? <ShieldCheck size={18} /> : <ShieldAlert size={18} />}
                     </button>
                     
                     <button 
-                      onClick={() => setDeleteConfirmId(user.uid)}
+                      onClick={() => setDeleteConfirmId(userItem.uid)}
                       className="px-4 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-rose-50 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
                       title="Delete User"
                     >
@@ -981,6 +1057,205 @@ export default function SuperAdminModule() {
                     className="flex-1 bg-[var(--accent)] text-white py-3 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-md"
                   >
                     Create Profile
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Edit User / Assign Email Modal */}
+        {editUserTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-100"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                    <Pencil size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 text-lg">Edit Account & Assign Email</h3>
+                    <p className="text-xs text-slate-500">Update account profile or assign email address</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditUserTarget(null)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-lg"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateUserSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    required
+                    defaultValue={editUserTarget.email || ''}
+                    placeholder="e.g. wasiuadebisi89@gmail.com"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Full Name / Display Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="displayName"
+                    required
+                    defaultValue={editUserTarget.displayName || ''}
+                    placeholder="e.g. John Doe"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    User Role
+                  </label>
+                  <select
+                    name="role"
+                    defaultValue={editUserTarget.role || 'ADMIN'}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                  >
+                    <option value="ADMIN">ADMIN (Company Owner / Manager)</option>
+                    <option value="MANAGER">MANAGER (Operations Manager)</option>
+                    <option value="ACCOUNT">ACCOUNT (Accountant)</option>
+                    <option value="AUDITOR">AUDITOR (Auditor)</option>
+                    <option value="STORE_KEEPER">STORE_KEEPER (Warehouse Keeper)</option>
+                    <option value="STAFF">STAFF (General Staff)</option>
+                    <option value="SUPER_ADMIN">SUPER_ADMIN (System Super Admin)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Assigned Company
+                  </label>
+                  <select
+                    name="companyId"
+                    defaultValue={editUserTarget.companyId || ''}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                  >
+                    <option value="">-- No Company --</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.ownerEmail})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditUserTarget(null)}
+                    className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-[var(--accent)] text-white py-3 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-md"
+                  >
+                    Save & Assign
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Edit Company Modal */}
+        {editCompanyTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-100"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                    <Building2 size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 text-lg">Edit Registered Company</h3>
+                    <p className="text-xs text-slate-500">Update company name or assign owner email</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditCompanyTarget(null)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-lg"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateCompanySubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Company Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="name"
+                    required
+                    defaultValue={editCompanyTarget.name || ''}
+                    placeholder="e.g. Adezmold Consulting Ltd"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Owner Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    name="ownerEmail"
+                    required
+                    defaultValue={editCompanyTarget.ownerEmail || ''}
+                    placeholder="e.g. wasiuadebisi89@gmail.com"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                  />
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditCompanyTarget(null)}
+                    className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-[var(--accent)] text-white py-3 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-md"
+                  >
+                    Save Company
                   </button>
                 </div>
               </form>

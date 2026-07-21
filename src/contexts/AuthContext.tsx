@@ -164,7 +164,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Permission Engine Logic
   const can = (action: PermissionAction): boolean => {
     const adminEmails = ['wasiuadebisi89@gmail.com', 'adezmoldent@gmail.com', 'abdullahiwasiu07@gmail.com'];
-    if (user?.email && adminEmails.includes(user.email.toLowerCase())) return true; // Super Admin bypass
+    const currentEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+    if (currentEmail && adminEmails.includes(currentEmail)) return true; // Super Admin bypass
+    if (isSuperAdmin) return true;
     if (isDemoMode) return true; // Demo mode has all permissions
     if (!profile) return false;
 
@@ -280,12 +282,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const isSuperAdmin = useMemo(() => {
-    const email = user?.email?.toLowerCase();
-    return email === 'wasiuadebisi89@gmail.com' || 
-           email === 'adezmoldent@gmail.com' ||
-           email === 'abdullahiwasiu07@gmail.com' ||
+    const userEmail = (user?.email || '').toLowerCase().trim();
+    const profileEmail = (profile?.email || '').toLowerCase().trim();
+    const superAdminEmails = [
+      'wasiuadebisi89@gmail.com',
+      'adezmoldent@gmail.com',
+      'abdullahiwasiu07@gmail.com'
+    ];
+    return superAdminEmails.includes(userEmail) || 
+           superAdminEmails.includes(profileEmail) ||
            profile?.role === 'SUPER_ADMIN';
-  }, [user?.email, profile?.role]);
+  }, [user?.email, profile?.email, profile?.role]);
 
   const isAdmin = useMemo(() => profile?.role === 'ADMIN' || isSuperAdmin, [profile?.role, isSuperAdmin]);
   const isManager = useMemo(() => profile?.role === 'MANAGER' || isAdmin, [profile?.role, isAdmin]);
