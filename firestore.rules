@@ -159,7 +159,7 @@ service cloud.firestore {
       allow create: if isSignedIn() && (isSuperAdmin() || request.auth.uid == userId || (userId == 'demo_admin_profile' && isAnonymous()));
       allow update: if isSignedIn() && (
         isSuperAdmin() ||
-        (request.auth.uid == userId && incoming().role == existing().role) ||
+        (request.auth.uid == userId && (incoming().role == existing().role || existing().get('companyId', '') == '')) ||
         (isAdmin() && sameCompany(existing().get('companyId', ''))) ||
         (userId == 'demo_admin_profile' && isAnonymous())
       );
