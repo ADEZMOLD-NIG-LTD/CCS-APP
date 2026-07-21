@@ -124,12 +124,12 @@ export default function RosterManager({
                       ) : null}
 
                       <button 
-                        onClick={() => onResetPassword(staff.uid || staff.id)}
-                        disabled={!staff.email || !staff.uid}
-                        title={staff.uid ? "Force Login Policy Reset (Reset flag in DB)" : "Cannot reset - User has not signed up yet"}
+                        onClick={() => onResetPassword(staff.uid || staff.id || staff.email!)}
+                        disabled={!staff.email}
+                        title={staff.email ? "Force Password Policy Reset & Send Reset Email" : "No email address found for this staff member"}
                         className={cn(
                           "transition-colors",
-                          staff.uid ? "text-slate-400 hover:text-amber-600" : "text-slate-200 cursor-not-allowed"
+                          staff.email ? "text-slate-400 hover:text-amber-600" : "text-slate-200 cursor-not-allowed"
                         )}
                       >
                         <Lock size={14} />
@@ -137,11 +137,11 @@ export default function RosterManager({
 
                       <button 
                         onClick={() => onSendResetEmail(staff.email!)}
-                        disabled={!staff.email || !staff.uid}
-                        title={staff.uid ? "Send Password Reset Email" : "Cannot send - User has not signed up yet"}
+                        disabled={!staff.email}
+                        title={staff.email ? "Send Password Reset Email" : "No email address found for this staff member"}
                         className={cn(
                           "transition-colors",
-                          staff.uid ? "text-slate-400 hover:text-indigo-600" : "text-slate-200 cursor-not-allowed"
+                          staff.email ? "text-slate-400 hover:text-indigo-600" : "text-slate-200 cursor-not-allowed"
                         )}
                       >
                         <Mail size={14} />

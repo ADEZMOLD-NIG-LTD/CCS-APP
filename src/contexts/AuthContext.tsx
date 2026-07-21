@@ -768,19 +768,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setErrorMessage('Permission Denied: Only company admins can trigger password resets.');
       return;
     }
+    if (!email || !email.includes('@')) {
+      setErrorMessage('Please provide a valid email address.');
+      return;
+    }
     try {
       setErrorMessage(null);
       setSuccessMessage(null);
-      // Consistent simplified call
-      await sendPasswordResetEmail(auth, email);
-      setSuccessMessage(`Password reset instruction sent to ${email}. They must use the link in the MOST RECENT email they receive.`);
+      
+      const cleanEmail = email.toLowerCase().trim();
+      
+      // Auto-ensure user profile exists in 'users' collection
+      const usersCol = collection(db, 'users');
+      const qEmail = query(usersCol, where('email', '==', cleanEmail));
+      const snap = await getDocs(qEmail);
+
+      if (snap.empty) {
+        // Check staff collection to auto-create user profile
+        const staffCol = collection(db, 'staff');
+        const qStaff = query(staffCol, where('email', '==', cleanEmail));
+        const staffSnap = await getDocs(qStaff);
+
+        if (!staffSnap.empty) {
+          const sData = staffSnap.docs[0].data() as Staff;
+          const uId = sData.uid || sData.id || `staff_user_${staffSnap.docs[0].id}`;
+          const newProfile: UserProfile = {
+            uid: uId,
+            email: cleanEmail,
+            displayName: sData.name || cleanEmail.split('@')[0],
+            role: sData.role || 'STAFF',
+            companyId: sData.companyId || profile?.companyId || '',
+            assignedWarehouseId: sData.assignedWarehouseId || undefined,
+            createdAt: new Date().toISOString(),
+            lastPasswordUpdate: new Date().toISOString()
+          };
+          await setDoc(doc(db, 'users', uId), newProfile, { merge: true });
+        }
+      }
+
+      await sendPasswordResetEmail(auth, cleanEmail);
+      setSuccessMessage(`Password reset instruction sent to ${cleanEmail}. They must use the link in the MOST RECENT email they receive.`);
     } catch (error: any) {
       console.error('Admin triggered reset failed:', error);
       setErrorMessage(`Failed to send reset email: ${error.message}`);
     }
   };
 
-  const manualResetPassword = async (userId: string) => {
+  const manualResetPassword = async (identifier: string) => {
     if (!isAdmin) {
       setErrorMessage('Permission Denied: Only company admins can manage password policies.');
       return;
@@ -788,23 +822,98 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setErrorMessage(null);
       setSuccessMessage(null);
-      console.log(`AuthContext: Manually resetting password state for user: ${userId} (Role: ${profile?.role})`);
+      console.log(`AuthContext: Manually resetting password state for identifier: ${identifier}`);
       
-      const userRef = doc(db, 'users', userId);
-      const userSnap = await getDoc(userRef);
-      
-      if (!userSnap.exists()) {
-        console.warn('AuthContext: User profile does not exist.');
-        setErrorMessage('Cannot reset policy: This user has not created their profile yet.');
-        return;
+      let targetUserDocId = identifier;
+      let targetEmail = identifier.includes('@') ? identifier.toLowerCase().trim() : '';
+
+      // 1. Check if identifier is an existing user doc ID in 'users'
+      let userRef = doc(db, 'users', targetUserDocId);
+      let userSnap = await getDoc(userRef);
+
+      // 2. If not found by doc ID, search 'users' collection by email
+      if (!userSnap.exists() && targetEmail) {
+        const usersCol = collection(db, 'users');
+        const qEmail = query(usersCol, where('email', '==', targetEmail));
+        const snapEmail = await getDocs(qEmail);
+        if (!snapEmail.empty) {
+          userRef = doc(db, 'users', snapEmail.docs[0].id);
+          userSnap = snapEmail.docs[0];
+          targetUserDocId = snapEmail.docs[0].id;
+        }
       }
 
-      await setDoc(userRef, { 
-        lastPasswordUpdate: null 
-      }, { merge: true });
-      
-      console.log('AuthContext: Password state reset successful in Firestore.');
-      setSuccessMessage('Password policy reset for user. They will be forced to change their password on next login.');
+      // 3. If still not found, search 'staff' collection by id, uid, or email
+      if (!userSnap.exists()) {
+        const staffCol = collection(db, 'staff');
+        let staffSnap = null;
+
+        const staffDocRef = doc(db, 'staff', identifier);
+        const staffDoc = await getDoc(staffDocRef);
+        if (staffDoc.exists()) {
+          staffSnap = staffDoc;
+        } else if (targetEmail) {
+          const qStaffEmail = query(staffCol, where('email', '==', targetEmail));
+          const res = await getDocs(qStaffEmail);
+          if (!res.empty) staffSnap = res.docs[0];
+        }
+
+        if (staffSnap && staffSnap.exists()) {
+          const staffData = staffSnap.data() as Staff;
+          targetEmail = (staffData.email || targetEmail).toLowerCase().trim();
+          targetUserDocId = staffData.uid || staffData.id || `staff_user_${staffSnap.id}`;
+
+          // Auto-create missing user profile in 'users' collection
+          const restoredProfile: UserProfile = {
+            uid: targetUserDocId,
+            email: targetEmail || '',
+            displayName: staffData.name || 'Staff Member',
+            role: staffData.role || 'STAFF',
+            companyId: staffData.companyId || profile?.companyId || '',
+            assignedWarehouseId: staffData.assignedWarehouseId || undefined,
+            createdAt: new Date().toISOString(),
+            lastPasswordUpdate: null
+          };
+
+          await setDoc(doc(db, 'users', targetUserDocId), restoredProfile, { merge: true });
+          userRef = doc(db, 'users', targetUserDocId);
+          userSnap = await getDoc(userRef);
+        }
+      }
+
+      // 4. Update user doc to set lastPasswordUpdate: null (forces password reset on next login)
+      if (userSnap.exists()) {
+        await setDoc(userRef, { lastPasswordUpdate: null }, { merge: true });
+        const userEmail = targetEmail || userSnap.data()?.email;
+
+        if (userEmail && userEmail.includes('@')) {
+          try {
+            await sendPasswordResetEmail(auth, userEmail);
+            setSuccessMessage(`Password policy reset and reset email sent to ${userEmail}! User can reset via email link or will be prompted on next login.`);
+          } catch (e: any) {
+            setSuccessMessage(`Password policy reset for ${userEmail}. They will be prompted to change their password on next login.`);
+          }
+        } else {
+          setSuccessMessage('Password policy reset for user. They will be forced to change their password on next login.');
+        }
+      } else if (targetEmail && targetEmail.includes('@')) {
+        // Auto-create user doc if profile was completely missing
+        const newDocId = `user_${Date.now()}`;
+        const newProfile: UserProfile = {
+          uid: newDocId,
+          email: targetEmail,
+          displayName: targetEmail.split('@')[0],
+          role: 'STAFF',
+          companyId: profile?.companyId || '',
+          createdAt: new Date().toISOString(),
+          lastPasswordUpdate: null
+        };
+        await setDoc(doc(db, 'users', newDocId), newProfile, { merge: true });
+        await sendPasswordResetEmail(auth, targetEmail);
+        setSuccessMessage(`User profile created and password reset link sent to ${targetEmail}.`);
+      } else {
+        setErrorMessage('Could not locate or create a user profile for password reset. Please check the staff email.');
+      }
     } catch (error: any) {
       console.error('Manual reset failed:', error);
       setErrorMessage(`Failed to reset password state: ${error.message}`);
