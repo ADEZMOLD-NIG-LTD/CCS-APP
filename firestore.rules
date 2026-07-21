@@ -152,6 +152,7 @@ service cloud.firestore {
       allow read: if sameCompany(companyId);
       allow create: if isSuperAdmin() || (isSignedIn() && incoming().ownerEmail == getEmail()) || (isAnonymous() && companyId == 'demo_company');
       allow update: if (isAdmin() && sameCompany(companyId)) || (isAnonymous() && companyId == 'demo_company');
+      allow delete: if isSuperAdmin();
     }
 
     match /users/{userId} {
@@ -162,7 +163,7 @@ service cloud.firestore {
         (isAdmin() && sameCompany(existing().get('companyId', ''))) ||
         (userId == 'demo_admin_profile' && isAnonymous())
       );
-      allow delete: if isAdmin() && sameCompany(existing().get('companyId', ''));
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().get('companyId', '')));
     }
 
     match /transactions/{id} {

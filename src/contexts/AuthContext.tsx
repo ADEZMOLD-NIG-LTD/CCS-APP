@@ -49,6 +49,8 @@ interface AuthContextType {
   logout: () => Promise<void>;
   registerCompany: (companyName: string) => Promise<void>;
   resetProfileCompany: () => Promise<void>;
+  connectExistingCompany: (companyId: string) => Promise<void>;
+  userCompanies: Company[];
   approveCompany: (companyId: string) => Promise<void>;
   disapproveCompany: (companyId: string) => Promise<void>;
   toggleUserSuspension: (userId: string, status: boolean) => Promise<void>;
@@ -146,6 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     return null;
   });
+  const [userCompanies, setUserCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(() => {
     return !shouldDefaultToDemo();
   });
@@ -291,6 +294,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
     let unsubscribeCompany: (() => void) | null = null;
+    let unsubscribeUserCompanies: (() => void) | null = null;
 
     // Safety timeout to ensure the app doesn't get stuck on the loading screen
     const loadingTimeout = setTimeout(() => {
@@ -341,6 +345,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } else {
             if (unsubscribeProfile) unsubscribeProfile();
             if (unsubscribeCompany) unsubscribeCompany();
+            if (unsubscribeUserCompanies) unsubscribeUserCompanies();
+
+            // Subscribe to companies owned by this user
+            if (user.email) {
+              const compQuery = query(
+                collection(db, 'companies'),
+                where('ownerEmail', '==', user.email.toLowerCase())
+              );
+              unsubscribeUserCompanies = onSnapshot(compQuery, (compSnapshot) => {
+                const comps: Company[] = [];
+                compSnapshot.forEach((doc) => {
+                  comps.push(doc.data() as Company);
+                });
+                setUserCompanies(comps);
+              }, (err) => {
+                console.error("Failed to fetch user companies:", err);
+              });
+            }
 
             const profileId = user.uid;
             const userRef = doc(db, 'users', profileId);
@@ -531,8 +553,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsDemoMode(false);
           setProfile(null);
           setCompany(null);
+          setUserCompanies([]);
           if (unsubscribeProfile) unsubscribeProfile();
           if (unsubscribeCompany) unsubscribeCompany();
+          if (unsubscribeUserCompanies) unsubscribeUserCompanies();
           setLoading(false);
           clearTimeout(loadingTimeout);
         }
@@ -547,6 +571,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribeCompany) unsubscribeCompany();
+      if (unsubscribeUserCompanies) unsubscribeUserCompanies();
     };
   }, [isDemoMode, isSuperAdmin]);
 
@@ -1003,6 +1028,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const connectExistingCompany = async (companyId: string) => {
+    if (!user) return;
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      await setDoc(userRef, {
+        companyId: companyId,
+        role: "ADMIN"
+      }, { merge: true });
+      
+      if (profile) {
+        setProfile({
+          ...profile,
+          companyId: companyId,
+          role: "ADMIN"
+        });
+      }
+      setSuccessMessage('Successfully connected to company!');
+    } catch (error: any) {
+      console.error('Failed to connect to company:', error);
+      setErrorMessage(`Failed to connect: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
    const approveCompany = async (companyId: string) => {
     if (!isSuperAdmin) return;
     try {
@@ -1062,6 +1114,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     registerCompany,
     resetProfileCompany,
+    connectExistingCompany,
+    userCompanies,
     approveCompany,
     disapproveCompany,
     toggleUserSuspension,

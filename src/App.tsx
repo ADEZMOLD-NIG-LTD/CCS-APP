@@ -37,6 +37,7 @@ type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' |
 function AppContent() {
   const { 
     user, profile, company, loading, signIn, logout, registerCompany, resetProfileCompany,
+    connectExistingCompany, userCompanies,
     signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode,
     mustChangePassword, can, isOnline, isFirestoreConnected, connectionError,
     errorMessage, setErrorMessage, successMessage, setSuccessMessage
@@ -148,6 +149,57 @@ function AppContent() {
     return <LoginPage onSignIn={signIn} onSignInAsDemo={signInAsDemo} />;
   }
 
+  const renderUserCompaniesList = () => {
+    if (!userCompanies || userCompanies.length === 0) return null;
+    return (
+      <div className="mt-6 border-t border-slate-100 pt-6 text-left">
+        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Your Registered Companies</h3>
+        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+          {userCompanies.map((c) => {
+            const isCurrentlySelected = company?.id === c.id;
+            return (
+              <div 
+                key={c.id} 
+                className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                  isCurrentlySelected 
+                    ? 'bg-indigo-50/50 border-indigo-200 ring-2 ring-indigo-600/10' 
+                    : 'bg-slate-50/50 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                <div className="min-w-0 pr-2">
+                  <p className="font-bold text-sm text-slate-800 truncate">{c.name}</p>
+                  <p className="text-[10px] text-slate-400 font-medium">ID: {c.id}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {c.isApproved ? (
+                    <span className="text-[10px] font-bold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                      Approved
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold bg-amber-50 text-amber-700 px-2.5 py-1 rounded-full flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
+                      Pending
+                    </span>
+                  )}
+                  
+                  {!isCurrentlySelected && (
+                    <button
+                      onClick={() => connectExistingCompany(c.id)}
+                      className="text-[10px] font-black uppercase tracking-widest bg-white hover:bg-indigo-600 hover:text-white text-indigo-600 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-indigo-600 transition-all shadow-sm active:scale-95"
+                    >
+                      Connect
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   if (user && (!profile || !profile.companyId) && !isSuperAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50 p-6 text-center">
@@ -196,6 +248,7 @@ function AppContent() {
               Cancel & Sign Out
             </button>
           </div>
+          {renderUserCompaniesList()}
         </div>
       </div>
     );
@@ -334,6 +387,7 @@ function AppContent() {
           >
             Switch to Training Demo Mode
           </button>
+          {renderUserCompaniesList()}
         </div>
       </div>
     );
