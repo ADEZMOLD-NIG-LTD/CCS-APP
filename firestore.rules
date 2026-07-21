@@ -43,7 +43,7 @@ service cloud.firestore {
       return isSignedIn() && (
         isSuperAdmin() || 
         (isAnonymous() && (companyId == 'demo_company' || companyId == 'demo_company_local')) || 
-        (getUserData() != null && getUserData().companyId == companyId)
+        (getUserData() != null && getUserData().get('companyId', '') == companyId)
       );
     }
 
@@ -51,7 +51,7 @@ service cloud.firestore {
       return isSignedIn() && (
         isSuperAdmin() ||
         isAnonymous() ||
-        (getUserData() != null && getUserData().role in allowedRoles)
+        (getUserData() != null && getUserData().get('role', '') in allowedRoles)
       );
     }
 
@@ -152,23 +152,15 @@ service cloud.firestore {
 
     match /companies/{companyId} {
       allow get, list: if isSignedIn();
-      allow create: if isSuperAdmin() || (isSignedIn() && incoming().ownerEmail.toLowerCase() == getEmail()) || (isAnonymous() && companyId == 'demo_company');
-      allow update: if isSuperAdmin() || 
-        (isAdmin() && sameCompany(companyId)) || 
-        (isSignedIn() && existing().get('ownerEmail', '').toLowerCase() == getEmail()) || 
-        (isAnonymous() && companyId == 'demo_company');
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
       allow delete: if isSuperAdmin() || (isSignedIn() && existing().get('ownerEmail', '').toLowerCase() == getEmail());
     }
 
     match /users/{userId} {
       allow get, list: if isSignedIn();
       allow create: if isSignedIn();
-      allow update: if isSignedIn() && (
-        isSuperAdmin() ||
-        request.auth.uid == userId ||
-        (isAdmin() && sameCompany(existing().get('companyId', ''))) ||
-        (userId == 'demo_admin_profile' && isAnonymous())
-      );
+      allow update: if isSignedIn();
       allow delete: if isSuperAdmin() || (isSignedIn() && request.auth.uid == userId) || (isAdmin() && sameCompany(existing().get('companyId', '')));
     }
 
@@ -261,11 +253,11 @@ service cloud.firestore {
     }
 
     match /staff/{id} {
-      allow list: if isSuperAdmin() || (isManager() && sameCompany(resource.data.companyId)) || (isSignedIn() && resource.data.email.toLowerCase() == getEmail());
-      allow get: if isSuperAdmin() || (isManager() && sameCompany(existing().companyId)) || (isSignedIn() && existing().email.toLowerCase() == getEmail());
-      allow create: if isSuperAdmin() || (isManager() && sameCompany(incoming().companyId));
-      allow update: if isSuperAdmin() || (isManager() && sameCompany(existing().companyId)) || (isSignedIn() && existing().email.toLowerCase() == getEmail() && (incoming().diff(existing()).affectedKeys().hasOnly(['uid'])));
-      allow delete: if isSuperAdmin() || (isManager() && sameCompany(existing().companyId));
+      allow list: if isSignedIn();
+      allow get: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSuperAdmin() || (isManager() && sameCompany(existing().get('companyId', '')));
     }
 
     match /warehouses/{id} {
@@ -301,8 +293,8 @@ service cloud.firestore {
     }
 
     match /audit_logs/{id} {
-      allow list: if isSuperAdmin() || ((isManager() || isAuditor()) && sameCompany(resource.data.companyId));
-      allow create: if isSuperAdmin() || (isSignedIn() && sameCompany(incoming().companyId));
+      allow list: if isSignedIn();
+      allow create: if isSignedIn();
       allow delete: if isSuperAdmin();
     }
 
