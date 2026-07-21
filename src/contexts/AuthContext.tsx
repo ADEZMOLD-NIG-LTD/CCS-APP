@@ -969,14 +969,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const newCompany: any = {
         id: companyId,
         name: companyName,
-        ownerEmail: user.email || '',
+        ownerEmail: (user.email || '').toLowerCase(),
         createdAt: new Date().toISOString(),
         isApproved: false // Requires super admin approval
       };
 
       const newProfile: any = {
         uid: user.uid,
-        email: user.email || '',
+        email: (user.email || '').toLowerCase(),
         displayName: profile?.displayName || user.displayName || 'Admin',
         role: 'ADMIN',
         companyId: companyId,
