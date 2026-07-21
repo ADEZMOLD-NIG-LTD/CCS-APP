@@ -1005,17 +1005,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     try {
       const companyId = `comp_${Date.now()}`;
+      const userEmailLower = (user.email || '').toLowerCase().trim();
+      const isSuperAdminUser = [
+        'wasiuadebisi89@gmail.com',
+        'adezmoldent@gmail.com',
+        'abdullahiwasiu07@gmail.com'
+      ].includes(userEmailLower) || isSuperAdmin;
+
       const newCompany: any = {
         id: companyId,
-        name: companyName,
-        ownerEmail: (user.email || '').toLowerCase(),
+        name: companyName.trim(),
+        ownerEmail: userEmailLower,
         createdAt: new Date().toISOString(),
-        isApproved: false // Requires super admin approval
+        isApproved: isSuperAdminUser ? true : false
       };
 
       const newProfile: any = {
         uid: user.uid,
-        email: (user.email || '').toLowerCase(),
+        email: userEmailLower,
         displayName: profile?.displayName || user.displayName || 'Admin',
         role: 'ADMIN',
         companyId: companyId,
@@ -1031,7 +1038,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       setCompany(newCompany);
       setProfile(newProfile);
-      setSuccessMessage('Company registered successfully! Awaiting admin approval.');
+      if (isSuperAdminUser) {
+        setSuccessMessage('Company registered and auto-approved successfully!');
+      } else {
+        setSuccessMessage('Company registered successfully! Awaiting super admin approval.');
+      }
     } catch (error: any) {
       console.error('Company registration failed:', error);
       setErrorMessage(`Registration failed: ${error.message}`);
