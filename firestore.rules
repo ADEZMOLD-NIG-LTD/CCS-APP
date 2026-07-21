@@ -147,23 +147,30 @@ service cloud.firestore {
     // ===============================================================
 
     match /companies/{companyId} {
-      allow get, list: if isSignedIn() && (isSuperAdmin() || sameCompany(companyId));
-      allow create: if isSuperAdmin() || (isSignedIn() && incoming().ownerEmail == getEmail()) || (isAnonymous() && companyId == 'demo_company');
-      allow update: if isSuperAdmin() || (isAdmin() && sameCompany(companyId)) || (isAnonymous() && companyId == 'demo_company');
-      allow delete: if isSuperAdmin();
+      allow get, list: if isSignedIn() && (
+        isSuperAdmin() || 
+        sameCompany(companyId) || 
+        (resource != null && resource.data.get('ownerEmail', '').lower() == getEmail())
+      );
+      allow create: if isSuperAdmin() || (isSignedIn() && incoming().ownerEmail.lower() == getEmail()) || (isAnonymous() && companyId == 'demo_company');
+      allow update: if isSuperAdmin() || 
+        (isAdmin() && sameCompany(companyId)) || 
+        (isSignedIn() && existing().get('ownerEmail', '').lower() == getEmail()) || 
+        (isAnonymous() && companyId == 'demo_company');
+      allow delete: if isSuperAdmin() || (isSignedIn() && existing().get('ownerEmail', '').lower() == getEmail());
     }
 
     match /users/{userId} {
-      allow get: if isSignedIn() && (isSuperAdmin() || request.auth.uid == userId || userId == 'demo_admin_profile' || isAdmin());
+      allow get: if isSignedIn() && (isSuperAdmin() || request.auth.uid == userId || userId == 'demo_admin_profile' || isAdmin() || (resource != null && resource.data.get('email', '').lower() == getEmail()));
       allow list: if isSignedIn() && (isSuperAdmin() || isAdmin());
       allow create: if isSignedIn() && (isSuperAdmin() || request.auth.uid == userId || (userId == 'demo_admin_profile' && isAnonymous()));
       allow update: if isSignedIn() && (
         isSuperAdmin() ||
-        (request.auth.uid == userId && (incoming().role == existing().role || existing().get('companyId', '') == '')) ||
+        request.auth.uid == userId ||
         (isAdmin() && sameCompany(existing().get('companyId', ''))) ||
         (userId == 'demo_admin_profile' && isAnonymous())
       );
-      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().get('companyId', '')));
+      allow delete: if isSuperAdmin() || (isSignedIn() && request.auth.uid == userId) || (isAdmin() && sameCompany(existing().get('companyId', '')));
     }
 
     match /transactions/{id} {

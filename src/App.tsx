@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock, Wifi, WifiOff, BookOpen, Wallet } from 'lucide-react';
+import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock, Wifi, WifiOff, BookOpen, Wallet, Trash2 } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import SupplierModule from './components/SupplierModule';
 import BuyerModule from './components/BuyerModule';
@@ -37,7 +37,7 @@ type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' |
 function AppContent() {
   const { 
     user, profile, company, loading, signIn, logout, registerCompany, resetProfileCompany,
-    connectExistingCompany, userCompanies,
+    connectExistingCompany, deleteCompanyByOwner, deleteUserAccount, userCompanies,
     signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode,
     mustChangePassword, can, isOnline, isFirestoreConnected, connectionError,
     errorMessage, setErrorMessage, successMessage, setSuccessMessage
@@ -191,6 +191,18 @@ function AppContent() {
                       Connect
                     </button>
                   )}
+
+                  <button
+                    onClick={() => {
+                      if (confirm(`Are you sure you want to delete company "${c.name}"?`)) {
+                        deleteCompanyByOwner(c.id);
+                      }
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                    title="Delete company"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
             );
@@ -239,6 +251,17 @@ function AppContent() {
               className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 py-4 rounded-2xl font-bold active:scale-95 transition-all text-sm mb-2"
             >
               Switch to Training Demo Mode
+            </button>
+
+            <button 
+              onClick={() => {
+                if (confirm("Are you sure you want to delete your profile data to re-register cleanly?")) {
+                  deleteUserAccount();
+                }
+              }}
+              className="w-full text-rose-500 py-1 text-xs font-bold hover:text-rose-700 transition-colors"
+            >
+              Reset / Delete Profile & Re-register
             </button>
 
             <button 

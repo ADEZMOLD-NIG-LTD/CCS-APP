@@ -50,6 +50,8 @@ interface AuthContextType {
   registerCompany: (companyName: string) => Promise<void>;
   resetProfileCompany: () => Promise<void>;
   connectExistingCompany: (companyId: string) => Promise<void>;
+  deleteCompanyByOwner: (companyId: string) => Promise<void>;
+  deleteUserAccount: () => Promise<void>;
   userCompanies: Company[];
   approveCompany: (companyId: string) => Promise<void>;
   disapproveCompany: (companyId: string) => Promise<void>;
@@ -1055,6 +1057,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const deleteCompanyByOwner = async (companyId: string) => {
+    if (!user) return;
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const { deleteDoc } = await import('firebase/firestore');
+      await deleteDoc(doc(db, 'companies', companyId));
+      
+      if (company?.id === companyId || profile?.companyId === companyId) {
+        const userRef = doc(db, 'users', user.uid);
+        await setDoc(userRef, {
+          companyId: "",
+          role: "ADMIN"
+        }, { merge: true });
+        setCompany(null);
+        if (profile) {
+          setProfile({
+            ...profile,
+            companyId: ""
+          });
+        }
+      }
+      setSuccessMessage('Company deleted successfully.');
+    } catch (error: any) {
+      console.error('Failed to delete company:', error);
+      setErrorMessage(`Failed to delete company: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteUserAccount = async () => {
+    if (!user) return;
+    setLoading(true);
+    setErrorMessage(null);
+    try {
+      const { deleteDoc } = await import('firebase/firestore');
+      await deleteDoc(doc(db, 'users', user.uid));
+      setProfile(null);
+      setCompany(null);
+      setSuccessMessage('Account profile deleted successfully. You can now register again.');
+      await logout();
+    } catch (error: any) {
+      console.error('Failed to delete user account:', error);
+      setErrorMessage(`Failed to delete account: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
    const approveCompany = async (companyId: string) => {
     if (!isSuperAdmin) return;
     try {
@@ -1115,6 +1167,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     registerCompany,
     resetProfileCompany,
     connectExistingCompany,
+    deleteCompanyByOwner,
+    deleteUserAccount,
     userCompanies,
     approveCompany,
     disapproveCompany,
