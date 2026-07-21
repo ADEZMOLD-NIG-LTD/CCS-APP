@@ -309,6 +309,25 @@ export default function StaffModule() {
       Object.keys(finalStaff).forEach(key => finalStaff[key] === undefined && delete finalStaff[key]);
 
       const writePromise = setDoc(doc(db, 'staff', id), finalStaff);
+
+      if (authUid || email) {
+        try {
+          const userDocId = authUid || `staff_user_${id}`;
+          const staffUserProfile = {
+            uid: userDocId,
+            email: email,
+            displayName: newStaff.name,
+            role: newStaff.role,
+            companyId: profile?.companyId || '',
+            assignedWarehouseId: newStaff.assignedWarehouseId || null,
+            createdAt: new Date().toISOString(),
+            lastPasswordUpdate: new Date().toISOString()
+          };
+          await setDoc(doc(db, 'users', userDocId), staffUserProfile, { merge: true });
+        } catch (uErr) {
+          console.warn('Failed to auto-create user profile for staff:', uErr);
+        }
+      }
       
       if (!isOnline) {
         console.log('Working offline, proceeding optimistically');

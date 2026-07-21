@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle, Trash2, UserMinus, Mail } from 'lucide-react';
+import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle, Trash2, UserMinus, Mail, UserPlus, RefreshCw, Plus } from 'lucide-react';
 import { collection, onSnapshot, query, orderBy, getDocs, doc, deleteDoc, writeBatch, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Company, UserProfile } from '../types';
@@ -17,6 +17,8 @@ export default function SuperAdminModule() {
   const [deleteCompanyConfirmId, setDeleteCompanyConfirmId] = useState<string | null>(null);
   const [isPurging, setIsPurging] = useState(false);
   const [purgeConfirm, setPurgeConfirm] = useState(false);
+  const [isSyncingUsers, setIsSyncingUsers] = useState(false);
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -122,6 +124,105 @@ export default function SuperAdminModule() {
     } finally {
       setIsPurging(false);
       setPurgeConfirm(false);
+    }
+  };
+
+  const handleSyncUsers = async () => {
+    setIsSyncingUsers(true);
+    try {
+      let addedCount = 0;
+      const { setDoc, doc } = await import('firebase/firestore');
+
+      // 1. Sync Company Owners
+      for (const comp of companies) {
+        if (!comp.ownerEmail) continue;
+        const ownerEmailLower = comp.ownerEmail.toLowerCase().trim();
+        const exists = users.some(u => u.email.toLowerCase().trim() === ownerEmailLower);
+        if (!exists) {
+          const docId = `owner_${comp.id}`;
+          const newProfile: UserProfile = {
+            uid: docId,
+            email: ownerEmailLower,
+            displayName: `${comp.name} Owner`,
+            role: 'ADMIN',
+            companyId: comp.id,
+            createdAt: comp.createdAt || new Date().toISOString(),
+            lastPasswordUpdate: new Date().toISOString()
+          };
+          await setDoc(doc(db, 'users', docId), newProfile, { merge: true });
+          addedCount++;
+        }
+      }
+
+      // 2. Sync Staff Members
+      const staffSnap = await getDocs(collection(db, 'staff'));
+      for (const staffDoc of staffSnap.docs) {
+        const sData = staffDoc.data();
+        if (!sData.email) continue;
+        const staffEmailLower = sData.email.toLowerCase().trim();
+        const exists = users.some(u => u.email.toLowerCase().trim() === staffEmailLower);
+        if (!exists) {
+          const docId = sData.uid || `staff_user_${staffDoc.id}`;
+          const newProfile: UserProfile = {
+            uid: docId,
+            email: staffEmailLower,
+            displayName: sData.name || 'Staff User',
+            role: sData.role || 'GUEST',
+            companyId: sData.companyId || '',
+            assignedWarehouseId: sData.assignedWarehouseId || undefined,
+            createdAt: new Date().toISOString(),
+            lastPasswordUpdate: new Date().toISOString()
+          };
+          await setDoc(doc(db, 'users', docId), newProfile, { merge: true });
+          addedCount++;
+        }
+      }
+
+      if (addedCount > 0) {
+        alert(`Successfully synced and restored ${addedCount} missing user profile(s)!`);
+      } else {
+        alert('All company owners and staff already have active user profiles in Firestore.');
+      }
+    } catch (err: any) {
+      console.error('Failed to sync users:', err);
+      alert(`Sync failed: ${err.message}`);
+    } finally {
+      setIsSyncingUsers(false);
+    }
+  };
+
+  const handleAddUserSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const email = (formData.get('email') as string)?.toLowerCase().trim();
+    const displayName = (formData.get('displayName') as string)?.trim();
+    const role = (formData.get('role') as UserProfile['role']) || 'ADMIN';
+    const companyId = (formData.get('companyId') as string) || '';
+
+    if (!email || !displayName) {
+      alert('Email and Name are required');
+      return;
+    }
+
+    try {
+      const { setDoc, doc } = await import('firebase/firestore');
+      const docId = `user_${Date.now()}`;
+      const newProfile: UserProfile = {
+        uid: docId,
+        email,
+        displayName,
+        role,
+        companyId,
+        createdAt: new Date().toISOString(),
+        lastPasswordUpdate: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, 'users', docId), newProfile, { merge: true });
+      alert(`User profile for ${email} added successfully!`);
+      setShowAddUserModal(false);
+    } catch (err: any) {
+      console.error('Failed to add user profile:', err);
+      alert(`Failed to create user profile: ${err.message}`);
     }
   };
 
@@ -252,14 +353,34 @@ export default function SuperAdminModule() {
             </div>
             
             {activeTab === 'users' && (
-              <button
-                onClick={() => setPurgeConfirm(true)}
-                disabled={isPurging}
-                className="w-full bg-rose-50 text-rose-600 py-3 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors"
-              >
-                <UserMinus size={16} />
-                {isPurging ? 'Purging Duplicates...' : 'Purge Duplicated Demo Users'}
-              </button>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button
+                  onClick={handleSyncUsers}
+                  disabled={isSyncingUsers}
+                  className="flex-1 bg-indigo-50 text-indigo-700 py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-indigo-100 transition-colors border border-indigo-100"
+                  title="Auto-scan companies and staff to restore missing user profiles"
+                >
+                  <RefreshCw size={15} className={isSyncingUsers ? 'animate-spin' : ''} />
+                  {isSyncingUsers ? 'Syncing Missing Users...' : 'Sync & Restore Missing Users'}
+                </button>
+
+                <button
+                  onClick={() => setShowAddUserModal(true)}
+                  className="bg-[var(--accent)] text-white py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                  <UserPlus size={15} />
+                  Add / Restore User
+                </button>
+
+                <button
+                  onClick={() => setPurgeConfirm(true)}
+                  disabled={isPurging}
+                  className="bg-rose-50 text-rose-600 py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors"
+                >
+                  <UserMinus size={15} />
+                  {isPurging ? 'Purging...' : 'Purge Demo Users'}
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -638,6 +759,117 @@ export default function SuperAdminModule() {
           </div>
         )}
       </main>
+
+      {/* Add / Restore User Modal */}
+      <AnimatePresence>
+        {showAddUserModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4"
+            >
+              <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                  <UserPlus size={20} className="text-[var(--accent)]" />
+                  Add / Restore User Profile
+                </h3>
+                <button
+                  onClick={() => setShowAddUserModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleAddUserSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    User Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    required
+                    placeholder="e.g. user@company.com"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Full Name / Display Name *
+                  </label>
+                  <input
+                    type="text"
+                    name="displayName"
+                    required
+                    placeholder="e.g. John Doe"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    User Role
+                  </label>
+                  <select
+                    name="role"
+                    defaultValue="ADMIN"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                  >
+                    <option value="ADMIN">ADMIN (Company Owner / Manager)</option>
+                    <option value="ACCOUNT">ACCOUNT (Accountant)</option>
+                    <option value="AUDITOR">AUDITOR (Auditor)</option>
+                    <option value="BUYER">BUYER (Purchasing Agent)</option>
+                    <option value="STORE_KEEPER">STORE_KEEPER (Warehouse Keeper)</option>
+                    <option value="GUEST">GUEST (Read-only)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Assign to Company
+                  </label>
+                  <select
+                    name="companyId"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                  >
+                    <option value="">-- No Company --</option>
+                    {companies.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.ownerEmail})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddUserModal(false)}
+                    className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-[var(--accent)] text-white py-3 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-md"
+                  >
+                    Create Profile
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

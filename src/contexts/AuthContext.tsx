@@ -529,9 +529,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                           console.warn('AuthContext: Failed to link staff record to UID.', linkError);
                         }
                       } else {
-                        console.log('AuthContext: No staff record found for:', user.email);
-                        setProfile(null);
-                        setCompany(null);
+                        console.log('AuthContext: No staff record found for:', user.email, '. Checking companies collection...');
+                        
+                        // Check if user is owner of a company
+                        const compQuery = query(
+                          collection(db, 'companies'),
+                          where('ownerEmail', '==', user.email.toLowerCase())
+                        );
+                        const compDocs = await getDocs(compQuery);
+
+                        if (!compDocs.empty) {
+                          const ownedCompany = compDocs.docs[0].data() as Company;
+                          console.log('AuthContext: Company owner record found. Restoring admin profile...');
+                          const restoredProfile: any = {
+                            uid: user.uid,
+                            email: user.email.toLowerCase(),
+                            displayName: user.displayName || user.email.split('@')[0] || 'Company Owner',
+                            role: 'ADMIN',
+                            companyId: ownedCompany.id,
+                            createdAt: new Date().toISOString(),
+                            lastPasswordUpdate: new Date().toISOString()
+                          };
+                          await setDoc(userRef, restoredProfile, { merge: true });
+                          setProfile(restoredProfile);
+                          setCompany(ownedCompany);
+                        } else {
+                          console.log('AuthContext: Creating default user profile for:', user.email);
+                          const defaultProfile: any = {
+                            uid: user.uid,
+                            email: user.email.toLowerCase(),
+                            displayName: user.displayName || user.email.split('@')[0] || 'User',
+                            role: 'ADMIN',
+                            companyId: '',
+                            createdAt: new Date().toISOString(),
+                            lastPasswordUpdate: new Date().toISOString()
+                          };
+                          await setDoc(userRef, defaultProfile, { merge: true });
+                          setProfile(defaultProfile);
+                          setCompany(null);
+                        }
                       }
                     } catch (staffFetchError: any) {
                       console.error('AuthContext: Staff record lookup failed:', staffFetchError);

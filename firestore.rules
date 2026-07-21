@@ -163,7 +163,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow get: if isSignedIn() && (isSuperAdmin() || request.auth.uid == userId || userId == 'demo_admin_profile' || isAdmin() || (resource != null && resource.data.get('email', '').lower() == getEmail()));
       allow list: if isSignedIn() && (isSuperAdmin() || isAdmin());
-      allow create: if isSignedIn() && (isSuperAdmin() || request.auth.uid == userId || (userId == 'demo_admin_profile' && isAnonymous()));
+      allow create: if isSignedIn() && (isSuperAdmin() || isAdmin() || request.auth.uid == userId || (userId == 'demo_admin_profile' && isAnonymous()));
       allow update: if isSignedIn() && (
         isSuperAdmin() ||
         request.auth.uid == userId ||
