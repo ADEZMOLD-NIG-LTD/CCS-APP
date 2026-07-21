@@ -22,6 +22,75 @@ export default function SuperAdminModule() {
   const [testEmail, setTestEmail] = useState('');
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [purgeEmailInput, setPurgeEmailInput] = useState('');
+  const [isPurgingEmail, setIsPurgingEmail] = useState(false);
+
+  const handlePurgeAccountByEmail = async (targetEmailParam?: string) => {
+    const targetEmail = (targetEmailParam || purgeEmailInput || '').toLowerCase().trim();
+    if (!targetEmail) {
+      alert('Please enter or provide an email address to purge.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to purge ALL companies, staff, and user profiles associated with ${targetEmail}? This cannot be undone.`)) {
+      return;
+    }
+
+    setIsPurgingEmail(true);
+    try {
+      let deletedCompCount = 0;
+      let deletedUserCount = 0;
+      let deletedStaffCount = 0;
+
+      // 1. Delete companies matching ownerEmail
+      const cQ = query(collection(db, 'companies'), where('ownerEmail', '==', targetEmail));
+      const cSnap = await getDocs(cQ);
+      for (const cDoc of cSnap.docs) {
+        await deleteDoc(cDoc.ref);
+        deletedCompCount++;
+
+        // Delete staff for this company
+        const sQ = query(collection(db, 'staff'), where('companyId', '==', cDoc.id));
+        const sSnap = await getDocs(sQ);
+        for (const sDoc of sSnap.docs) {
+          await deleteDoc(sDoc.ref);
+          deletedStaffCount++;
+        }
+
+        // Delete users for this company
+        const uQ = query(collection(db, 'users'), where('companyId', '==', cDoc.id));
+        const uSnap = await getDocs(uQ);
+        for (const uDoc of uSnap.docs) {
+          await deleteDoc(uDoc.ref);
+          deletedUserCount++;
+        }
+      }
+
+      // 2. Delete user profiles directly matching targetEmail
+      const uEmailQ = query(collection(db, 'users'), where('email', '==', targetEmail));
+      const uEmailSnap = await getDocs(uEmailQ);
+      for (const uDoc of uEmailSnap.docs) {
+        await deleteDoc(uDoc.ref);
+        deletedUserCount++;
+      }
+
+      // 3. Delete staff records directly matching targetEmail
+      const sEmailQ = query(collection(db, 'staff'), where('email', '==', targetEmail));
+      const sEmailSnap = await getDocs(sEmailQ);
+      for (const sDoc of sEmailSnap.docs) {
+        await deleteDoc(sDoc.ref);
+        deletedStaffCount++;
+      }
+
+      alert(`Purge Completed for ${targetEmail}:\n- Deleted ${deletedCompCount} company record(s)\n- Deleted ${deletedUserCount} user profile(s)\n- Deleted ${deletedStaffCount} staff record(s)`);
+      setPurgeEmailInput('');
+    } catch (err: any) {
+      console.error('Failed to purge account:', err);
+      alert(`Purge failed: ${err.message}`);
+    } finally {
+      setIsPurgingEmail(false);
+    }
+  };
 
   const handleDeleteCompany = async (companyId: string) => {
     try {
@@ -381,36 +450,56 @@ export default function SuperAdminModule() {
               />
             </div>
             
-            {activeTab === 'users' && (
-              <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex flex-wrap gap-2">
+              <div className="flex-1 flex gap-2 min-w-[280px]">
+                <input
+                  type="email"
+                  placeholder="Enter email to purge account (e.g. user@gmail.com)..."
+                  value={purgeEmailInput}
+                  onChange={(e) => setPurgeEmailInput(e.target.value)}
+                  className="flex-1 bg-white border border-rose-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
                 <button
-                  onClick={handleSyncUsers}
-                  disabled={isSyncingUsers}
-                  className="flex-1 bg-indigo-50 text-indigo-700 py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-indigo-100 transition-colors border border-indigo-100"
-                  title="Auto-scan companies and staff to restore missing user profiles"
+                  onClick={() => handlePurgeAccountByEmail()}
+                  disabled={isPurgingEmail || !purgeEmailInput.trim()}
+                  className="bg-rose-600 text-white px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-rose-700 transition-colors disabled:opacity-50 flex items-center gap-1.5 shrink-0"
                 >
-                  <RefreshCw size={15} className={isSyncingUsers ? 'animate-spin' : ''} />
-                  {isSyncingUsers ? 'Syncing Missing Users...' : 'Sync & Restore Missing Users'}
-                </button>
-
-                <button
-                  onClick={() => setShowAddUserModal(true)}
-                  className="bg-[var(--accent)] text-white py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors shadow-sm"
-                >
-                  <UserPlus size={15} />
-                  Add / Restore User
-                </button>
-
-                <button
-                  onClick={() => setPurgeConfirm(true)}
-                  disabled={isPurging}
-                  className="bg-rose-50 text-rose-600 py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors"
-                >
-                  <UserMinus size={15} />
-                  {isPurging ? 'Purging...' : 'Purge Demo Users'}
+                  <Trash2 size={14} />
+                  {isPurgingEmail ? 'Purging...' : 'Purge Account'}
                 </button>
               </div>
-            )}
+
+              {activeTab === 'users' && (
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={handleSyncUsers}
+                    disabled={isSyncingUsers}
+                    className="flex-1 bg-indigo-50 text-indigo-700 py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-indigo-100 transition-colors border border-indigo-100"
+                    title="Auto-scan companies and staff to restore missing user profiles"
+                  >
+                    <RefreshCw size={15} className={isSyncingUsers ? 'animate-spin' : ''} />
+                    {isSyncingUsers ? 'Syncing Missing Users...' : 'Sync & Restore Missing Users'}
+                  </button>
+
+                  <button
+                    onClick={() => setShowAddUserModal(true)}
+                    className="bg-[var(--accent)] text-white py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                    <UserPlus size={15} />
+                    Add / Restore User
+                  </button>
+
+                  <button
+                    onClick={() => setPurgeConfirm(true)}
+                    disabled={isPurging}
+                    className="bg-rose-50 text-rose-600 py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-rose-100 transition-colors"
+                  >
+                    <UserMinus size={15} />
+                    {isPurging ? 'Purging...' : 'Purge Demo Users'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

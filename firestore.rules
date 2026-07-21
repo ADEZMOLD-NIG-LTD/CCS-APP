@@ -14,7 +14,7 @@ service cloud.firestore {
     function existing() { return resource.data; }
     function isSignedIn() { return request.auth != null; }
     function getEmail() {
-      return (request.auth != null && 'email' in request.auth.token) ? request.auth.token.email.lower() : '';
+      return request.auth != null ? request.auth.token.get('email', '').lower() : '';
     }
     
     // Super Admins bypass many checks
@@ -28,14 +28,15 @@ service cloud.firestore {
     }
 
     function getUserData() {
-      let uid = request.auth.token.firebase.sign_in_provider == 'anonymous' ? 'demo_admin_profile_local' : request.auth.uid;
+      let isAnon = request.auth != null && request.auth.token.get('firebase', {}).get('sign_in_provider', '') == 'anonymous';
+      let uid = isAnon ? 'demo_admin_profile_local' : request.auth.uid;
       let path = /databases/$(database)/documents/users/$(uid);
       let legacyPath = /databases/$(database)/documents/users/demo_admin_profile;
       return exists(path) ? get(path).data : (exists(legacyPath) ? get(legacyPath).data : null);
     }
 
     function isAnonymous() {
-      return isSignedIn() && request.auth.token.firebase.sign_in_provider == 'anonymous';
+      return isSignedIn() && request.auth.token.get('firebase', {}).get('sign_in_provider', '') == 'anonymous';
     }
 
     function sameCompany(companyId) {
@@ -150,11 +151,7 @@ service cloud.firestore {
     // ===============================================================
 
     match /companies/{companyId} {
-      allow get, list: if isSignedIn() && (
-        isSuperAdmin() || 
-        sameCompany(companyId) || 
-        (resource != null && resource.data.get('ownerEmail', '').lower() == getEmail())
-      );
+      allow get, list: if isSignedIn();
       allow create: if isSuperAdmin() || (isSignedIn() && incoming().ownerEmail.lower() == getEmail()) || (isAnonymous() && companyId == 'demo_company');
       allow update: if isSuperAdmin() || 
         (isAdmin() && sameCompany(companyId)) || 
@@ -164,9 +161,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get: if isSignedIn() && (isSuperAdmin() || request.auth.uid == userId || userId == 'demo_admin_profile' || isAdmin() || (resource != null && resource.data.get('email', '').lower() == getEmail()));
-      allow list: if isSignedIn() && (isSuperAdmin() || isAdmin());
-      allow create: if isSignedIn() && (isSuperAdmin() || isAdmin() || request.auth.uid == userId || (userId == 'demo_admin_profile' && isAnonymous()));
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn();
       allow update: if isSignedIn() && (
         isSuperAdmin() ||
         request.auth.uid == userId ||
