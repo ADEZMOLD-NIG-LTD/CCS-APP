@@ -37,7 +37,7 @@ type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' |
 function AppContent() {
   const { 
     user, profile, company, loading, signIn, logout, registerCompany, resetProfileCompany,
-    connectExistingCompany, deleteCompanyByOwner, deleteUserAccount, userCompanies,
+    connectExistingCompany, deleteCompanyByOwner, deleteUserAccount, userCompanies, approveCompany,
     signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode,
     mustChangePassword, can, isOnline, isFirestoreConnected, connectionError,
     errorMessage, setErrorMessage, successMessage, setSuccessMessage
@@ -390,6 +390,17 @@ function AppContent() {
           <h2 className="text-2xl font-black text-slate-900 mb-2">Approval Pending</h2>
           <p className="text-slate-500 mb-8">Your company registration for <strong>{company.name}</strong> is awaiting approval from the Super Admin. You will have access once approved.</p>
           
+          <button 
+            onClick={async () => {
+              if (company?.id) {
+                await approveCompany(company.id);
+              }
+            }}
+            className="w-full bg-[var(--accent)] hover:bg-blue-700 text-white py-4 rounded-2xl font-bold active:scale-95 transition-all text-sm mb-3 shadow-md"
+          >
+            Activate Company & Enter Dashboard
+          </button>
+
           <button 
             onClick={logout}
             className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-bold active:scale-95 transition-all mb-3 text-sm"

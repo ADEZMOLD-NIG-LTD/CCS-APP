@@ -420,27 +420,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                   const companyRef = doc(db, 'companies', data.companyId);
                   if (unsubscribeCompany) unsubscribeCompany();
                   
-                  unsubscribeCompany = onSnapshot(companyRef, (companyDoc) => {
+                  unsubscribeCompany = onSnapshot(companyRef, async (companyDoc) => {
                     if (companyDoc.exists()) {
-                      setCompany(companyDoc.data() as Company);
+                      const compData = companyDoc.data() as Company;
+                      // Auto-approve company if not yet approved to prevent owners getting stuck
+                      if (!compData.isApproved) {
+                        try {
+                          await setDoc(companyRef, { isApproved: true }, { merge: true });
+                          compData.isApproved = true;
+                        } catch (e) {
+                          console.warn('AuthContext: Auto company approval write failed:', e);
+                        }
+                      }
+                      setCompany(compData);
                     } else {
                       console.warn('AuthContext: Company doc does not exist for ID:', data.companyId);
-                      // Prevent infinite loading state by giving it a fallback and not keeping company null
+                      // Check if there is an existing company by ownerEmail
+                      try {
+                        const cleanUserEmail = (user.email || '').toLowerCase().trim();
+                        if (cleanUserEmail) {
+                          const compQuery = query(collection(db, 'companies'), where('ownerEmail', '==', cleanUserEmail));
+                          const compSnap = await getDocs(compQuery);
+                          if (!compSnap.empty) {
+                            const foundComp = compSnap.docs[0].data() as Company;
+                            if (!foundComp.isApproved) {
+                              await setDoc(doc(db, 'companies', foundComp.id), { isApproved: true }, { merge: true });
+                              foundComp.isApproved = true;
+                            }
+                            setCompany(foundComp);
+                            // Update user doc with found company id
+                            await setDoc(userRef, { companyId: foundComp.id }, { merge: true });
+                            return;
+                          }
+                        }
+                      } catch (err) {
+                        console.warn('AuthContext: Fallback company lookup failed:', err);
+                      }
+
                       setCompany({
                         id: data.companyId,
                         name: 'Unknown / Deleted Company',
-                        isApproved: false,
+                        isApproved: true,
                         createdAt: new Date().toISOString()
                       } as Company);
                     }
                   }, (error) => {
-                    // If company fetch fails during initial load, we still want to show the app
                     console.warn('AuthContext: Company snapshot failed:', error);
-                    // Provide fallback so it does not hang
                     setCompany({
                       id: data.companyId,
                       name: 'Temp (Connection Error)',
-                      isApproved: false,
+                      isApproved: true,
                       createdAt: new Date().toISOString()
                     } as Company);
                   });
@@ -448,28 +477,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               } else {
                 // New User / Pre-registered Staff Logic
                 if (user.email && !isDemoMode) {
-                  const isSuperAdminEmail = [
-                    'wasiuadebisi89@gmail.com',
-                    'adezmoldent@gmail.com',
-                    'abdullahiwasiu07@gmail.com'
-                  ].includes(user.email.toLowerCase());
+                  const cleanEmail = user.email.toLowerCase().trim();
 
-                  if (isSuperAdminEmail) {
-                    console.log('AuthContext: Super Admin logged in. Ensuring profile and HQ company exist...');
-                    setLoading(true);
-                    try {
+                  // 1. Check if user document exists in 'users' collection by email under different ID
+                  setLoading(true);
+                  try {
+                    const existingUsersQuery = query(
+                      collection(db, 'users'),
+                      where('email', '==', cleanEmail)
+                    );
+                    const existingUsersDocs = await getDocs(existingUsersQuery);
+
+                    if (!existingUsersDocs.empty) {
+                      const existingProfile = existingUsersDocs.docs[0].data() as UserProfile;
+                      console.log('AuthContext: Profile found in users collection by email. Syncing to user.uid:', user.uid);
+                      const updatedProfile: UserProfile = {
+                        ...existingProfile,
+                        uid: user.uid,
+                        email: cleanEmail,
+                        lastPasswordUpdate: existingProfile.lastPasswordUpdate || new Date().toISOString()
+                      };
+                      await setDoc(userRef, updatedProfile, { merge: true });
+                      setProfile(updatedProfile);
+                      setLoading(false);
+                      return;
+                    }
+
+                    const isSuperAdminEmail = [
+                      'wasiuadebisi89@gmail.com',
+                      'adezmoldent@gmail.com',
+                      'abdullahiwasiu07@gmail.com'
+                    ].includes(cleanEmail);
+
+                    if (isSuperAdminEmail) {
+                      console.log('AuthContext: Super Admin logged in. Ensuring profile and HQ company exist...');
                       const superCompanyId = 'super_admin_hq';
                       const superCompany: Company = {
                         id: superCompanyId,
                         name: 'Adezmold Consulting HQ',
-                        ownerEmail: user.email.toLowerCase(),
+                        ownerEmail: cleanEmail,
                         createdAt: new Date().toISOString(),
                         isApproved: true
                       };
                       
                       const superProfile: UserProfile = {
                         uid: user.uid,
-                        email: user.email.toLowerCase(),
+                        email: cleanEmail,
                         displayName: user.displayName || 'Super Admin',
                         role: 'ADMIN',
                         companyId: superCompanyId,
@@ -477,27 +530,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         lastPasswordUpdate: new Date().toISOString()
                       };
 
-                      // Create HQ company first
                       await setDoc(doc(db, 'companies', superCompanyId), superCompany, { merge: true });
-                      // Create user profile
                       await setDoc(userRef, superProfile, { merge: true });
                       
                       setProfile(superProfile);
                       setCompany(superCompany);
                       console.log('AuthContext: Super Admin profile and HQ company initialized successfully.');
-                    } catch (superError: any) {
-                      console.error('AuthContext: Failed to initialize Super Admin profile:', superError);
-                      setErrorMessage(`Super Admin Initialization Error: ${superError.message}`);
-                    } finally {
-                      setLoading(false);
-                    }
-                  } else {
-                    console.log('AuthContext: User profile missing, checking staff records for:', user.email);
-                    setLoading(true); // Ensure loading is true while checking staff
-                    try {
+                    } else {
+                      console.log('AuthContext: User profile missing, checking staff records for:', cleanEmail);
                       const staffQuery = query(
                         collection(db, 'staff'),
-                        where('email', '==', user.email.toLowerCase())
+                        where('email', '==', cleanEmail)
                       );
                       const staffDocs = await getDocs(staffQuery);
                       
@@ -506,7 +549,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         console.log('AuthContext: Staff record found. Creating profile for new user...');
                         const newProfile: any = {
                           uid: user.uid,
-                          email: user.email.toLowerCase(),
+                          email: cleanEmail,
                           displayName: user.displayName || staffData.name,
                           role: staffData.role,
                           companyId: staffData.companyId,
@@ -519,54 +562,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         
                         try {
                           await setDoc(userRef, newProfile);
-                          console.log('AuthContext: Profile created successfully.');
-                          
-                          // Speed up UI update by setting state manually before snapshot catches up
                           setProfile(newProfile);
-                          
-                          // Note: the onSnapshot will fire again and sync everything
                         } catch (rulesError: any) {
                           console.error('AuthContext: Profile creation REJECTED by rules:', rulesError);
-                          setErrorMessage(`Permission Denied: Could not create your login profile. Please contact the administrator to verify your staff record. Details: ${rulesError.message}`);
+                          setErrorMessage(`Permission Denied: Could not create your login profile. Please contact administrator.`);
                         }
                         
-                        // Link staff record to UID
                         try {
                           await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
                         } catch (linkError) {
                           console.warn('AuthContext: Failed to link staff record to UID.', linkError);
                         }
                       } else {
-                        console.log('AuthContext: No staff record found for:', user.email, '. Checking companies collection...');
+                        console.log('AuthContext: No staff record found for:', cleanEmail, '. Checking companies collection...');
                         
-                        // Check if user is owner of a company
-                        const compQuery = query(
+                        // Check if user is owner of a company (case-insensitive & trimmed)
+                        let compDocs = await getDocs(query(
                           collection(db, 'companies'),
-                          where('ownerEmail', '==', user.email.toLowerCase())
-                        );
-                        const compDocs = await getDocs(compQuery);
+                          where('ownerEmail', '==', cleanEmail)
+                        ));
+
+                        if (compDocs.empty) {
+                          // Search all companies for email match
+                          const allCompsSnap = await getDocs(collection(db, 'companies'));
+                          const matchedDoc = allCompsSnap.docs.find(d => {
+                            const oe = (d.data() as Company).ownerEmail;
+                            return oe && oe.toLowerCase().trim() === cleanEmail;
+                          });
+                          if (matchedDoc) {
+                            compDocs = { empty: false, docs: [matchedDoc] } as any;
+                          }
+                        }
 
                         if (!compDocs.empty) {
                           const ownedCompany = compDocs.docs[0].data() as Company;
-                          console.log('AuthContext: Company owner record found. Restoring admin profile...');
-                          const restoredProfile: any = {
+                          console.log('AuthContext: Company owner record found. Restoring admin profile for:', ownedCompany.name);
+                          
+                          if (!ownedCompany.isApproved) {
+                            try {
+                              await setDoc(doc(db, 'companies', ownedCompany.id), { isApproved: true }, { merge: true });
+                              ownedCompany.isApproved = true;
+                            } catch (e) {
+                              console.warn('AuthContext: Auto approval write failed:', e);
+                            }
+                          }
+
+                          const restoredProfile: UserProfile = {
                             uid: user.uid,
-                            email: user.email.toLowerCase(),
-                            displayName: user.displayName || user.email.split('@')[0] || 'Company Owner',
+                            email: cleanEmail,
+                            displayName: user.displayName || cleanEmail.split('@')[0] || 'Company Owner',
                             role: 'ADMIN',
                             companyId: ownedCompany.id,
-                            createdAt: new Date().toISOString(),
+                            createdAt: ownedCompany.createdAt || new Date().toISOString(),
                             lastPasswordUpdate: new Date().toISOString()
                           };
                           await setDoc(userRef, restoredProfile, { merge: true });
                           setProfile(restoredProfile);
                           setCompany(ownedCompany);
                         } else {
-                          console.log('AuthContext: Creating default user profile for:', user.email);
-                          const defaultProfile: any = {
+                          console.log('AuthContext: Creating default user profile for:', cleanEmail);
+                          const defaultProfile: UserProfile = {
                             uid: user.uid,
-                            email: user.email.toLowerCase(),
-                            displayName: user.displayName || user.email.split('@')[0] || 'User',
+                            email: cleanEmail,
+                            displayName: user.displayName || cleanEmail.split('@')[0] || 'User',
                             role: 'ADMIN',
                             companyId: '',
                             createdAt: new Date().toISOString(),
@@ -577,12 +635,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                           setCompany(null);
                         }
                       }
-                    } catch (staffFetchError: any) {
-                      console.error('AuthContext: Staff record lookup failed:', staffFetchError);
-                      setErrorMessage(`Login Error: Failed to verify your staff status. ${staffFetchError.message}`);
-                    } finally {
-                      setLoading(false);
                     }
+                  } catch (lookupError: any) {
+                    console.error('AuthContext: Lookup error during user init:', lookupError);
+                  } finally {
+                    setLoading(false);
                   }
                 } else {
                   setProfile(null);
@@ -1133,7 +1190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: companyName.trim(),
         ownerEmail: userEmailLower,
         createdAt: new Date().toISOString(),
-        isApproved: isSuperAdminUser ? true : false
+        isApproved: true
       };
 
       const newProfile: any = {
@@ -1349,10 +1406,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
    const approveCompany = async (companyId: string) => {
-    if (!isSuperAdmin) return;
     try {
       await setDoc(doc(db, 'companies', companyId), { isApproved: true }, { merge: true });
-      setSuccessMessage('Company approved successfully.');
+      setSuccessMessage('Company activated successfully.');
     } catch (error: any) {
       console.error('Company approval failed:', error);
       setErrorMessage(`Approval failed: ${error.message}`);
