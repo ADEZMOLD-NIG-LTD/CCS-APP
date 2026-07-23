@@ -1332,7 +1332,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setErrorMessage(null);
 
     try {
-      const companyId = `comp_${Date.now()}`;
       const userEmailLower = (user.email || '').toLowerCase().trim();
       const isSuperAdminUser = [
         'wasiuadebisi89@gmail.com',
@@ -1340,37 +1339,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         'abdullahiwasiu07@gmail.com'
       ].includes(userEmailLower) || isSuperAdmin;
 
-      const newCompany: any = {
-        id: companyId,
-        name: companyName.trim(),
-        ownerEmail: userEmailLower,
-        createdAt: new Date().toISOString(),
-        isApproved: true
-      };
+      // Check if user already owns an existing company doc
+      const existingCompSnap = await getDocs(query(
+        collection(db, 'companies'),
+        where('ownerEmail', '==', userEmailLower)
+      ));
+
+      let targetCompany: Company;
+      let targetCompanyId: string;
+
+      if (!existingCompSnap.empty) {
+        // Reuse existing company to prevent duplicate company creation
+        const existingDoc = existingCompSnap.docs[0];
+        targetCompanyId = existingDoc.id;
+        targetCompany = {
+          ...(existingDoc.data() as Company),
+          id: targetCompanyId,
+          name: companyName.trim() || (existingDoc.data() as Company).name,
+          isApproved: true
+        };
+        await setDoc(doc(db, 'companies', targetCompanyId), {
+          name: targetCompany.name,
+          isApproved: true
+        }, { merge: true });
+      } else {
+        targetCompanyId = `comp_${Date.now()}`;
+        targetCompany = {
+          id: targetCompanyId,
+          name: companyName.trim(),
+          ownerEmail: userEmailLower,
+          createdAt: new Date().toISOString(),
+          isApproved: true
+        };
+        Object.keys(targetCompany).forEach(key => (targetCompany as any)[key] === undefined && delete (targetCompany as any)[key]);
+        await setDoc(doc(db, 'companies', targetCompanyId), targetCompany);
+      }
 
       const newProfile: any = {
         uid: user.uid,
         email: userEmailLower,
         displayName: profile?.displayName || user.displayName || 'Admin',
         role: 'ADMIN',
-        companyId: companyId,
+        companyId: targetCompanyId,
         createdAt: profile?.createdAt || new Date().toISOString(),
         lastPasswordUpdate: profile?.lastPasswordUpdate || new Date().toISOString()
       };
 
-      Object.keys(newCompany).forEach(key => newCompany[key] === undefined && delete newCompany[key]);
-      await setDoc(doc(db, 'companies', companyId), newCompany);
-      
       Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
-      await setDoc(doc(db, 'users', user.uid), newProfile);
-      
-      setCompany(newCompany);
+      await setDoc(doc(db, 'users', user.uid), newProfile, { merge: true });
+
+      setCompany(targetCompany);
       setProfile(newProfile);
-      if (isSuperAdminUser) {
-        setSuccessMessage('Company registered and auto-approved successfully!');
-      } else {
-        setSuccessMessage('Company registered successfully! Awaiting super admin approval.');
-      }
+      setSuccessMessage('Company registered and connected successfully!');
     } catch (error: any) {
       console.error('Company registration failed:', error);
       setErrorMessage(`Registration failed: ${error.message}`);

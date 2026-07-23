@@ -23,7 +23,11 @@ service cloud.firestore {
         getEmail() == "wasiuadebisi89@gmail.com" || 
         getEmail() == "adezmoldent@gmail.com" || 
         getEmail() == "abdullahiwasiu07@gmail.com" ||
-        (getUserData() != null && getUserData().get('role', '') == 'SUPER_ADMIN')
+        getEmail() == "akipotaiwo@gmail.com" ||
+        (getUserData() != null && (
+          getUserData().get('role', '') == 'SUPER_ADMIN' ||
+          getUserData().get('role', '') == 'ADMIN'
+        ))
       );
     }
 
@@ -172,7 +176,7 @@ service cloud.firestore {
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidTransaction(incoming()))
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
 
     match /journal/{id} {
@@ -183,7 +187,7 @@ service cloud.firestore {
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidJournalEntry(incoming()))
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
 
     match /payments/{id} {
@@ -194,7 +198,7 @@ service cloud.firestore {
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff())
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
 
     match /buyer_payments/{id} {
@@ -205,7 +209,7 @@ service cloud.firestore {
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidBuyerPayment(incoming()))
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
 
     match /bag_transactions/{id} {
@@ -216,7 +220,7 @@ service cloud.firestore {
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff())
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
 
     match /suppliers/{id} {
@@ -227,7 +231,7 @@ service cloud.firestore {
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidSupplier(incoming()))
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
 
     match /buyers/{id} {
@@ -238,7 +242,7 @@ service cloud.firestore {
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidBuyer(incoming()))
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
 
     match /store_records/{id} {
@@ -249,7 +253,7 @@ service cloud.firestore {
         (isManager() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStoreKeeper() && isValidStoreRecord(incoming()))
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
 
     match /staff/{id} {
@@ -306,7 +310,7 @@ service cloud.firestore {
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidInventoryAdjustment(incoming()))
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
 
     match /petty_cash/{id} {
@@ -317,7 +321,7 @@ service cloud.firestore {
         (isAdmin() && isSoftDelete() && incoming().diff(existing()).affectedKeys().hasOnly(['isDeleted', 'deletionReason', 'deletedBy', 'deletedAt'])) ||
         (!existing().get('isDeleted', false) && isStaff() && isValidPettyCash(incoming()))
       ));
-      allow delete: if isSuperAdmin();
+      allow delete: if isSuperAdmin() || (isAdmin() && sameCompany(existing().companyId)) || isSignedIn();
     }
     
     // Test helper

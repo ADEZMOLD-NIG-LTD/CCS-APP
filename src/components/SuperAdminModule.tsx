@@ -26,6 +26,64 @@ export default function SuperAdminModule() {
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [purgeEmailInput, setPurgeEmailInput] = useState('');
   const [isPurgingEmail, setIsPurgingEmail] = useState(false);
+  const [isDeduplicating, setIsDeduplicating] = useState(false);
+
+  const handleDeduplicateCompanies = async () => {
+    setIsDeduplicating(true);
+    try {
+      const emailGroups: { [email: string]: Company[] } = {};
+      companies.forEach(comp => {
+        const email = (comp.ownerEmail || '').toLowerCase().trim();
+        if (email) {
+          if (!emailGroups[email]) emailGroups[email] = [];
+          emailGroups[email].push(comp);
+        }
+      });
+
+      let mergedOwnerCount = 0;
+      let removedCompCount = 0;
+
+      for (const [email, group] of Object.entries(emailGroups)) {
+        if (group.length > 1) {
+          // Keep primary company (first approved or oldest)
+          const primaryComp = group.find(c => c.isApproved) || group[0];
+          const duplicateComps = group.filter(c => c.id !== primaryComp.id);
+
+          for (const dup of duplicateComps) {
+            // Update staff
+            const sQ = query(collection(db, 'staff'), where('companyId', '==', dup.id));
+            const sSnap = await getDocs(sQ);
+            for (const sDoc of sSnap.docs) {
+              await setDoc(sDoc.ref, { companyId: primaryComp.id }, { merge: true });
+            }
+
+            // Update user profiles
+            const uQ = query(collection(db, 'users'), where('companyId', '==', dup.id));
+            const uSnap = await getDocs(uQ);
+            for (const uDoc of uSnap.docs) {
+              await setDoc(uDoc.ref, { companyId: primaryComp.id }, { merge: true });
+            }
+
+            // Delete duplicate company doc
+            await deleteDoc(doc(db, 'companies', dup.id));
+            removedCompCount++;
+          }
+          mergedOwnerCount++;
+        }
+      }
+
+      if (removedCompCount > 0) {
+        alert(`Deduplication Complete!\nMerged duplicate company accounts for ${mergedOwnerCount} owner email(s).\nRemoved ${removedCompCount} duplicate company registration(s).`);
+      } else {
+        alert('No duplicate companies found! All company registrations are unique.');
+      }
+    } catch (err: any) {
+      console.error('Deduplication failed:', err);
+      alert(`Deduplication failed: ${err.message}`);
+    } finally {
+      setIsDeduplicating(false);
+    }
+  };
 
   const handlePurgeAccountByEmail = async (targetEmailParam?: string) => {
     const targetEmail = (targetEmailParam || purgeEmailInput || '').toLowerCase().trim();
@@ -99,38 +157,41 @@ export default function SuperAdminModule() {
       const compTarget = companies.find(c => c.id === companyId);
       const ownerEmail = compTarget?.ownerEmail?.toLowerCase().trim();
 
+      // Find fallback company for owner if they have multiple companies
+      const remainingCompanies = companies.filter(c => 
+        c.id !== companyId && 
+        c.ownerEmail && 
+        c.ownerEmail.toLowerCase().trim() === ownerEmail
+      );
+      const fallbackCompanyId = remainingCompanies.length > 0 ? remainingCompanies[0].id : '';
+
       // 1. Delete company document
       await deleteDoc(doc(db, 'companies', companyId));
 
-      // 2. Clear associated user profiles
+      // 2. Reassign user profiles cleanly without deleting the owner's user account
       try {
         const uQ = query(collection(db, 'users'), where('companyId', '==', companyId));
         const uSnap = await getDocs(uQ);
-        const batch = writeBatch(db);
-        let batchCount = 0;
+        for (const uDoc of uSnap.docs) {
+          const uData = uDoc.data() as UserProfile;
+          const uEmail = (uData.email || '').toLowerCase().trim();
 
-        uSnap.docs.forEach((uDoc) => {
-          batch.delete(uDoc.ref);
-          batchCount++;
-        });
-
-        if (ownerEmail) {
-          const ownerQ = query(collection(db, 'users'), where('email', '==', ownerEmail));
-          const ownerSnap = await getDocs(ownerQ);
-          ownerSnap.docs.forEach((oDoc) => {
-            batch.delete(oDoc.ref);
-            batchCount++;
-          });
-        }
-
-        if (batchCount > 0) {
-          await batch.commit();
+          if (ownerEmail && uEmail === ownerEmail) {
+            // Owner profile: link to their other company if available, or set to empty so they can choose
+            await setDoc(uDoc.ref, { companyId: fallbackCompanyId }, { merge: true });
+          } else if (uDoc.id.startsWith('staff_') || uDoc.id.startsWith('owner_')) {
+            // Synthetic profile doc created for this company
+            await deleteDoc(uDoc.ref);
+          } else {
+            // Other staff user profile
+            await setDoc(uDoc.ref, { companyId: fallbackCompanyId }, { merge: true });
+          }
         }
       } catch (userErr: any) {
         console.warn('Company deleted, but associated users cleanup warning:', userErr);
       }
 
-      // 3. Clear staff records
+      // 3. Clear staff records for this company
       try {
         const sQ = query(collection(db, 'staff'), where('companyId', '==', companyId));
         const sSnap = await getDocs(sQ);
@@ -143,7 +204,28 @@ export default function SuperAdminModule() {
         console.warn('Company deleted, but staff records cleanup warning:', sErr);
       }
 
-      alert('Company profile and all associated account records deleted successfully!');
+      // 4. Clean up sub-collections associated with this company
+      const collectionsToClean = [
+        'transactions', 'warehouses', 'suppliers', 'buyers', 
+        'journal', 'payments', 'petty_cash', 'inventory_adjustments', 
+        'store_records', 'bag_transactions', 'payrolls', 'attendance', 'rosters'
+      ];
+
+      for (const colName of collectionsToClean) {
+        try {
+          const colQ = query(collection(db, colName), where('companyId', '==', companyId));
+          const colSnap = await getDocs(colQ);
+          if (!colSnap.empty) {
+            const colBatch = writeBatch(db);
+            colSnap.docs.forEach(d => colBatch.delete(d.ref));
+            await colBatch.commit();
+          }
+        } catch (colErr) {
+          console.warn(`Cleanup for ${colName} failed:`, colErr);
+        }
+      }
+
+      alert('Company profile deleted safely. Owner account preserved!');
     } catch (error: any) {
       console.error('Failed to delete company:', error);
       alert(`Failed to delete company: ${error.message}`);
@@ -175,42 +257,6 @@ export default function SuperAdminModule() {
     });
     return () => unsubscribe();
   }, []);
-
-  // Auto-heal missing user profiles for registered company owners
-  React.useEffect(() => {
-    if (companies.length > 0) {
-      const autoHealUserProfiles = async () => {
-        try {
-          const existingEmails = new Set(
-            users.map(u => (u.email || '').toLowerCase().trim()).filter(Boolean)
-          );
-          const { setDoc, doc } = await import('firebase/firestore');
-
-          for (const comp of companies) {
-            if (!comp.ownerEmail) continue;
-            const ownerEmailLower = comp.ownerEmail.toLowerCase().trim();
-            if (!existingEmails.has(ownerEmailLower)) {
-              existingEmails.add(ownerEmailLower);
-              const docId = `owner_${comp.id}`;
-              const newProfile: UserProfile = {
-                uid: docId,
-                email: ownerEmailLower,
-                displayName: `${comp.name} Owner`,
-                role: 'ADMIN',
-                companyId: comp.id,
-                createdAt: comp.createdAt || new Date().toISOString(),
-                lastPasswordUpdate: new Date().toISOString()
-              };
-              await setDoc(doc(db, 'users', docId), newProfile, { merge: true });
-            }
-          }
-        } catch (err) {
-          console.error('Auto heal user profiles failed:', err);
-        }
-      };
-      autoHealUserProfiles();
-    }
-  }, [companies, users]);
 
   const allUsers = React.useMemo(() => {
     const list = [...users];
@@ -607,6 +653,20 @@ export default function SuperAdminModule() {
                   {isPurgingEmail ? 'Purging...' : 'Purge Account'}
                 </button>
               </div>
+
+              {activeTab === 'companies' && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDeduplicateCompanies}
+                    disabled={isDeduplicating}
+                    className="bg-amber-50 text-amber-800 py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-amber-100 transition-colors border border-amber-200 shadow-sm"
+                    title="Automatically merge duplicate company accounts registered with the same owner email"
+                  >
+                    <RefreshCw size={15} className={isDeduplicating ? 'animate-spin' : ''} />
+                    {isDeduplicating ? 'Deduplicating...' : 'Clean Up Duplicate Companies'}
+                  </button>
+                </div>
+              )}
 
               {activeTab === 'users' && (
                 <div className="flex flex-col sm:flex-row gap-2">
