@@ -578,32 +578,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                           }
                         });
                       } else {
-                        // If no company or staff document exists at all, auto-create a default company so the user is never trapped on Register Company screen
-                        console.log('AuthContext: No company or staff record found. Auto-creating default company for:', cleanUserEmail);
-                        const storedCompId = localStorage.getItem(`ccs_active_company_${user.uid}`);
-                        const newCompId = storedCompId || `comp_${Date.now()}`;
-                        const autoComp: Company = {
-                          id: newCompId,
-                          name: 'CCS Enterprise',
-                          ownerEmail: cleanUserEmail,
-                          createdAt: new Date().toISOString(),
-                          isApproved: true
-                        };
-                        try {
-                          await setDoc(doc(db, 'companies', newCompId), autoComp, { merge: true });
-                          await setDoc(userRef, { companyId: newCompId, role: 'ADMIN' }, { merge: true });
-                          localStorage.setItem(`ccs_active_company_${user.uid}`, newCompId);
-                          setCompany(autoComp);
-                          setProfile(prev => prev ? { ...prev, companyId: newCompId, role: 'ADMIN' } : {
+                        // Check if user already owns an existing company doc before auto-creating
+                        const ownedCompQuery = query(collection(db, 'companies'), where('ownerEmail', '==', cleanUserEmail));
+                        const ownedCompSnap = await getDocs(ownedCompQuery);
+                        
+                        if (!ownedCompSnap.empty) {
+                          const existingCompany = { id: ownedCompSnap.docs[0].id, ...ownedCompSnap.docs[0].data() } as Company;
+                          await setDoc(userRef, { companyId: existingCompany.id, role: 'ADMIN' }, { merge: true });
+                          localStorage.setItem(`ccs_active_company_${user.uid}`, existingCompany.id);
+                          setCompany(existingCompany);
+                          setProfile(prev => prev ? { ...prev, companyId: existingCompany.id, role: 'ADMIN' } : {
                             uid: user.uid,
                             email: cleanUserEmail,
                             displayName: user.displayName || cleanUserEmail.split('@')[0] || 'Admin',
                             role: 'ADMIN',
-                            companyId: newCompId,
+                            companyId: existingCompany.id,
                             createdAt: new Date().toISOString()
                           });
-                        } catch (autoCreateErr) {
-                          console.warn('AuthContext: Auto create company failed:', autoCreateErr);
+                        } else {
+                          // Do NOT create an unwanted company document in Firestore automatically
+                          console.log('AuthContext: No company found for:', cleanUserEmail);
+                          setCompany(null);
+                          setProfile(prev => prev ? { ...prev, role: prev.role || 'ADMIN' } : {
+                            uid: user.uid,
+                            email: cleanUserEmail,
+                            displayName: user.displayName || cleanUserEmail.split('@')[0] || 'Admin',
+                            role: 'ADMIN',
+                            companyId: '',
+                            createdAt: new Date().toISOString()
+                          });
                         }
                       }
                     }
@@ -757,37 +760,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                           setProfile(restoredProfile);
                           setCompany(ownedCompany);
                         } else {
-                          console.log('AuthContext: Creating default user profile for:', cleanEmail);
-                          const storedCompId = localStorage.getItem(`ccs_active_company_${user.uid}`);
-                          const defaultCompId = storedCompId || `comp_${Date.now()}`;
-                          const defaultCompany: Company = {
-                            id: defaultCompId,
-                            name: 'CCS Enterprise',
-                            ownerEmail: cleanEmail,
-                            createdAt: new Date().toISOString(),
-                            isApproved: true
-                          };
-                          
-                          try {
-                            await setDoc(doc(db, 'companies', defaultCompId), defaultCompany, { merge: true });
-                          } catch (e) {
-                            console.warn('Silent default company write:', e);
-                          }
-
+                          console.log('AuthContext: Creating user profile for:', cleanEmail);
                           const defaultProfile: UserProfile = {
                             uid: user.uid,
                             email: cleanEmail,
                             displayName: user.displayName || cleanEmail.split('@')[0] || 'User',
                             role: 'ADMIN',
-                            companyId: defaultCompId,
+                            companyId: '',
                             createdAt: new Date().toISOString(),
                             lastPasswordUpdate: new Date().toISOString()
                           };
                           
-                          localStorage.setItem(`ccs_active_company_${user.uid}`, defaultCompId);
                           await setDoc(userRef, defaultProfile, { merge: true });
                           setProfile(defaultProfile);
-                          setCompany(defaultCompany);
+                          setCompany(null);
                         }
                       }
                     }
