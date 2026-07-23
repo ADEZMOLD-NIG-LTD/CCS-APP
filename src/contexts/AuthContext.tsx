@@ -524,7 +524,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     if (compDocs.empty) {
                       const allCompsSnap = await getDocs(collection(db, 'companies'));
                       const matchedDoc = allCompsSnap.docs.find(d => {
-                        const oe = (d.data() as Company).ownerEmail;
+                        const cData = d.data() as any;
+                        if (cData.isDeleted || cData.status === 'DELETED' || (cData.name || '').startsWith('[DELETED]')) return false;
+                        const oe = cData.ownerEmail;
                         return oe && oe.toLowerCase().trim() === cleanUserEmail;
                       });
                       if (matchedDoc) {
@@ -532,8 +534,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                       }
                     }
 
-                    if (!compDocs.empty) {
-                      const ownedCompany = compDocs.docs[0].data() as Company;
+                    const activeCompDocs = compDocs.docs.filter(d => {
+                      const cData = d.data() as any;
+                      return !cData.isDeleted && cData.status !== 'DELETED' && !(cData.name || '').startsWith('[DELETED]');
+                    });
+
+                    if (activeCompDocs.length > 0) {
+                      const ownedCompany = activeCompDocs[0].data() as Company;
                       console.log('AuthContext: Auto-repair linked owner to company:', ownedCompany.name);
                       
                       if (!ownedCompany.isApproved) {
@@ -581,9 +588,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         // Check if user already owns an existing company doc before auto-creating
                         const ownedCompQuery = query(collection(db, 'companies'), where('ownerEmail', '==', cleanUserEmail));
                         const ownedCompSnap = await getDocs(ownedCompQuery);
+                        const validOwnedDoc = ownedCompSnap.docs.find(d => {
+                          const cData = d.data() as any;
+                          return !cData.isDeleted && cData.status !== 'DELETED' && !(cData.name || '').startsWith('[DELETED]');
+                        });
                         
-                        if (!ownedCompSnap.empty) {
-                          const existingCompany = { id: ownedCompSnap.docs[0].id, ...ownedCompSnap.docs[0].data() } as Company;
+                        if (validOwnedDoc) {
+                          const existingCompany = { id: validOwnedDoc.id, ...validOwnedDoc.data() } as Company;
                           await setDoc(userRef, { companyId: existingCompany.id, role: 'ADMIN' }, { merge: true });
                           localStorage.setItem(`ccs_active_company_${user.uid}`, existingCompany.id);
                           setCompany(existingCompany);

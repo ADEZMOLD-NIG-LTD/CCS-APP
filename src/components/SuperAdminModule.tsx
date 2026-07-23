@@ -165,8 +165,23 @@ export default function SuperAdminModule() {
       );
       const fallbackCompanyId = remainingCompanies.length > 0 ? remainingCompanies[0].id : '';
 
-      // 1. Delete company document
-      await deleteDoc(doc(db, 'companies', companyId));
+      // Optimistically hide from local state immediately
+      setCompanies(prev => prev.filter(c => c.id !== companyId));
+
+      // 1. Try hard delete company document first; fallback to soft-delete mark if rules block deleteDoc
+      let hardDeleted = false;
+      try {
+        await deleteDoc(doc(db, 'companies', companyId));
+        hardDeleted = true;
+      } catch (deleteErr: any) {
+        console.warn('Hard delete failed (permission constraint). Applying soft-delete mark:', deleteErr);
+        await setDoc(doc(db, 'companies', companyId), {
+          isDeleted: true,
+          status: 'DELETED',
+          name: `[DELETED] ${compTarget?.name || 'Company'}`,
+          deletedAt: new Date().toISOString()
+        }, { merge: true });
+      }
 
       // 2. Reassign user profiles cleanly without deleting the owner's user account
       try {
@@ -177,13 +192,12 @@ export default function SuperAdminModule() {
           const uEmail = (uData.email || '').toLowerCase().trim();
 
           if (ownerEmail && uEmail === ownerEmail) {
-            // Owner profile: link to their other company if available, or set to empty so they can choose
             await setDoc(uDoc.ref, { companyId: fallbackCompanyId }, { merge: true });
           } else if (uDoc.id.startsWith('staff_') || uDoc.id.startsWith('owner_')) {
-            // Synthetic profile doc created for this company
-            await deleteDoc(uDoc.ref);
+            try { await deleteDoc(uDoc.ref); } catch (e) {
+              await setDoc(uDoc.ref, { isDeleted: true, companyId: '' }, { merge: true });
+            }
           } else {
-            // Other staff user profile
             await setDoc(uDoc.ref, { companyId: fallbackCompanyId }, { merge: true });
           }
         }
@@ -191,14 +205,16 @@ export default function SuperAdminModule() {
         console.warn('Company deleted, but associated users cleanup warning:', userErr);
       }
 
-      // 3. Clear staff records for this company
+      // 3. Clear or unlink staff records for this company
       try {
         const sQ = query(collection(db, 'staff'), where('companyId', '==', companyId));
         const sSnap = await getDocs(sQ);
-        if (!sSnap.empty) {
-          const sBatch = writeBatch(db);
-          sSnap.docs.forEach((sDoc) => sBatch.delete(sDoc.ref));
-          await sBatch.commit();
+        for (const sDoc of sSnap.docs) {
+          try {
+            await deleteDoc(sDoc.ref);
+          } catch (e) {
+            await setDoc(sDoc.ref, { isDeleted: true, companyId: '' }, { merge: true });
+          }
         }
       } catch (sErr: any) {
         console.warn('Company deleted, but staff records cleanup warning:', sErr);
@@ -215,17 +231,22 @@ export default function SuperAdminModule() {
         try {
           const colQ = query(collection(db, colName), where('companyId', '==', companyId));
           const colSnap = await getDocs(colQ);
-          if (!colSnap.empty) {
-            const colBatch = writeBatch(db);
-            colSnap.docs.forEach(d => colBatch.delete(d.ref));
-            await colBatch.commit();
+          for (const d of colSnap.docs) {
+            try {
+              await deleteDoc(d.ref);
+            } catch (e) {
+              await setDoc(d.ref, { isDeleted: true }, { merge: true });
+            }
           }
         } catch (colErr) {
           console.warn(`Cleanup for ${colName} failed:`, colErr);
         }
       }
 
-      alert('Company profile deleted safely. Owner account preserved!');
+      alert(hardDeleted 
+        ? 'Company profile deleted from database!' 
+        : 'Company successfully removed and marked as DELETED! (Owner account preserved)'
+      );
     } catch (error: any) {
       console.error('Failed to delete company:', error);
       alert(`Failed to delete company: ${error.message}`);
@@ -237,7 +258,9 @@ export default function SuperAdminModule() {
   React.useEffect(() => {
     const q = query(collection(db, 'companies'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Company));
+      const data = snapshot.docs
+        .map(doc => ({ ...doc.data(), id: doc.id } as Company))
+        .filter(c => !(c as any).isDeleted && (c as any).status !== 'DELETED' && !(c.name || '').startsWith('[DELETED]'));
       data.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setCompanies(data);
     }, (err) => {
