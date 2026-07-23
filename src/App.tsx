@@ -50,6 +50,13 @@ function AppContent() {
 
   console.log('AppContent: State', { loading, user: user?.uid, isDemoMode, showDemoIntro, mustChangePassword });
 
+  React.useEffect(() => {
+    if (user && company && !company.isApproved && !isSuperAdmin) {
+      console.log('AppContent: Auto-approving company for logged in owner:', company.id);
+      approveCompany(company.id);
+    }
+  }, [user, company?.id, company?.isApproved, isSuperAdmin, approveCompany]);
+
   // Strict check for Firebase configuration to avoid phantom initialization errors
   const isConfigured = !!firebaseConfig.apiKey && !!firebaseConfig.projectId;
   const bootError = (window as any).FIREBASE_CONFIG_ERROR || (window as any).FIREBASE_INIT_ERROR;
@@ -220,7 +227,20 @@ function AppContent() {
             <Building2 size={32} />
           </div>
           <h2 className="text-2xl font-black text-slate-900 mb-2">Register Company</h2>
-          <p className="text-slate-500 mb-8">Welcome! To get started, please register your company name.</p>
+          <p className="text-slate-500 mb-6 text-sm">Welcome! To get started, please register your company name or connect to your existing account.</p>
+
+          {userCompanies && userCompanies.length > 0 && (
+            <div className="mb-6 bg-indigo-50/80 border border-indigo-200 rounded-2xl p-4 text-left">
+              <p className="text-xs font-bold text-indigo-900 mb-1">Found Existing Company!</p>
+              <p className="text-xs text-indigo-700 mb-3">You are registered as owner of <strong>{userCompanies[0].name}</strong>.</p>
+              <button 
+                onClick={() => connectExistingCompany(userCompanies[0].id)}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 flex items-center justify-center gap-2"
+              >
+                Connect to {userCompanies[0].name} Now
+              </button>
+            </div>
+          )}
           
           <div className="space-y-4">
             <div className="text-left">
@@ -230,19 +250,19 @@ function AppContent() {
                 value={newCompanyName}
                 onChange={(e) => setNewCompanyName(e.target.value)}
                 placeholder="e.g. CCS Enterprise"
-                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium"
+                className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-sm"
               />
             </div>
             
             <button 
-              onClick={() => registerCompany(newCompanyName)}
-              disabled={!newCompanyName.trim() || loading}
-              className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100 animate-pulse"
+              onClick={() => registerCompany(newCompanyName.trim() || 'Akipo Enterprise')}
+              disabled={loading}
+              className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
-                'Create Account'
+                'Create Company & Enter Dashboard'
               )}
             </button>
             

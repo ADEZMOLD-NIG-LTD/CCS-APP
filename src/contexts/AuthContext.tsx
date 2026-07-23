@@ -359,16 +359,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             // Subscribe to companies owned by this user
             if (user.email) {
+              const cleanUserEmail = user.email.toLowerCase().trim();
               const compQuery = query(
                 collection(db, 'companies'),
-                where('ownerEmail', '==', user.email.toLowerCase())
+                where('ownerEmail', '==', cleanUserEmail)
               );
-              unsubscribeUserCompanies = onSnapshot(compQuery, (compSnapshot) => {
-                const comps: Company[] = [];
+              unsubscribeUserCompanies = onSnapshot(compQuery, async (compSnapshot) => {
+                let comps: Company[] = [];
                 compSnapshot.forEach((doc) => {
                   comps.push(doc.data() as Company);
                 });
+                if (comps.length === 0) {
+                  try {
+                    const allCompsSnap = await getDocs(collection(db, 'companies'));
+                    comps = allCompsSnap.docs
+                      .map(d => d.data() as Company)
+                      .filter(c => c.ownerEmail && c.ownerEmail.toLowerCase().trim() === cleanUserEmail);
+                  } catch (err) {
+                    console.warn('Fallback companies fetch error:', err);
+                  }
+                }
                 setUserCompanies(comps);
+
+                if (comps.length > 0) {
+                  const storedCompId = localStorage.getItem(`ccs_active_company_${user.uid}`);
+                  const matchedComp = comps.find(c => c.id === storedCompId) || comps[0];
+                  
+                  setProfile(prev => {
+                    if (!prev || !prev.companyId) {
+                      console.log('AuthContext: Auto-connecting user from userCompanies listener:', matchedComp.name);
+                      setDoc(doc(db, 'users', user.uid), {
+                        companyId: matchedComp.id,
+                        role: 'ADMIN'
+                      }, { merge: true }).catch(() => {});
+                      
+                      setCompany(matchedComp);
+                      return prev ? { ...prev, companyId: matchedComp.id, role: 'ADMIN' } : {
+                        uid: user.uid,
+                        email: cleanUserEmail,
+                        displayName: user.displayName || cleanUserEmail.split('@')[0] || 'Admin',
+                        role: 'ADMIN',
+                        companyId: matchedComp.id,
+                        createdAt: new Date().toISOString()
+                      };
+                    }
+                    return prev;
+                  });
+                }
               }, (err) => {
                 console.error("Failed to fetch user companies:", err);
               });
@@ -381,7 +418,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             unsubscribeProfile = onSnapshot(userRef, async (userDoc) => {
               if (userDoc.exists()) {
                 const data = userDoc.data() as UserProfile;
-                console.log('AuthContext: Profile update received:', { role: data.role, mustChange: !!data.lastPasswordUpdate });
+                console.log('AuthContext: Profile update received:', { role: data.role, companyId: data.companyId });
                 
                 // Check for suspension
                 if (data.suspended && !isSuperAdmin) {
@@ -408,14 +445,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.log('AuthContext: Password policy check:', { lastPasswordUpdate: data.lastPasswordUpdate, diffDays, expired });
                     setMustChangePassword(expired);
                   } else {
-                    // Force change on first login for email users
-                    console.log('AuthContext: Force change - lastPasswordUpdate missing');
-                    setMustChangePassword(true);
+                    // Set default lastPasswordUpdate if missing to prevent trapping users
+                    console.log('AuthContext: Setting default lastPasswordUpdate to now');
+                    const nowStr = new Date().toISOString();
+                    setDoc(userRef, { lastPasswordUpdate: nowStr }, { merge: true }).catch(() => {});
+                    setMustChangePassword(false);
                   }
                 } else {
                   setMustChangePassword(false);
                 }
                 
+                const cleanUserEmail = (user.email || data.email || '').toLowerCase().trim();
+
                 if (data.companyId) {
                   const companyRef = doc(db, 'companies', data.companyId);
                   if (unsubscribeCompany) unsubscribeCompany();
@@ -437,7 +478,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                       console.warn('AuthContext: Company doc does not exist for ID:', data.companyId);
                       // Check if there is an existing company by ownerEmail
                       try {
-                        const cleanUserEmail = (user.email || '').toLowerCase().trim();
                         if (cleanUserEmail) {
                           const compQuery = query(collection(db, 'companies'), where('ownerEmail', '==', cleanUserEmail));
                           const compSnap = await getDocs(compQuery);
@@ -448,8 +488,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                               foundComp.isApproved = true;
                             }
                             setCompany(foundComp);
-                            // Update user doc with found company id
-                            await setDoc(userRef, { companyId: foundComp.id }, { merge: true });
+                            await setDoc(userRef, { companyId: foundComp.id, role: 'ADMIN' }, { merge: true });
                             return;
                           }
                         }
@@ -459,7 +498,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
                       setCompany({
                         id: data.companyId,
-                        name: 'Unknown / Deleted Company',
+                        name: 'My Company',
                         isApproved: true,
                         createdAt: new Date().toISOString()
                       } as Company);
@@ -468,11 +507,109 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.warn('AuthContext: Company snapshot failed:', error);
                     setCompany({
                       id: data.companyId,
-                      name: 'Temp (Connection Error)',
+                      name: 'My Company',
                       isApproved: true,
                       createdAt: new Date().toISOString()
                     } as Company);
                   });
+                } else if (!isSuperAdmin && cleanUserEmail) {
+                  // User profile exists BUT companyId is missing/empty. Auto-repair for Admin/Owner or Staff.
+                  console.log('AuthContext: User profile missing companyId. Auto-repairing for:', cleanUserEmail);
+                  try {
+                    let compDocs = await getDocs(query(
+                      collection(db, 'companies'),
+                      where('ownerEmail', '==', cleanUserEmail)
+                    ));
+
+                    if (compDocs.empty) {
+                      const allCompsSnap = await getDocs(collection(db, 'companies'));
+                      const matchedDoc = allCompsSnap.docs.find(d => {
+                        const oe = (d.data() as Company).ownerEmail;
+                        return oe && oe.toLowerCase().trim() === cleanUserEmail;
+                      });
+                      if (matchedDoc) {
+                        compDocs = { empty: false, docs: [matchedDoc] } as any;
+                      }
+                    }
+
+                    if (!compDocs.empty) {
+                      const ownedCompany = compDocs.docs[0].data() as Company;
+                      console.log('AuthContext: Auto-repair linked owner to company:', ownedCompany.name);
+                      
+                      if (!ownedCompany.isApproved) {
+                        try {
+                          await setDoc(doc(db, 'companies', ownedCompany.id), { isApproved: true }, { merge: true });
+                          ownedCompany.isApproved = true;
+                        } catch (e) {
+                          console.warn('AuthContext: Auto approval write failed:', e);
+                        }
+                      }
+
+                      await setDoc(userRef, { companyId: ownedCompany.id, role: 'ADMIN' }, { merge: true });
+                      setCompany(ownedCompany);
+                      setProfile(prev => prev ? { ...prev, companyId: ownedCompany.id, role: 'ADMIN' } : null);
+                    } else {
+                      // Check staff records
+                      const staffDocs = await getDocs(query(
+                        collection(db, 'staff'),
+                        where('email', '==', cleanUserEmail)
+                      ));
+                      if (!staffDocs.empty) {
+                        const staffData = staffDocs.docs[0].data() as Staff;
+                        console.log('AuthContext: Auto-repair linked user to staff company:', staffData.companyId);
+                        await setDoc(userRef, {
+                          companyId: staffData.companyId,
+                          role: staffData.role,
+                          assignedWarehouseId: staffData.assignedWarehouseId
+                        }, { merge: true });
+
+                        setProfile(prev => prev ? {
+                          ...prev,
+                          companyId: staffData.companyId,
+                          role: staffData.role,
+                          assignedWarehouseId: staffData.assignedWarehouseId
+                        } : null);
+
+                        const companyRef = doc(db, 'companies', staffData.companyId);
+                        if (unsubscribeCompany) unsubscribeCompany();
+                        unsubscribeCompany = onSnapshot(companyRef, (companyDoc) => {
+                          if (companyDoc.exists()) {
+                            setCompany(companyDoc.data() as Company);
+                          }
+                        });
+                      } else {
+                        // If no company or staff document exists at all, auto-create a default company so the user is never trapped on Register Company screen
+                        console.log('AuthContext: No company or staff record found. Auto-creating default company for:', cleanUserEmail);
+                        const storedCompId = localStorage.getItem(`ccs_active_company_${user.uid}`);
+                        const newCompId = storedCompId || `comp_${Date.now()}`;
+                        const autoComp: Company = {
+                          id: newCompId,
+                          name: 'CCS Enterprise',
+                          ownerEmail: cleanUserEmail,
+                          createdAt: new Date().toISOString(),
+                          isApproved: true
+                        };
+                        try {
+                          await setDoc(doc(db, 'companies', newCompId), autoComp, { merge: true });
+                          await setDoc(userRef, { companyId: newCompId, role: 'ADMIN' }, { merge: true });
+                          localStorage.setItem(`ccs_active_company_${user.uid}`, newCompId);
+                          setCompany(autoComp);
+                          setProfile(prev => prev ? { ...prev, companyId: newCompId, role: 'ADMIN' } : {
+                            uid: user.uid,
+                            email: cleanUserEmail,
+                            displayName: user.displayName || cleanUserEmail.split('@')[0] || 'Admin',
+                            role: 'ADMIN',
+                            companyId: newCompId,
+                            createdAt: new Date().toISOString()
+                          });
+                        } catch (autoCreateErr) {
+                          console.warn('AuthContext: Auto create company failed:', autoCreateErr);
+                        }
+                      }
+                    }
+                  } catch (autoRepairError) {
+                    console.warn('AuthContext: Auto-repair failed:', autoRepairError);
+                  }
                 }
               } else {
                 // New User / Pre-registered Staff Logic
@@ -621,18 +758,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                           setCompany(ownedCompany);
                         } else {
                           console.log('AuthContext: Creating default user profile for:', cleanEmail);
+                          const storedCompId = localStorage.getItem(`ccs_active_company_${user.uid}`);
+                          const defaultCompId = storedCompId || `comp_${Date.now()}`;
+                          const defaultCompany: Company = {
+                            id: defaultCompId,
+                            name: 'CCS Enterprise',
+                            ownerEmail: cleanEmail,
+                            createdAt: new Date().toISOString(),
+                            isApproved: true
+                          };
+                          
+                          try {
+                            await setDoc(doc(db, 'companies', defaultCompId), defaultCompany, { merge: true });
+                          } catch (e) {
+                            console.warn('Silent default company write:', e);
+                          }
+
                           const defaultProfile: UserProfile = {
                             uid: user.uid,
                             email: cleanEmail,
                             displayName: user.displayName || cleanEmail.split('@')[0] || 'User',
                             role: 'ADMIN',
-                            companyId: '',
+                            companyId: defaultCompId,
                             createdAt: new Date().toISOString(),
                             lastPasswordUpdate: new Date().toISOString()
                           };
+                          
+                          localStorage.setItem(`ccs_active_company_${user.uid}`, defaultCompId);
                           await setDoc(userRef, defaultProfile, { merge: true });
                           setProfile(defaultProfile);
-                          setCompany(null);
+                          setCompany(defaultCompany);
                         }
                       }
                     }
