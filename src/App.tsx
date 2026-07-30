@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock, Wifi, WifiOff, BookOpen, Wallet, Trash2 } from 'lucide-react';
+import { LayoutDashboard, Users, Package, ShoppingCart, Settings, Menu, TrendingUp, Receipt, BarChart3, FileText, LogOut, LogIn, UserPlus, Building2, Clock, Wifi, WifiOff, BookOpen, Wallet, Trash2, Lock, ShieldAlert } from 'lucide-react';
 import Dashboard from './components/Dashboard';
 import SupplierModule from './components/SupplierModule';
 import BuyerModule from './components/BuyerModule';
@@ -39,7 +39,7 @@ function AppContent() {
     user, profile, company, loading, signIn, logout, registerCompany, resetProfileCompany,
     connectExistingCompany, deleteCompanyByOwner, deleteUserAccount, userCompanies, approveCompany,
     signInAsDemo, isAdmin, isAccount, isAuditor, isSuperAdmin, isDemoMode,
-    mustChangePassword, can, isOnline, isFirestoreConnected, connectionError,
+    mustChangePassword, can, isModuleEnabled, isOnline, isFirestoreConnected, connectionError,
     errorMessage, setErrorMessage, successMessage, setSuccessMessage
   } = useAuth();
   const [activeModule, setActiveModule] = useState<Module>('dashboard');
@@ -303,18 +303,18 @@ function AppContent() {
 
   const navItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'Home' },
-    { id: 'suppliers', icon: Users, label: 'Suppliers', hidden: !can('manage_suppliers') },
-    { id: 'buyers', icon: UserPlus, label: 'Buyers', hidden: !can('manage_buyers') },
-    { id: 'inventory', icon: Package, label: 'Stock', hidden: !can('manage_inventory') },
-    { id: 'store', icon: Package, label: 'Store Records', hidden: !can('manage_store_records') },
-    { id: 'warehouses', icon: Building2, label: 'Stores', hidden: !can('manage_warehouses') },
-    { id: 'purchases', icon: ShoppingCart, label: 'Buy', hidden: !can('manage_inventory') },
-    { id: 'sales', icon: TrendingUp, label: 'Sales', hidden: !can('manage_inventory') },
-    { id: 'journal', icon: Receipt, label: 'Journal', hidden: !can('manage_journal') },
-    { id: 'petty_cash', icon: Wallet, label: 'Petty Cash', hidden: !can('manage_petty_cash') },
-    { id: 'staff', icon: Users, label: 'Staff', hidden: !can('manage_staff') },
-    { id: 'analytics', icon: BarChart3, label: 'Data', hidden: !can('view_analytics') },
-    { id: 'reports', icon: FileText, label: 'Docs', hidden: !can('view_reports') },
+    { id: 'suppliers', icon: Users, label: 'Suppliers', hidden: !can('manage_suppliers') || !isModuleEnabled('suppliers') },
+    { id: 'buyers', icon: UserPlus, label: 'Buyers', hidden: !can('manage_buyers') || !isModuleEnabled('buyers') },
+    { id: 'inventory', icon: Package, label: 'Stock', hidden: !can('manage_inventory') || !isModuleEnabled('inventory') },
+    { id: 'store', icon: Package, label: 'Store Records', hidden: !can('manage_store_records') || !isModuleEnabled('store') },
+    { id: 'warehouses', icon: Building2, label: 'Stores', hidden: !can('manage_warehouses') || !isModuleEnabled('warehouses') },
+    { id: 'purchases', icon: ShoppingCart, label: 'Buy', hidden: !can('manage_inventory') || !isModuleEnabled('purchases') },
+    { id: 'sales', icon: TrendingUp, label: 'Sales', hidden: !can('manage_inventory') || !isModuleEnabled('sales') },
+    { id: 'journal', icon: Receipt, label: 'Journal', hidden: !can('manage_journal') || !isModuleEnabled('journal') },
+    { id: 'petty_cash', icon: Wallet, label: 'Petty Cash', hidden: !can('manage_petty_cash') || !isModuleEnabled('petty_cash') },
+    { id: 'staff', icon: Users, label: 'Staff', hidden: !can('manage_staff') || !isModuleEnabled('staff') },
+    { id: 'analytics', icon: BarChart3, label: 'Data', hidden: !can('view_analytics') || !isModuleEnabled('analytics') },
+    { id: 'reports', icon: FileText, label: 'Docs', hidden: !can('view_reports') || !isModuleEnabled('reports') },
     { id: 'superadmin', icon: Settings, label: 'Admin', hidden: !isSuperAdmin },
   ].filter(item => !item.hidden);
 
@@ -600,20 +600,50 @@ function AppContent() {
             transition={{ duration: 0.2 }}
             className="h-full"
           >
-            {activeModule === 'dashboard' && <Dashboard onNavigate={setActiveModule} />}
-            {activeModule === 'suppliers' && <SupplierModule />}
-            {activeModule === 'buyers' && <BuyerModule />}
-            {activeModule === 'inventory' && <InventoryModule />}
-            {activeModule === 'purchases' && <InventoryModule />}
-            {activeModule === 'sales' && <SalesModule />}
-            { activeModule === 'journal' && <JournalModule /> }
-            {activeModule === 'petty_cash' && <PettyCashModule />}
-            {activeModule === 'staff' && <StaffModule />}
-            {activeModule === 'warehouses' && <WarehouseModule />}
-            {activeModule === 'store' && <StoreKeeperModule />}
-            {activeModule === 'analytics' && <AnalyticsModule />}
-            {activeModule === 'reports' && <ReportsModule />}
-            {activeModule === 'superadmin' && <SuperAdminModule />}
+            {activeModule !== 'dashboard' && activeModule !== 'superadmin' && activeModule !== 'settings' && !isModuleEnabled(activeModule) ? (
+              <div className="flex flex-col items-center justify-center h-full p-8 text-center bg-slate-50">
+                <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-xl max-w-md w-full">
+                  <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-amber-200 shadow-sm">
+                    <Lock size={32} />
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900 mb-2">Module Access Locked</h3>
+                  <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                    The <strong>{activeModule.toUpperCase()}</strong> module is not enabled for your company's current subscription plan ({company?.subscriptionPlan || 'Basic Tier'}).
+                  </p>
+                  <div className="bg-indigo-50/70 border border-indigo-100 rounded-2xl p-4 text-left mb-6">
+                    <p className="text-[11px] font-bold text-indigo-900 mb-1 flex items-center gap-1.5">
+                      <ShieldAlert size={14} /> Subscription Upgrade Required
+                    </p>
+                    <p className="text-[10px] text-indigo-700 leading-relaxed">
+                      Please contact your system Super Administrator or account manager to enable this module for your organization.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setActiveModule('dashboard')}
+                    className="w-full bg-[var(--accent)] text-white font-bold py-3.5 px-4 rounded-xl text-xs hover:bg-blue-700 transition-all shadow-md active:scale-95"
+                  >
+                    Return to Home Dashboard
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {activeModule === 'dashboard' && <Dashboard onNavigate={setActiveModule} />}
+                {activeModule === 'suppliers' && <SupplierModule />}
+                {activeModule === 'buyers' && <BuyerModule />}
+                {activeModule === 'inventory' && <InventoryModule />}
+                {activeModule === 'purchases' && <InventoryModule />}
+                {activeModule === 'sales' && <SalesModule />}
+                {activeModule === 'journal' && <JournalModule />}
+                {activeModule === 'petty_cash' && <PettyCashModule />}
+                {activeModule === 'staff' && <StaffModule />}
+                {activeModule === 'warehouses' && <WarehouseModule />}
+                {activeModule === 'store' && <StoreKeeperModule />}
+                {activeModule === 'analytics' && <AnalyticsModule />}
+                {activeModule === 'reports' && <ReportsModule />}
+                {activeModule === 'superadmin' && <SuperAdminModule />}
+              </>
+            )}
             {activeModule === 'settings' && (
               <div className="flex flex-col items-center justify-center h-full p-8 text-center">
                 <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm w-full max-w-md">

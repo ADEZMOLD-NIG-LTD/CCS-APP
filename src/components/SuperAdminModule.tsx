@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle, Trash2, UserMinus, Mail, UserPlus, RefreshCw, Plus, Pencil } from 'lucide-react';
+import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle, Trash2, UserMinus, Mail, UserPlus, RefreshCw, Plus, Pencil, Layers, Shield, Lock, SlidersHorizontal } from 'lucide-react';
 import { collection, onSnapshot, query, orderBy, getDocs, doc, deleteDoc, writeBatch, where, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Company, UserProfile } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { ALL_SYSTEM_MODULES, SUBSCRIPTION_PRESETS, SubscriptionPlanType, ALL_MODULE_IDS } from '../constants/modules';
 import { motion, AnimatePresence } from 'motion/react';
 import ConfirmModal from './ConfirmModal';
 
@@ -27,6 +28,36 @@ export default function SuperAdminModule() {
   const [purgeEmailInput, setPurgeEmailInput] = useState('');
   const [isPurgingEmail, setIsPurgingEmail] = useState(false);
   const [isDeduplicating, setIsDeduplicating] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlanType>('ENTERPRISE');
+  const [selectedModules, setSelectedModules] = useState<string[]>(ALL_MODULE_IDS);
+
+  React.useEffect(() => {
+    if (editCompanyTarget) {
+      const plan = editCompanyTarget.subscriptionPlan || 'ENTERPRISE';
+      setSelectedPlan(plan);
+      if (editCompanyTarget.enabledModules && editCompanyTarget.enabledModules.length > 0) {
+        setSelectedModules(editCompanyTarget.enabledModules);
+      } else if (plan !== 'CUSTOM' && SUBSCRIPTION_PRESETS[plan as keyof typeof SUBSCRIPTION_PRESETS]) {
+        setSelectedModules(SUBSCRIPTION_PRESETS[plan as keyof typeof SUBSCRIPTION_PRESETS].modules);
+      } else {
+        setSelectedModules(ALL_MODULE_IDS);
+      }
+    }
+  }, [editCompanyTarget]);
+
+  const handlePlanSelect = (plan: SubscriptionPlanType) => {
+    setSelectedPlan(plan);
+    if (plan !== 'CUSTOM' && SUBSCRIPTION_PRESETS[plan as keyof typeof SUBSCRIPTION_PRESETS]) {
+      setSelectedModules(SUBSCRIPTION_PRESETS[plan as keyof typeof SUBSCRIPTION_PRESETS].modules);
+    }
+  };
+
+  const handleModuleToggle = (modId: string) => {
+    setSelectedPlan('CUSTOM');
+    setSelectedModules(prev =>
+      prev.includes(modId) ? prev.filter(m => m !== modId) : [...prev, modId]
+    );
+  };
 
   const handleDeduplicateCompanies = async () => {
     setIsDeduplicating(true);
@@ -521,10 +552,12 @@ export default function SuperAdminModule() {
     try {
       await setDoc(doc(db, 'companies', editCompanyTarget.id), {
         name,
-        ownerEmail
+        ownerEmail,
+        subscriptionPlan: selectedPlan,
+        enabledModules: selectedModules
       }, { merge: true });
 
-      alert(`Company updated successfully!\nName: ${name}\nOwner Email: ${ownerEmail}`);
+      alert(`Company updated successfully!\nName: ${name}\nSubscription Tier: ${selectedPlan}\nActive Modules: ${selectedModules.length} Enabled`);
       setEditCompanyTarget(null);
     } catch (err: any) {
       console.error('Failed to update company:', err);
@@ -744,7 +777,7 @@ export default function SuperAdminModule() {
                       <div>
                         <h3 className="font-bold text-[var(--text-primary)]">{company.name}</h3>
                         <p className="text-xs text-[var(--text-secondary)]">{company.ownerEmail}</p>
-                        <div className="flex items-center gap-3 mt-1">
+                        <div className="flex items-center gap-3 mt-1 flex-wrap">
                           <p className="text-[10px] text-[var(--text-secondary)]">Registered: {new Date(company.createdAt).toLocaleDateString()}</p>
                           
                           {/* Onboarding Counter - Super Admin Visibility */}
@@ -762,6 +795,27 @@ export default function SuperAdminModule() {
                               </span>
                             </div>
                           )}
+
+                          {/* Subscription Tier & Enabled Modules Badge */}
+                          <div className="flex items-center gap-1.5">
+                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border ${
+                              (company.subscriptionPlan || 'ENTERPRISE') === 'ENTERPRISE'
+                                ? 'bg-purple-50 text-purple-700 border-purple-200'
+                                : (company.subscriptionPlan || 'ENTERPRISE') === 'STANDARD'
+                                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                : company.subscriptionPlan === 'BASIC'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                                : 'bg-slate-100 text-slate-700 border-slate-200'
+                            }`}>
+                              <Layers size={10} />
+                              {company.subscriptionPlan || 'ENTERPRISE'} TIER
+                            </span>
+
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-bold border border-slate-200 flex items-center gap-1">
+                              <SlidersHorizontal size={10} />
+                              {(company.enabledModules?.length ?? ALL_MODULE_IDS.length)} / {ALL_MODULE_IDS.length} Modules
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1349,7 +1403,7 @@ export default function SuperAdminModule() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl border border-slate-100"
+              className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto"
             >
               <div className="flex justify-between items-center mb-6">
                 <div className="flex items-center gap-3">
@@ -1357,8 +1411,8 @@ export default function SuperAdminModule() {
                     <Building2 size={20} />
                   </div>
                   <div>
-                    <h3 className="font-black text-slate-900 text-lg">Edit Registered Company</h3>
-                    <p className="text-xs text-slate-500">Update company name or assign owner email</p>
+                    <h3 className="font-black text-slate-900 text-lg">Edit Company & Module Access Control</h3>
+                    <p className="text-xs text-slate-500">Configure subscription tier and enable/disable system modules</p>
                   </div>
                 </div>
                 <button
@@ -1369,48 +1423,135 @@ export default function SuperAdminModule() {
                 </button>
               </div>
 
-              <form onSubmit={handleUpdateCompanySubmit} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Company Name *
-                  </label>
-                  <input
-                    type="text"
-                    name="name"
-                    required
-                    defaultValue={editCompanyTarget.name || ''}
-                    placeholder="e.g. Adezmold Consulting Ltd"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
-                  />
+              <form onSubmit={handleUpdateCompanySubmit} className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      Company Name *
+                    </label>
+                    <input
+                      type="text"
+                      name="name"
+                      required
+                      defaultValue={editCompanyTarget.name || ''}
+                      placeholder="e.g. Adezmold Consulting Ltd"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      Owner Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      name="ownerEmail"
+                      required
+                      defaultValue={editCompanyTarget.ownerEmail || ''}
+                      placeholder="e.g. wasiuadebisi89@gmail.com"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                    />
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Owner Email Address *
-                  </label>
-                  <input
-                    type="email"
-                    name="ownerEmail"
-                    required
-                    defaultValue={editCompanyTarget.ownerEmail || ''}
-                    placeholder="e.g. wasiuadebisi89@gmail.com"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
-                  />
+                {/* Subscription Tier Selection */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <Layers size={14} className="text-indigo-600" />
+                        Subscription Tier Preset
+                      </h4>
+                      <p className="text-[11px] text-slate-500">Select a pricing package or customize module permissions individually</p>
+                    </div>
+                    <span className="px-2.5 py-1 bg-indigo-100 text-indigo-700 font-bold rounded-lg text-[10px] uppercase">
+                      Current: {selectedPlan}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(['BASIC', 'STANDARD', 'ENTERPRISE', 'CUSTOM'] as SubscriptionPlanType[]).map((planKey) => (
+                      <button
+                        key={planKey}
+                        type="button"
+                        onClick={() => handlePlanSelect(planKey)}
+                        className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all border text-center flex flex-col items-center justify-center gap-0.5 ${
+                          selectedPlan === planKey
+                            ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-md scale-[1.02]'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="uppercase text-[11px]">{planKey}</span>
+                        <span className="text-[9px] opacity-80 font-normal">
+                          {planKey === 'BASIC' && '5 Modules'}
+                          {planKey === 'STANDARD' && '9 Modules'}
+                          {planKey === 'ENTERPRISE' && 'All 12 Modules'}
+                          {planKey === 'CUSTOM' && 'Custom Selection'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Module Access Checkboxes */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <SlidersHorizontal size={14} className="text-indigo-600" />
+                        Enabled App Modules ({selectedModules.length} / {ALL_MODULE_IDS.length} Active)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">Uncheck modules to restrict access & enforce tier controls for this company</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                    {ALL_SYSTEM_MODULES.map((mod) => {
+                      const isChecked = selectedModules.includes(mod.id);
+                      return (
+                        <div
+                          key={mod.id}
+                          onClick={() => handleModuleToggle(mod.id)}
+                          className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                            isChecked
+                              ? 'bg-indigo-50/50 border-indigo-200 shadow-sm'
+                              : 'bg-slate-50/60 border-slate-200 opacity-60 hover:opacity-100'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}} // Handled by parent onClick
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1 mb-0.5">
+                              <span className="text-xs font-bold text-slate-900 truncate">{mod.name}</span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 bg-slate-200/80 text-slate-600 rounded">
+                                {mod.category.split(' ')[0]}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 line-clamp-1">{mod.description}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="pt-2 flex gap-3">
                   <button
                     type="button"
                     onClick={() => setEditCompanyTarget(null)}
-                    className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"
+                    className="flex-1 bg-slate-100 text-slate-600 py-3.5 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 bg-[var(--accent)] text-white py-3 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-md"
+                    className="flex-1 bg-[var(--accent)] text-white py-3.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center gap-2"
                   >
-                    Save Company
+                    <CheckCircle2 size={16} /> Save Company & Module Controls
                   </button>
                 </div>
               </form>

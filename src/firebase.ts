@@ -99,12 +99,18 @@ try {
   app = initializeApp(activeConfig);
   
   // Use getFirestore(app, databaseId) for multiple database support
-  const urlParams = new URLSearchParams(window.location.search);
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
   const forceDefaultDb = urlParams.get('forceDefaultDb') === 'true';
-  const databaseId = forceDefaultDb ? "(default)" : (firebaseConfig.firestoreDatabaseId || "(default)");
+  const customDbId = firebaseConfig.firestoreDatabaseId;
+  const databaseId = forceDefaultDb ? "(default)" : (customDbId || "(default)");
   
   console.log("Initializing Firestore with Database ID:", databaseId);
-  db = getFirestore(app, databaseId);
+  try {
+    db = getFirestore(app, databaseId);
+  } catch (e) {
+    console.warn(`Failed to initialize Firestore with databaseId "${databaseId}", falling back to default database:`, e);
+    db = getFirestore(app);
+  }
   
   auth = getAuth(app);
   console.log("Firebase initialized successfully (using " + (isValidConfig ? "loaded" : "mock fallback") + " config).");
@@ -136,18 +142,46 @@ async function testConnection(retries = 2) {
         setTimeout(() => reject(new Error("Connection test timeout")), 4000)
       );
       
-      const snapshot = await Promise.race([
+      await Promise.race([
         getDocFromServer(testDoc),
         timeoutPromise
-      ]) as any;
+      ]);
       
       console.log("Firestore connection successful. Health check completed.");
       return;
     } catch (error: any) {
-      // Permission denied is actually a success! It means we reached the server.
-      if (error.code === 'permission-denied') {
-        console.log("Firestore connection successful (reached server but permission denied). This is expected if the doc doesn't exist or rules are strict.");
+      // Server responses like permission-denied, not-found, unauthenticated mean server is connected and responding!
+      if (
+        error.code === 'permission-denied' ||
+        error.code === 'not-found' ||
+        error.code === 'unauthenticated' ||
+        error.code === 'already-exists'
+      ) {
+        console.log(`Firestore connection successful (server responded with ${error.code}).`);
         return;
+      }
+
+      // If custom database failed, try fallback to default database
+      if (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)') {
+        try {
+          console.warn("Attempting fallback to default Firestore database (default)...");
+          const defaultDb = getFirestore(app);
+          const defaultTestDoc = doc(defaultDb, '_health_check_', 'ping');
+          await getDocFromServer(defaultTestDoc);
+          db = defaultDb;
+          console.log("Firestore connection successful using fallback default database.");
+          return;
+        } catch (fallbackError: any) {
+          if (
+            fallbackError.code === 'permission-denied' ||
+            fallbackError.code === 'not-found' ||
+            fallbackError.code === 'unauthenticated'
+          ) {
+            db = getFirestore(app);
+            console.log("Firestore connection successful using default database (server responded).");
+            return;
+          }
+        }
       }
       
       console.warn(`Firestore Connection Attempt ${i + 1} failed:`, {
@@ -158,7 +192,6 @@ async function testConnection(retries = 2) {
       if (i === retries - 1) {
         console.warn("All Firestore connection attempts failed. Proceeding with caution.");
       } else {
-        // Wait shorter delay between retries
         const delay = 1000;
         console.log(`Waiting ${delay}ms before retry...`);
         await new Promise(resolve => setTimeout(resolve, delay));

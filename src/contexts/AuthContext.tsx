@@ -75,6 +75,7 @@ interface AuthContextType {
   successMessage: string | null;
   setSuccessMessage: (msg: string | null) => void;
   can: (action: PermissionAction) => boolean;
+  isModuleEnabled: (moduleId: string) => boolean;
   canPostTransactions: boolean;
   canManageStaff: boolean;
   canTransferStock: boolean;
@@ -249,8 +250,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        if (error.code === 'permission-denied') {
-          // Permission denied is actually a success! It means we reached the server.
+        if (
+          error.code === 'permission-denied' ||
+          error.code === 'not-found' ||
+          error.code === 'unauthenticated' ||
+          error.code === 'already-exists'
+        ) {
+          // These server responses indicate the server is reached and responding!
+          console.log(`Firestore connection test successful (server responded with ${error.code}).`);
           setIsFirestoreConnected(true);
           setConnectionError(null);
           return;
@@ -300,6 +307,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAuditor = useMemo(() => profile?.role === 'AUDITOR' || isManager, [profile?.role, isManager]);
   const isStoreKeeper = useMemo(() => profile?.role === 'STORE_KEEPER' || isAdmin, [profile?.role, isAdmin]);
   const isStaff = useMemo(() => profile?.role === 'STAFF' || isAccount || isAuditor || isStoreKeeper, [profile?.role, isAccount, isAuditor, isStoreKeeper]);
+
+  const isModuleEnabled = React.useCallback((moduleId: string): boolean => {
+    if (isSuperAdmin || isDemoMode) return true;
+    if (!company) return true;
+    if (!company.enabledModules || company.enabledModules.length === 0) return true;
+    return company.enabledModules.includes(moduleId);
+  }, [isSuperAdmin, isDemoMode, company]);
 
   React.useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
@@ -392,8 +406,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         companyId: matchedComp.id,
                         role: 'ADMIN'
                       }, { merge: true }).catch(() => {});
-                      
-                      setCompany(matchedComp);
                       return prev ? { ...prev, companyId: matchedComp.id, role: 'ADMIN' } : {
                         uid: user.uid,
                         email: cleanUserEmail,
@@ -405,6 +417,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     }
                     return prev;
                   });
+
+                  setCompany(prev => prev ? prev : matchedComp);
                 }
               }, (err) => {
                 console.error("Failed to fetch user companies:", err);
@@ -413,6 +427,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             const profileId = user.uid;
             const userRef = doc(db, 'users', profileId);
+            let activeCompanySubId: string | null = null;
             
             console.log('AuthContext: Setting up profile listener for:', profileId);
             unsubscribeProfile = onSnapshot(userRef, async (userDoc) => {
@@ -420,15 +435,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const data = userDoc.data() as UserProfile;
                 console.log('AuthContext: Profile update received:', { role: data.role, companyId: data.companyId });
                 
+                const isUserSuperAdmin = [
+                  'wasiuadebisi89@gmail.com',
+                  'adezmoldent@gmail.com',
+                  'abdullahiwasiu07@gmail.com'
+                ].includes((user.email || data.email || '').toLowerCase().trim()) || data.role === 'SUPER_ADMIN';
+
                 // Check for suspension
-                if (data.suspended && !isSuperAdmin) {
+                if (data.suspended && !isUserSuperAdmin) {
                   console.warn('AuthContext: User is suspended. Signing out.');
                   setErrorMessage('Your account has been suspended. Please contact the Super Admin.');
                   signOut(auth);
                   return;
                 }
 
-                setProfile(data);
+                setProfile(prev => {
+                  if (prev &&
+                      prev.uid === data.uid &&
+                      prev.role === data.role &&
+                      prev.companyId === data.companyId &&
+                      prev.suspended === data.suspended &&
+                      prev.lastPasswordUpdate === data.lastPasswordUpdate &&
+                      prev.displayName === data.displayName) {
+                    return prev;
+                  }
+                  return data;
+                });
                 setLoading(false);
                 clearTimeout(loadingTimeout);
 
@@ -445,7 +477,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     console.log('AuthContext: Password policy check:', { lastPasswordUpdate: data.lastPasswordUpdate, diffDays, expired });
                     setMustChangePassword(expired);
                   } else {
-                    // Set default lastPasswordUpdate if missing to prevent trapping users
                     console.log('AuthContext: Setting default lastPasswordUpdate to now');
                     const nowStr = new Date().toISOString();
                     setDoc(userRef, { lastPasswordUpdate: nowStr }, { merge: true }).catch(() => {});
@@ -458,61 +489,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 const cleanUserEmail = (user.email || data.email || '').toLowerCase().trim();
 
                 if (data.companyId) {
-                  const companyRef = doc(db, 'companies', data.companyId);
-                  if (unsubscribeCompany) unsubscribeCompany();
-                  
-                  unsubscribeCompany = onSnapshot(companyRef, async (companyDoc) => {
-                    if (companyDoc.exists()) {
-                      const compData = companyDoc.data() as Company;
-                      // Auto-approve company if not yet approved to prevent owners getting stuck
-                      if (!compData.isApproved) {
-                        try {
-                          await setDoc(companyRef, { isApproved: true }, { merge: true });
-                          compData.isApproved = true;
-                        } catch (e) {
-                          console.warn('AuthContext: Auto company approval write failed:', e);
-                        }
-                      }
-                      setCompany(compData);
-                    } else {
-                      console.warn('AuthContext: Company doc does not exist for ID:', data.companyId);
-                      // Check if there is an existing company by ownerEmail
-                      try {
-                        if (cleanUserEmail) {
-                          const compQuery = query(collection(db, 'companies'), where('ownerEmail', '==', cleanUserEmail));
-                          const compSnap = await getDocs(compQuery);
-                          if (!compSnap.empty) {
-                            const foundComp = compSnap.docs[0].data() as Company;
-                            if (!foundComp.isApproved) {
-                              await setDoc(doc(db, 'companies', foundComp.id), { isApproved: true }, { merge: true });
-                              foundComp.isApproved = true;
-                            }
-                            setCompany(foundComp);
-                            await setDoc(userRef, { companyId: foundComp.id, role: 'ADMIN' }, { merge: true });
-                            return;
+                  if (activeCompanySubId !== data.companyId) {
+                    activeCompanySubId = data.companyId;
+                    if (unsubscribeCompany) unsubscribeCompany();
+                    const companyRef = doc(db, 'companies', data.companyId);
+                    
+                    unsubscribeCompany = onSnapshot(companyRef, async (companyDoc) => {
+                      if (companyDoc.exists()) {
+                        const compData = companyDoc.data() as Company;
+                        if (!compData.isApproved) {
+                          try {
+                            compData.isApproved = true;
+                            await setDoc(companyRef, { isApproved: true }, { merge: true });
+                          } catch (e) {
+                            console.warn('AuthContext: Auto company approval write failed:', e);
                           }
                         }
-                      } catch (err) {
-                        console.warn('AuthContext: Fallback company lookup failed:', err);
-                      }
+                        setCompany(prev => {
+                          if (prev &&
+                              prev.id === compData.id &&
+                              prev.name === compData.name &&
+                              prev.isApproved === compData.isApproved &&
+                              prev.subscriptionPlan === compData.subscriptionPlan &&
+                              JSON.stringify(prev.enabledModules) === JSON.stringify(compData.enabledModules)) {
+                            return prev;
+                          }
+                          return compData;
+                        });
+                      } else {
+                        console.warn('AuthContext: Company doc does not exist for ID:', data.companyId);
+                        try {
+                          if (cleanUserEmail) {
+                            const compQuery = query(collection(db, 'companies'), where('ownerEmail', '==', cleanUserEmail));
+                            const compSnap = await getDocs(compQuery);
+                            if (!compSnap.empty) {
+                              const foundComp = compSnap.docs[0].data() as Company;
+                              if (!foundComp.isApproved) {
+                                await setDoc(doc(db, 'companies', foundComp.id), { isApproved: true }, { merge: true });
+                                foundComp.isApproved = true;
+                              }
+                              setCompany(foundComp);
+                              await setDoc(userRef, { companyId: foundComp.id, role: 'ADMIN' }, { merge: true });
+                              return;
+                            }
+                          }
+                        } catch (err) {
+                          console.warn('AuthContext: Fallback company lookup failed:', err);
+                        }
 
+                        setCompany({
+                          id: data.companyId,
+                          name: 'My Company',
+                          isApproved: true,
+                          createdAt: new Date().toISOString()
+                        } as Company);
+                      }
+                    }, (error) => {
+                      console.warn('AuthContext: Company snapshot failed:', error);
                       setCompany({
                         id: data.companyId,
                         name: 'My Company',
                         isApproved: true,
                         createdAt: new Date().toISOString()
                       } as Company);
-                    }
-                  }, (error) => {
-                    console.warn('AuthContext: Company snapshot failed:', error);
-                    setCompany({
-                      id: data.companyId,
-                      name: 'My Company',
-                      isApproved: true,
-                      createdAt: new Date().toISOString()
-                    } as Company);
-                  });
-                } else if (!isSuperAdmin && cleanUserEmail) {
+                    });
+                  }
+                } else if (!isUserSuperAdmin && cleanUserEmail) {
                   // User profile exists BUT companyId is missing/empty. Auto-repair for Admin/Owner or Staff.
                   console.log('AuthContext: User profile missing companyId. Auto-repairing for:', cleanUserEmail);
                   try {
@@ -828,7 +870,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (unsubscribeCompany) unsubscribeCompany();
       if (unsubscribeUserCompanies) unsubscribeUserCompanies();
     };
-  }, [isDemoMode, isSuperAdmin]);
+  }, [isDemoMode]);
 
   const signIn = async () => {
     try {
@@ -1661,6 +1703,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     successMessage,
     setSuccessMessage,
     can,
+    isModuleEnabled,
     canPostTransactions,
     canManageStaff,
     canTransferStock

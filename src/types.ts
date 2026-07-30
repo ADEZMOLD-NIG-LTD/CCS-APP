@@ -21,6 +21,8 @@ export interface Company {
   ownerEmail: string;
   createdAt: string;
   isApproved?: boolean; // Super admin must approve new companies
+  subscriptionPlan?: 'BASIC' | 'STANDARD' | 'ENTERPRISE' | 'CUSTOM';
+  enabledModules?: string[]; // Enabled module IDs e.g. ['suppliers', 'buyers', 'inventory', 'journal', ...]
 }
 
 export interface Supplier {
