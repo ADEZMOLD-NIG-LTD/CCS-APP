@@ -30,6 +30,7 @@ import LegalModal from './components/LegalModal';
 import FirebaseSetupGuide from './components/FirebaseSetupGuide';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { SubscriptionPlanType } from './constants/modules';
 import { firebaseConfig } from './firebase';
 
 type Module = 'dashboard' | 'suppliers' | 'buyers' | 'inventory' | 'purchases' | 'sales' | 'journal' | 'petty_cash' | 'staff' | 'warehouses' | 'analytics' | 'reports' | 'settings' | 'superadmin' | 'store';
@@ -44,6 +45,7 @@ function AppContent() {
   } = useAuth();
   const [activeModule, setActiveModule] = useState<Module>('dashboard');
   const [newCompanyName, setNewCompanyName] = useState('');
+  const [newCompanyTier, setNewCompanyTier] = useState<SubscriptionPlanType>('ENTERPRISE');
   const [showDemoIntro, setShowDemoIntro] = useState(true);
   const [showMenu, setShowMenu] = useState(false);
   const [legalModal, setLegalModal] = useState<{ open: boolean; type: 'privacy' | 'terms' }>({ open: false, type: 'privacy' });
@@ -253,9 +255,32 @@ function AppContent() {
                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-5 py-4 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-medium text-sm"
               />
             </div>
+
+            <div className="text-left">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-slate-400 ml-4 mb-1.5 block">Select Initial Subscription Tier</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(['BASIC', 'STANDARD', 'ENTERPRISE'] as SubscriptionPlanType[]).map((tier) => (
+                  <button
+                    key={tier}
+                    type="button"
+                    onClick={() => setNewCompanyTier(tier)}
+                    className={`p-3 rounded-2xl border text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-1 ${
+                      newCompanyTier === tier
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-md scale-[1.02]'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>{tier} TIER</span>
+                    <span className="text-[9px] font-normal opacity-80">
+                      {tier === 'BASIC' ? 'Trade Essentials' : tier === 'STANDARD' ? 'Operations Tier' : 'Full Suite'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
             
             <button 
-              onClick={() => registerCompany(newCompanyName.trim() || 'Akipo Enterprise')}
+              onClick={() => registerCompany(newCompanyName.trim() || 'Akipo Enterprise', newCompanyTier)}
               disabled={loading}
               className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50 disabled:active:scale-100"
             >

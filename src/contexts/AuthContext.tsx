@@ -32,6 +32,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db, firebaseConfig, isMockFallback } from '../firebase';
 import { UserProfile, Company, Staff } from '../types';
+import { SubscriptionPlanType, SUBSCRIPTION_PRESETS, ALL_MODULE_IDS } from '../constants/modules';
 import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
 
 interface AuthContextType {
@@ -47,7 +48,7 @@ interface AuthContextType {
   manualResetPassword: (userId: string) => Promise<void>;
   changePassword: (currentPass: string, newPass: string) => Promise<void>;
   logout: () => Promise<void>;
-  registerCompany: (companyName: string) => Promise<void>;
+  registerCompany: (companyName: string, plan?: SubscriptionPlanType) => Promise<void>;
   resetProfileCompany: () => Promise<void>;
   connectExistingCompany: (companyId: string) => Promise<void>;
   deleteCompanyByOwner: (companyId: string) => Promise<void>;
@@ -1365,7 +1366,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const registerCompany = async (companyName: string) => {
+  const registerCompany = async (companyName: string, plan: SubscriptionPlanType = 'ENTERPRISE') => {
     if (!user) return;
     setLoading(true);
     setErrorMessage(null);
@@ -1377,6 +1378,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         'adezmoldent@gmail.com',
         'abdullahiwasiu07@gmail.com'
       ].includes(userEmailLower) || isSuperAdmin;
+
+      const selectedPlan = plan || 'ENTERPRISE';
+      const defaultModules = (selectedPlan !== 'CUSTOM' && SUBSCRIPTION_PRESETS[selectedPlan as keyof typeof SUBSCRIPTION_PRESETS])
+        ? SUBSCRIPTION_PRESETS[selectedPlan as keyof typeof SUBSCRIPTION_PRESETS].modules
+        : ALL_MODULE_IDS;
 
       // Check if user already owns an existing company doc
       const existingCompSnap = await getDocs(query(
@@ -1390,16 +1396,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!existingCompSnap.empty) {
         // Reuse existing company to prevent duplicate company creation
         const existingDoc = existingCompSnap.docs[0];
+        const existingCompData = existingDoc.data() as Company;
         targetCompanyId = existingDoc.id;
         targetCompany = {
-          ...(existingDoc.data() as Company),
+          ...existingCompData,
           id: targetCompanyId,
-          name: companyName.trim() || (existingDoc.data() as Company).name,
-          isApproved: true
+          name: companyName.trim() || existingCompData.name,
+          isApproved: true,
+          subscriptionPlan: existingCompData.subscriptionPlan || selectedPlan,
+          enabledModules: (existingCompData.enabledModules && existingCompData.enabledModules.length > 0) ? existingCompData.enabledModules : defaultModules
         };
         await setDoc(doc(db, 'companies', targetCompanyId), {
           name: targetCompany.name,
-          isApproved: true
+          isApproved: true,
+          subscriptionPlan: targetCompany.subscriptionPlan,
+          enabledModules: targetCompany.enabledModules
         }, { merge: true });
       } else {
         targetCompanyId = `comp_${Date.now()}`;
@@ -1408,7 +1419,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: companyName.trim(),
           ownerEmail: userEmailLower,
           createdAt: new Date().toISOString(),
-          isApproved: true
+          isApproved: true,
+          subscriptionPlan: selectedPlan,
+          enabledModules: defaultModules
         };
         Object.keys(targetCompany).forEach(key => (targetCompany as any)[key] === undefined && delete (targetCompany as any)[key]);
         await setDoc(doc(db, 'companies', targetCompanyId), targetCompany);

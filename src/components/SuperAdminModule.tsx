@@ -22,6 +22,8 @@ export default function SuperAdminModule() {
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [editUserTarget, setEditUserTarget] = useState<UserProfile | null>(null);
   const [editCompanyTarget, setEditCompanyTarget] = useState<Company | null>(null);
+  const [showAddCompanyModal, setShowAddCompanyModal] = useState(false);
+  const [isCreatingCompany, setIsCreatingCompany] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -565,6 +567,40 @@ export default function SuperAdminModule() {
     }
   };
 
+  const handleCreateCompanySubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const name = (formData.get('name') as string)?.trim();
+    const ownerEmail = (formData.get('ownerEmail') as string)?.toLowerCase().trim();
+
+    if (!name || !ownerEmail) {
+      alert('Company Name and Owner Email are required.');
+      return;
+    }
+
+    setIsCreatingCompany(true);
+    try {
+      const compId = `comp_${Date.now()}`;
+      const newComp: Company = {
+        id: compId,
+        name,
+        ownerEmail,
+        createdAt: new Date().toISOString(),
+        isApproved: true,
+        subscriptionPlan: selectedPlan,
+        enabledModules: selectedModules
+      };
+      await setDoc(doc(db, 'companies', compId), newComp);
+      alert(`Company "${name}" created successfully!\nSubscription Tier: ${selectedPlan}\nActive Modules: ${selectedModules.length} Enabled`);
+      setShowAddCompanyModal(false);
+    } catch (err: any) {
+      console.error('Failed to create company:', err);
+      alert(`Failed to create company: ${err.message}`);
+    } finally {
+      setIsCreatingCompany(false);
+    }
+  };
+
   // System Health Mock Data (Calculated from state)
   const handleTestEmail = async () => {
     if (!testEmail) return;
@@ -711,7 +747,18 @@ export default function SuperAdminModule() {
               </div>
 
               {activeTab === 'companies' && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => {
+                      setSelectedPlan('BASIC');
+                      setSelectedModules(SUBSCRIPTION_PRESETS.BASIC.modules);
+                      setShowAddCompanyModal(true);
+                    }}
+                    className="bg-[var(--accent)] text-white py-3 px-4 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                    <Building2 size={15} />
+                    Add New Company & Assign Tier
+                  </button>
                   <button
                     onClick={handleDeduplicateCompanies}
                     disabled={isDeduplicating}
@@ -1552,6 +1599,174 @@ export default function SuperAdminModule() {
                     className="flex-1 bg-[var(--accent)] text-white py-3.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center gap-2"
                   >
                     <CheckCircle2 size={16} /> Save Company & Module Controls
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Add New Company Modal */}
+        {showAddCompanyModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                    <Building2 size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-slate-900 text-lg">Onboard New Company & Assign Tier</h3>
+                    <p className="text-xs text-slate-500">Register a new company and select its subscription tier & active modules</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAddCompanyModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-lg"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateCompanySubmit} className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      Company Name *
+                    </label>
+                    <input
+                      type="text"
+                      name="name"
+                      required
+                      placeholder="e.g. Kano Commodity Exchange"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">
+                      Owner Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      name="ownerEmail"
+                      required
+                      placeholder="e.g. owner@kanocommodity.com"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] font-medium"
+                    />
+                  </div>
+                </div>
+
+                {/* Subscription Tier Selection */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <Layers size={14} className="text-indigo-600" />
+                        Assign Subscription Tier Preset
+                      </h4>
+                      <p className="text-[11px] text-slate-500">Choose Basic (Trade), Standard (Operations), Enterprise (Full) or Custom</p>
+                    </div>
+                    <span className="px-2.5 py-1 bg-indigo-100 text-indigo-700 font-bold rounded-lg text-[10px] uppercase">
+                      Selected: {selectedPlan}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(['BASIC', 'STANDARD', 'ENTERPRISE', 'CUSTOM'] as SubscriptionPlanType[]).map((planKey) => (
+                      <button
+                        key={planKey}
+                        type="button"
+                        onClick={() => handlePlanSelect(planKey)}
+                        className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all border text-center flex flex-col items-center justify-center gap-0.5 ${
+                          selectedPlan === planKey
+                            ? 'bg-[var(--accent)] text-white border-[var(--accent)] shadow-md scale-[1.02]'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="uppercase text-[11px]">{planKey}</span>
+                        <span className="text-[9px] opacity-80 font-normal">
+                          {planKey === 'BASIC' && '5 Modules'}
+                          {planKey === 'STANDARD' && '9 Modules'}
+                          {planKey === 'ENTERPRISE' && 'All 12 Modules'}
+                          {planKey === 'CUSTOM' && 'Custom Selection'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Module Access Checkboxes */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                        <SlidersHorizontal size={14} className="text-indigo-600" />
+                        Enabled App Modules ({selectedModules.length} / {ALL_MODULE_IDS.length} Active)
+                      </h4>
+                      <p className="text-[11px] text-slate-500">Uncheck modules to restrict access or customize for this new company</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                    {ALL_SYSTEM_MODULES.map((mod) => {
+                      const isChecked = selectedModules.includes(mod.id);
+                      return (
+                        <div
+                          key={mod.id}
+                          onClick={() => handleModuleToggle(mod.id)}
+                          className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-start gap-3 ${
+                            isChecked
+                              ? 'bg-indigo-50/50 border-indigo-200 shadow-sm'
+                              : 'bg-slate-50/60 border-slate-200 opacity-60 hover:opacity-100'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}}
+                            className="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-1 mb-0.5">
+                              <span className="text-xs font-bold text-slate-900 truncate">{mod.name}</span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 bg-slate-200/80 text-slate-600 rounded">
+                                {mod.category.split(' ')[0]}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 line-clamp-1">{mod.description}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="pt-2 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCompanyModal(false)}
+                    className="flex-1 bg-slate-100 text-slate-600 py-3.5 rounded-xl font-bold text-sm hover:bg-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isCreatingCompany}
+                    className="flex-1 bg-[var(--accent)] text-white py-3.5 rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={16} />
+                    {isCreatingCompany ? 'Creating Company...' : 'Create Company & Assign Tier'}
                   </button>
                 </div>
               </form>
