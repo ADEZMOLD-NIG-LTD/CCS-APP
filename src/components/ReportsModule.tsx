@@ -10,7 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Supplier, Transaction, Payment, JournalEntry, Warehouse, Buyer, BagTransaction, AuditLog } from '../types';
+import { Supplier, Transaction, Payment, JournalEntry, Warehouse, Buyer, BagTransaction, AuditLog, Staff, Attendance, Payroll } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase';
 import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
@@ -26,6 +26,8 @@ import TransfersReport from './reports/TransfersReport';
 import AuditLogsReport from './reports/AuditLogsReport';
 import SearchReport from './reports/SearchReport';
 import JournalReport from './reports/JournalReport';
+import AttendanceReport from './reports/AttendanceReport';
+import PayrollReport from './reports/PayrollReport';
 import ReportTabs, { ReportType } from './reports/ReportTabs';
 import ReportFilters from './reports/ReportFilters';
 
@@ -42,6 +44,9 @@ export default function ReportsModule() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [staffList, setStaffList] = useState<Staff[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<Attendance[]>([]);
+  const [payrollRecords, setPayrollRecords] = useState<Payroll[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   const [activeReport, setActiveReport] = useState<ReportType>('supplier_balances');
@@ -463,6 +468,26 @@ export default function ReportsModule() {
               startDate={startDate}
               endDate={endDate}
             />
+          
+          ) : activeReport === 'attendance' ? (
+            <AttendanceReport
+              key="attendance-report"
+              attendanceRecords={attendanceRecords}
+              staffList={staffList}
+              warehouses={warehouses}
+              startDate={startDate}
+              endDate={endDate}
+              selectedWarehouseId={selectedWarehouseId}
+            />
+          ) : activeReport === 'payroll' ? (
+            <PayrollReport
+              key="payroll-report"
+              payrollRecords={payrollRecords}
+              staffList={staffList}
+              startDate={startDate}
+              endDate={endDate}
+            />
+
           ) : activeReport === 'journal' ? (
             <JournalReport
               key="journal-report"

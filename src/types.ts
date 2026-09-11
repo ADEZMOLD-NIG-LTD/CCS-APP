@@ -126,6 +126,9 @@ export interface Staff {
   assignedWarehouseId?: string;
   bankName?: string;
   accountNumber?: string;
+  accountName?: string;
+  applyPAYE?: boolean;
+  applyPension?: boolean;
 }
 
 export interface Attendance {
@@ -158,6 +161,8 @@ export interface Payroll {
   taxableIncome: number;
   paye: number;
   pension: number; // Usually 8% of (Basic + Housing + Transport)
+  otherDeductions: number; // For loans, salary advances, etc.
+  deductionsNote?: string; // Note explaining the deductions
   netPay: number;
   status: 'PENDING' | 'PAID';
   createdAt: string;

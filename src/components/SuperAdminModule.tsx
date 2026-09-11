@@ -844,24 +844,34 @@ export default function SuperAdminModule() {
                           )}
 
                           {/* Subscription Tier & Enabled Modules Badge */}
-                          <div className="flex items-center gap-1.5">
-                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border ${
-                              (company.subscriptionPlan || 'ENTERPRISE') === 'ENTERPRISE'
-                                ? 'bg-purple-50 text-purple-700 border-purple-200'
-                                : (company.subscriptionPlan || 'ENTERPRISE') === 'STANDARD'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : company.subscriptionPlan === 'BASIC'
-                                ? 'bg-amber-50 text-amber-700 border-amber-200'
-                                : 'bg-slate-100 text-slate-700 border-slate-200'
-                            }`}>
-                              <Layers size={10} />
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => setEditCompanyTarget(company)}
+                              title="Click to change subscription tier"
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border transition-all hover:scale-105 ${
+                                (company.subscriptionPlan || 'ENTERPRISE') === 'ENTERPRISE'
+                                  ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+                                  : (company.subscriptionPlan || 'ENTERPRISE') === 'STANDARD'
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                                  : company.subscriptionPlan === 'BASIC'
+                                  ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                              }`}
+                            >
+                              <Layers size={11} />
                               {company.subscriptionPlan || 'ENTERPRISE'} TIER
-                            </span>
+                            </button>
 
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-[10px] font-bold border border-slate-200 flex items-center gap-1">
-                              <SlidersHorizontal size={10} />
+                            <button
+                              type="button"
+                              onClick={() => setEditCompanyTarget(company)}
+                              title="Click to configure enabled modules"
+                              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold border border-slate-200 flex items-center gap-1 transition-all"
+                            >
+                              <SlidersHorizontal size={11} />
                               {(company.enabledModules?.length ?? ALL_MODULE_IDS.length)} / {ALL_MODULE_IDS.length} Modules
-                            </span>
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -897,10 +907,11 @@ export default function SuperAdminModule() {
 
                     <button 
                       onClick={() => setEditCompanyTarget(company)}
-                      className="px-4 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 py-3 rounded-xl font-bold text-sm active:scale-95 transition-all flex items-center justify-center gap-2"
-                      title="Edit Company Details & Owner Email"
+                      className="px-3 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 py-3 rounded-xl font-bold text-xs active:scale-95 transition-all flex items-center justify-center gap-1.5"
+                      title="Edit Company Details, Subscription Tier & Modules"
                     >
-                      <Pencil size={18} />
+                      <Pencil size={15} />
+                      <span className="hidden sm:inline">Edit Tier & Modules</span>
                     </button>
 
                     <button 

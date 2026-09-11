@@ -17,6 +17,7 @@ interface PayrollManagerProps {
   onExportCSV: () => void;
   onGenerate: () => void;
   onViewPayslip: (payroll: Payroll) => void;
+  onEditDeductions: (payroll: Payroll) => void;
 }
 
 export default function PayrollManager({
@@ -27,7 +28,8 @@ export default function PayrollManager({
   submitting,
   onExportCSV,
   onGenerate,
-  onViewPayslip
+  onViewPayslip,
+  onEditDeductions
 }: PayrollManagerProps) {
   return (
     <div className="space-y-6">
@@ -73,6 +75,7 @@ export default function PayrollManager({
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">Gross</th>
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">Pension</th>
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">PAYE</th>
+                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">Deductions</th>
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">Net Pay</th>
                 <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">Action</th>
               </tr>
@@ -80,7 +83,7 @@ export default function PayrollManager({
             <tbody>
               {filteredPayrolls.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-slate-400 text-sm">
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400 text-sm">
                     No payroll data for this month. Click generate to compute.
                   </td>
                 </tr>
@@ -96,6 +99,10 @@ export default function PayrollManager({
                       <td className="px-4 py-4 text-xs font-medium text-slate-600">{formatCurrency(p.grossIncome)}</td>
                       <td className="px-4 py-4 text-xs font-medium text-rose-500">-{formatCurrency(p.pension)}</td>
                       <td className="px-4 py-4 text-xs font-medium text-rose-500">-{formatCurrency(p.paye)}</td>
+                      <td className="px-4 py-4 text-xs font-medium text-rose-500 cursor-pointer hover:bg-slate-100 rounded-lg transition-colors" onClick={() => onEditDeductions(p)} title={p.deductionsNote || "Click to add deductions (Loans, Advance, etc.)"}>
+                        {p.otherDeductions ? `-${formatCurrency(p.otherDeductions)}` : <span className="text-slate-300">Add...</span>}
+                        {p.deductionsNote && <p className="text-[9px] text-slate-400 truncate max-w-[100px]">{p.deductionsNote}</p>}
+                      </td>
                       <td className="px-4 py-4 text-sm font-black text-indigo-600 text-right">{formatCurrency(p.netPay)}</td>
                       <td className="px-4 py-4 text-right">
                         <button 

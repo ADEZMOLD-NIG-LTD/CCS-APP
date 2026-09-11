@@ -85,6 +85,12 @@ export default function PayslipModal({
               <span className="text-slate-500">PAYE Tax</span>
               <span className="font-bold text-rose-500">-{formatCurrency(viewingPayroll.paye)}</span>
             </div>
+            {!!viewingPayroll.otherDeductions && (
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-500">Other Deductions {viewingPayroll.deductionsNote && <span className="text-[10px] text-slate-400">({viewingPayroll.deductionsNote})</span>}</span>
+                <span className="font-bold text-rose-500">-{formatCurrency(viewingPayroll.otherDeductions)}</span>
+              </div>
+            )}
           </div>
 
           <div className="pt-4 border-t border-dashed border-slate-200">
@@ -95,7 +101,7 @@ export default function PayslipModal({
                   {staff?.bankName || 'N/A'}
                 </p>
                 <p className="text-xs text-slate-500">
-                  {staff?.accountNumber || 'N/A'}
+                  {staff?.accountName || 'No Account Name'} - {staff?.accountNumber || 'N/A'}
                 </p>
               </div>
               <button 

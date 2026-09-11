@@ -126,15 +126,54 @@ export default function StaffForm({
             />
           </div>
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Account Number</label>
-          <input 
-            name="accountNumber" 
-            defaultValue={editingStaff?.accountNumber}
-            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
-            placeholder="0123456789" 
-          />
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Account Number</label>
+            <input 
+              name="accountNumber" 
+              defaultValue={editingStaff?.accountNumber}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
+              placeholder="0123456789" 
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Account Name</label>
+            <input 
+              name="accountName" 
+              defaultValue={editingStaff?.accountName}
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
+              placeholder="e.g. John Doe" 
+            />
+          </div>
         </div>
+
+        <div className="flex gap-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="flex items-center gap-3">
+            <input 
+              type="checkbox" 
+              id="applyPAYE" 
+              name="applyPAYE" 
+              defaultChecked={editingStaff ? editingStaff.applyPAYE : true}
+              className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <label htmlFor="applyPAYE" className="text-xs font-bold text-slate-700 cursor-pointer">
+              Apply PAYE Tax
+            </label>
+          </div>
+          <div className="flex items-center gap-3">
+            <input 
+              type="checkbox" 
+              id="applyPension" 
+              name="applyPension" 
+              defaultChecked={editingStaff ? editingStaff.applyPension : true}
+              className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <label htmlFor="applyPension" className="text-xs font-bold text-slate-700 cursor-pointer">
+              Apply Pension (8%)
+            </label>
+          </div>
+        </div>
+
         <div>
           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Email (Optional for Login)</label>
           <input 

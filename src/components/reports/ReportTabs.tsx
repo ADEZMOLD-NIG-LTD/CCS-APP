@@ -12,7 +12,7 @@ function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export type ReportType = 'supplier_balances' | 'buyer_balances' | 'operational_purchases' | 'operational_sales' | 'packaging_inventory' | 'transfers' | 'search' | 'audit_logs' | 'journal';
+export type ReportType = 'supplier_balances' | 'buyer_balances' | 'operational_purchases' | 'operational_sales' | 'packaging_inventory' | 'transfers' | 'search' | 'audit_logs' | 'journal' | 'attendance' | 'payroll';
 
 interface ReportTabsProps {
   activeReport: ReportType;
@@ -29,6 +29,8 @@ export default function ReportTabs({ activeReport, setActiveReport, userRole }: 
     { id: 'journal', label: 'Journal (In/Out)' },
     { id: 'packaging_inventory', label: 'Packaging' },
     { id: 'transfers', label: 'Transfers' },
+    { id: 'attendance', label: 'Attendance', roles: ['ADMIN', 'MANAGER', 'HR'] },
+    { id: 'payroll', label: 'Payroll', roles: ['ADMIN', 'ACCOUNT', 'MANAGER'] },
     { id: 'search', label: 'Search Tranx ID', icon: <Search size={12} /> },
     { id: 'audit_logs', label: 'Audit Logs', icon: <ShieldCheck size={12} />, roles: ['ADMIN', 'AUDITOR', 'MANAGER'] },
   ];
