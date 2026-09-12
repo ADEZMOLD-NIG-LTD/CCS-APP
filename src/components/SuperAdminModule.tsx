@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle, Trash2, UserMinus, Mail, UserPlus, RefreshCw, Plus, Pencil, Layers, Shield, Lock, SlidersHorizontal } from 'lucide-react';
+import { Building2, CheckCircle2, XCircle, Search, Clock, Activity, Users, ShieldAlert, ShieldCheck, Database, Server, AlertTriangle, Trash2, UserMinus, Mail, UserPlus, RefreshCw, Plus, Pencil, Layers, Shield, Lock, SlidersHorizontal, Megaphone } from 'lucide-react';
 import { collection, onSnapshot, query, orderBy, getDocs, doc, deleteDoc, writeBatch, where, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Company, UserProfile } from '../types';
+import BroadcastModule from './BroadcastModule';
 import { useAuth } from '../contexts/AuthContext';
 import { ALL_SYSTEM_MODULES, SUBSCRIPTION_PRESETS, SubscriptionPlanType, ALL_MODULE_IDS } from '../constants/modules';
 import { motion, AnimatePresence } from 'motion/react';
@@ -13,7 +14,7 @@ export default function SuperAdminModule() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'companies' | 'users' | 'health' | 'infrastructure'>('companies');
+  const [activeTab, setActiveTab] = useState<'companies' | 'users' | 'health' | 'infrastructure' | 'broadcast'>('companies');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteCompanyConfirmId, setDeleteCompanyConfirmId] = useState<string | null>(null);
   const [isPurging, setIsPurging] = useState(false);
@@ -710,11 +711,19 @@ export default function SuperAdminModule() {
           >
             <Server size={14} /> System
           </button>
+          <button
+            onClick={() => setActiveTab('broadcast')}
+            className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'broadcast' ? 'bg-white text-[var(--accent)] shadow-sm' : 'text-[var(--text-secondary)]'
+            }`}
+          >
+            <Megaphone size={14} /> Broadcast
+          </button>
         </div>
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
-        {activeTab !== 'health' && (
+        {activeTab !== 'health' && activeTab !== 'broadcast' && (
           <div className="space-y-3">
             <div className="relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" size={18} />
@@ -1001,6 +1010,17 @@ export default function SuperAdminModule() {
             </motion.div>
           )}
 
+          {activeTab === 'broadcast' && (
+            <motion.div 
+              key="broadcast"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+            >
+              <BroadcastModule />
+            </motion.div>
+          )}
+
           {activeTab === 'infrastructure' && (
             <motion.div 
               key="infrastructure"
@@ -1212,7 +1232,7 @@ export default function SuperAdminModule() {
           )}
         </AnimatePresence>
 
-        {activeTab !== 'health' && (
+        {activeTab !== 'health' && activeTab !== 'broadcast' && activeTab !== 'infrastructure' && (
           <div className="text-center py-6">
             <p className="text-slate-400 font-medium text-xs">
               Showing {activeTab === 'companies' ? filteredCompanies.length : filteredUsers.length} results

@@ -56,12 +56,16 @@ export default function LoginPage({ onSignIn, onSignInAsDemo }: LoginPageProps) 
   return (
     <div className="min-h-screen bg-white flex flex-col lg:flex-row overflow-hidden">
       {/* Left Side - Hero / Branding */}
-      <div className="lg:w-1/2 bg-[var(--text-primary)] p-8 lg:p-16 flex flex-col justify-between relative overflow-hidden">
-        {/* Abstract Background Elements */}
-        <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-500 rounded-full blur-[120px]" />
-          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-500 rounded-full blur-[120px]" />
-        </div>
+      <div 
+        className="lg:w-1/2 p-8 lg:p-16 flex flex-col justify-between relative overflow-hidden bg-slate-900"
+        style={{
+          backgroundImage: "url('https://images.unsplash.com/photo-1590412200988-a436970781fa?auto=format&fit=crop&q=80&w=2000')",
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        {/* Dark overlay to ensure text remains highly readable */}
+        <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-[2px]"></div>
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-12">

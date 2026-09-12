@@ -28,6 +28,7 @@ import ChangePasswordPage from './components/ChangePasswordPage';
 import Toast from './components/Toast';
 import LegalModal from './components/LegalModal';
 import FirebaseSetupGuide from './components/FirebaseSetupGuide';
+import NotificationsBell from './components/NotificationsBell';
 import { motion, AnimatePresence } from 'motion/react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SubscriptionPlanType } from './constants/modules';
@@ -535,16 +536,19 @@ function AppContent() {
           </div>
         </div>
         
-        <div 
-          onClick={() => { setActiveModule('settings'); setShowMenu(false); }}
-          className="flex items-center gap-3 pl-3 border-l border-[var(--border)] cursor-pointer group"
-        >
-          <div className="text-right hidden sm:block">
-            <p className="text-[11px] font-bold text-[var(--text-primary)] leading-none group-hover:text-[var(--accent)] transition-colors">{profile?.displayName}</p>
-            <p className="text-[9px] font-medium text-[var(--text-secondary)] uppercase tracking-tighter mt-0.5">{profile?.role}</p>
-          </div>
-          <div className="w-9 h-9 bg-slate-100 text-[var(--text-secondary)] rounded-xl flex items-center justify-center font-bold text-xs border border-[var(--border)] group-hover:bg-blue-50 group-hover:text-[var(--accent)] group-hover:border-blue-100 transition-all">
-            {profile?.displayName?.charAt(0)}
+        <div className="flex items-center gap-2">
+          <NotificationsBell />
+          <div 
+            onClick={() => { setActiveModule('settings'); setShowMenu(false); }}
+            className="flex items-center gap-3 pl-3 border-l border-[var(--border)] cursor-pointer group"
+          >
+            <div className="text-right hidden sm:block">
+              <p className="text-[11px] font-bold text-[var(--text-primary)] leading-none group-hover:text-[var(--accent)] transition-colors">{profile?.displayName}</p>
+              <p className="text-[9px] font-medium text-[var(--text-secondary)] uppercase tracking-tighter mt-0.5">{profile?.role}</p>
+            </div>
+            <div className="w-9 h-9 bg-slate-100 text-[var(--text-secondary)] rounded-xl flex items-center justify-center font-bold text-xs border border-[var(--border)] group-hover:bg-blue-50 group-hover:text-[var(--accent)] group-hover:border-blue-100 transition-all">
+              {profile?.displayName?.charAt(0)}
+            </div>
           </div>
         </div>
 

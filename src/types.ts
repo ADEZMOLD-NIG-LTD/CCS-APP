@@ -330,3 +330,16 @@ export interface PettyCashTransaction {
   deletedAt?: string;
 }
 
+
+export interface SystemNotification {
+  id: string;
+  companyId: string;
+  title: string;
+  message: string;
+  type: 'info' | 'alert' | 'update';
+  createdAt: string;
+  createdBy: string;
+  creatorName: string;
+  targetRole?: string; // 'ALL' or specific role
+  readBy: string[]; // array of user IDs
+}

@@ -563,3 +563,5 @@ export const onSnapshot = (queryOrDocRef: any, callback: (snapshot: any) => void
     listeners.delete(runCallback);
   };
 };
+
+export const arrayUnion = (...elements: any[]) => elements;
