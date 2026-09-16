@@ -209,17 +209,26 @@ unless that variable is set, so a preview branch can never replace production ru
 
 The deploy service account (the `FIREBASE_SERVICE_ACCOUNT` secret) needs:
 
-| Role | Used for |
-| --- | --- |
-| Firebase Hosting Admin | deploying the web app |
-| Firebase Rules Admin | publishing `firestore.rules` |
-| Cloud Datastore Index Admin | applying `firestore.indexes.json` |
-| **Service Usage Consumer** | the CLI checks that the Firestore API is enabled before deploying |
+| Role | Used for | Required |
+| --- | --- | --- |
+| Firebase Hosting Admin | deploying the web app | yes |
+| Firebase Rules Admin | publishing `firestore.rules` | yes |
+| Cloud Datastore Index Admin | creating any **new** index in `firestore.indexes.json` | only when indexes change |
 
-Without **Service Usage Consumer** the rules step fails with
-`Permission denied to get service [firestore.googleapis.com]` and the hosting step never runs.
-A deploy from a developer machine does not hit this, because `firebase login` uses your own
-account rather than the service account.
+CI publishes rules with `scripts/deploy-firestore.ts` (Firebase Rules REST API) rather than
+`firebase deploy`. The CLI first calls `serviceusage.services.get` to confirm the Firestore API is
+enabled, which deploy service accounts normally may not do, and the step then fails with
+`Permission denied to get service [firestore.googleapis.com]` before anything is deployed. A deploy
+from a developer machine does not hit this, because `firebase login` uses your own account.
+
+The script also compares `firestore.indexes.json` with the live database. If an index is missing and
+the service account may not create it, the step fails and prints the exact command to run from a
+machine signed in with `firebase login`:
+
+```bash
+npm run deploy:firestore -- --dry-run     # report what would change
+firebase deploy --only firestore:indexes --project <project-id>
+```
 
 ---
 

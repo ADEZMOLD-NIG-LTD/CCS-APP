@@ -93,15 +93,13 @@ jobs:
       # Rules are deployed before hosting so the new client never runs against old rules.
       # Non-production branches deploy rules only when their environment points at its own
       # Firebase project (set the FIRESTORE_DEPLOY variable to "true" on that environment).
+      # Publishes through the Firebase Rules REST API. The firebase CLI would first call
+      # serviceusage.services.get, which deploy service accounts normally may not do.
       - name: Deploy Firestore rules and indexes
         if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' && (env.IS_LIVE == 'true' || vars.FIRESTORE_DEPLOY == 'true') }}
-        run: |
-          umask 077
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/service-account.json"
-          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/service-account.json" \
-            npx --yes firebase-tools@15 deploy --only firestore:rules,firestore:indexes \
-            --project "$FIREBASE_PROJECT_ID" --non-interactive
-          rm -f "$RUNNER_TEMP/service-account.json"
+        run: npx tsx scripts/deploy-firestore.ts
+        env:
+          FIREBASE_FIRESTORE_DATABASE_ID: ${{ secrets.VITE_FIREBASE_FIRESTORE_DATABASE_ID || secrets.FIREBASE_FIRESTORE_DATABASE_ID }}
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0

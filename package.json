@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rules": "npx --yes firebase-tools@15 emulators:exec --only firestore --project demo-ccs-rules \"vitest run --config vitest.rules.config.ts\"",
+    "deploy:firestore": "tsx scripts/deploy-firestore.ts",
     "admin:grant-super-admin": "tsx scripts/grant-super-admin.ts",
     "admin:migrate": "tsx scripts/migrate-legacy-data.ts"
   },
