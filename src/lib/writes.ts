@@ -62,7 +62,9 @@ function apply(target: WriteBatch | FirestoreTransaction, op: WriteOp): void {
     if (op.merge) (target as WriteBatch).set(ref, op.data, { merge: true });
     else (target as WriteBatch).set(ref, op.data);
   } else if (op.kind === 'update') {
-    (target as WriteBatch).update(ref, op.data);
+    // The payload is validated by the rules; `never` satisfies both the real and mock
+    // WriteBatch.update() signatures, which differ in how they type field values.
+    (target as WriteBatch).update(ref, op.data as never);
   } else {
     (target as WriteBatch).delete(ref);
   }

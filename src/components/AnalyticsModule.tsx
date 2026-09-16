@@ -41,7 +41,7 @@ function Breakdown({ title, icon: Icon, data, money }: { title: string; icon: ty
                 <Pie data={data} cx="50%" cy="50%" innerRadius={40} outerRadius={60} paddingAngle={5} dataKey="value">
                   {data.map((entry, index) => <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />)}
                 </Pie>
-                <Tooltip formatter={(v: number) => (money ? formatCurrency(v) : `${v.toLocaleString()} kg`)} />
+                <Tooltip formatter={(value: unknown) => (money ? formatCurrency(Number(value)) : `${Number(value).toLocaleString()} kg`)} />
               </PieChart>
             </ResponsiveContainer>
           </div>

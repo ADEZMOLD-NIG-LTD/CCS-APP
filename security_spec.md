@@ -94,3 +94,16 @@ move to Cloud Functions.
 - **Module gating is enforced server-side only for** staff, attendance, rosters, payroll, petty cash and
   store records. Other module toggles are enforced in the user interface.
 - **Email API rate limits are per instance** and held in memory.
+- **Read volume grows with company history.** Ledger balances (supplier, buyer, stock) are derived
+  from full history, so a screen that shows a balance reads every transaction, payment and journal
+  line for that company. Audit logs are the exception and are paged. Today the largest company holds
+  roughly 5,000 documents, which is comfortable; at roughly ten times that, balances should move to
+  periodic opening-balance snapshots (a monthly rollup document per company, warehouse and
+  commodity), after which screens can read the latest snapshot plus the current period only. That
+  needs a scheduled server-side job, so it is deliberately left until Cloud Functions or another
+  backend is introduced rather than being half-applied in the client, where it would silently
+  produce wrong balances.
+- **No billing or subscription enforcement.** Plans and modules are set by a platform admin at
+  approval time; nothing collects payment or expires a plan. Adding it needs a payment provider
+  decision (for example Paystack or Flutterwave) plus a server endpoint for webhooks, which in turn
+  needs the API server deployed.
