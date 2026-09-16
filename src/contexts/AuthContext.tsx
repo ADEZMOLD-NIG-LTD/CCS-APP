@@ -42,6 +42,7 @@ import {
 import { formatFirestoreError } from '../lib/firestore';
 import { logger } from '../lib/logger';
 import { newId, normalizeEmail } from '../lib/utils';
+import { sendVerificationEmail } from '../services/emailService';
 import { DEMO_COMPANY_ID, DEMO_USER_ID } from '../mockFirebase';
 import type { Company, Invite, UserProfile } from '../types';
 
@@ -124,6 +125,26 @@ const DEMO_USER = {
   emailVerified: true,
   providerData: [],
 } as unknown as User;
+
+/**
+ * The security rules read `email_verified` from the ID token, and that claim stays stale for the
+ * rest of the session: immediately after someone clicks the verification link, `user.emailVerified`
+ * reads true in the browser while the token still says false, so the write is refused. Any write
+ * the rules gate on verification (registering a company, accepting an invite, switching company)
+ * must therefore refresh the token first.
+ */
+async function refreshVerification(): Promise<boolean> {
+  if (isDemoRuntime) return true;
+  const current = auth?.currentUser;
+  if (!current) return false;
+  try {
+    await reload(current);
+    await current.getIdToken(true);
+  } catch (error) {
+    logger.warn('Could not refresh the sign-in token', error);
+  }
+  return auth?.currentUser?.emailVerified === true;
+}
 
 function authErrorMessage(error: unknown): string {
   const code = (error as { code?: string })?.code || '';
@@ -425,7 +446,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const credential = await createUserWithEmailAndPassword(auth, normalizeEmail(rawEmail), password);
       if (name.trim()) await updateProfile(credential.user, { displayName: name.trim() });
-      await sendEmailVerification(credential.user, { url: window.location.origin });
+      // Prefer the API server, which sends from this company's domain; Firebase's own sender is
+      // frequently filed as spam. Falls back automatically when the API server is not deployed.
+      if ((await sendVerificationEmail()) !== 'sent') {
+        await sendEmailVerification(credential.user, { url: window.location.origin });
+      }
       setSuccessMessage('Account created. We sent a verification link to your email — open it, then come back and continue.');
     } catch (error) {
       setErrorMessage(authErrorMessage(error));
@@ -435,8 +460,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resendVerificationEmail = useCallback(async () => {
     if (!auth?.currentUser) return;
     try {
-      await sendEmailVerification(auth.currentUser, { url: window.location.origin });
-      setSuccessMessage('Verification email sent. Check your inbox and spam folder.');
+      if ((await sendVerificationEmail()) !== 'sent') {
+        await sendEmailVerification(auth.currentUser, { url: window.location.origin });
+      }
+      setSuccessMessage('Verification email sent. Check your inbox, and your spam folder if it has not arrived.');
     } catch (error) {
       setErrorMessage(authErrorMessage(error));
     }
@@ -559,8 +586,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setErrorMessage('Enter your company name.');
       return;
     }
-    if (!emailVerified) {
-      setErrorMessage('Verify your email address before registering a company.');
+    if (!(await refreshVerification())) {
+      setErrorMessage('Verify your email address before registering a company, then try again.');
       return;
     }
     const id = `comp_${newId()}`;
@@ -583,6 +610,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const acceptInvite = useCallback(async (invite: Invite) => {
     if (!user) return;
     setErrorMessage(null);
+    // Claiming an invite is gated on the verified-email claim in the token, not on local state.
+    if (!(await refreshVerification())) {
+      setErrorMessage('Verify your email address before joining a company, then try again.');
+      return;
+    }
     try {
       const nowIso = new Date().toISOString();
       await commitWrites([
@@ -608,6 +640,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setErrorMessage('You can only connect to companies you own.');
       return;
     }
+    // Claiming ownerUid on a legacy company needs the verified-email claim to be current.
+    await refreshVerification();
     try {
       const ops: WriteOp[] = [];
       if (!target.ownerUid) {

@@ -480,6 +480,51 @@ async function main() {
     }
   });
 
+  // Sends the verification link from the company's own domain instead of Firebase's
+  // noreply@<project>.firebaseapp.com sender, which fails DMARC alignment and lands in spam.
+  // The link itself is still minted by Firebase Auth, so the verification flow is unchanged.
+  app.post('/api/auth/send-verification', rateLimit(15 * 60_000, 10), requireUser, async (_req, res, next) => {
+    try {
+      const caller = res.locals.user as DecodedIdToken;
+      if (caller.email_verified === true) return res.json({ sent: false, reason: 'already_verified' });
+
+      const transport = mailer();
+      if (!transport) return res.json({ sent: false, reason: 'smtp_not_configured' });
+
+      const link = await getAuth(admin!.app).generateEmailVerificationLink(
+        caller.email!,
+        APP_URL ? { url: APP_URL, handleCodeInApp: false } : undefined
+      );
+      const safeLink = escapeHtml(link);
+      await transport.sendMail({
+        from: fromAddress(),
+        to: caller.email,
+        subject: 'Confirm your email address',
+        text: [
+          'Confirm your email address to finish setting up your Commodity Control System account.',
+          '',
+          link,
+          '',
+          'The link expires in a few hours. If you did not create an account, ignore this message.',
+        ].join('\n'),
+        html: `
+          <div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;margin:0 auto;padding:24px;border:1px solid #e2e8f0;border-radius:12px;color:#1e293b">
+            <h2 style="color:#4f46e5;margin-top:0">Confirm your email address</h2>
+            <p>Please confirm this address to finish setting up your Commodity Control System account.</p>
+            <p style="margin:24px 0">
+              <a href="${safeLink}" style="background:#4f46e5;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold">Confirm email address</a>
+            </p>
+            <p style="font-size:12px;color:#64748b">If the button does not work, paste this link into your browser:<br>${safeLink}</p>
+            <p style="font-size:12px;color:#64748b">The link expires in a few hours. If you did not create an account, you can ignore this message.</p>
+          </div>`,
+      });
+      console.info(`[api] verification email sent to ${caller.uid}`);
+      return res.json({ sent: true });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Not found.' });
   });

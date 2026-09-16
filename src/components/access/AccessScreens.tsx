@@ -6,8 +6,10 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { AlertCircle, Building2, CheckCircle2, Clock, LogOut, Mail, RefreshCw, ShieldAlert, UserPlus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { SUBSCRIPTION_PRESETS } from '../../constants/modules';
+import { ALL_MODULE_IDS, ALL_SYSTEM_MODULES, SUBSCRIPTION_PRESETS } from '../../constants/modules';
 import { ROLE_LABELS } from '../../lib/permissions';
+import { koboToNaira } from '../../lib/billing';
+import { formatCurrency } from '../../lib/utils';
 
 function Card({ icon, tone = 'indigo', title, children }: { icon: React.ReactNode; tone?: 'indigo' | 'amber' | 'rose' | 'emerald'; title: string; children: React.ReactNode }) {
   const tones = {
@@ -98,7 +100,7 @@ export function VerifyEmailScreen() {
 }
 
 export function OnboardingScreen() {
-  const { user, pendingInvites, ownedCompanies, registerCompany, acceptInvite, switchCompany, enterDemoMode, emailVerified, usesPasswordSignIn } = useAuth();
+  const { user, pendingInvites, ownedCompanies, registerCompany, acceptInvite, switchCompany, enterDemoMode, emailVerified, usesPasswordSignIn, billingConfig } = useAuth();
   const [companyName, setCompanyName] = useState('');
   const [plan, setPlan] = useState<'BASIC' | 'STANDARD' | 'ENTERPRISE'>('BASIC');
   const [busy, setBusy] = useState(false);
@@ -185,18 +187,36 @@ export function OnboardingScreen() {
           />
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Requested plan</p>
-            <div className="grid grid-cols-3 gap-2">
-              {(['BASIC', 'STANDARD', 'ENTERPRISE'] as const).map(tier => (
-                <button
-                  key={tier}
-                  type="button"
-                  onClick={() => setPlan(tier)}
-                  className={`p-2.5 rounded-2xl border text-[11px] font-bold ${plan === tier ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
-                  title={SUBSCRIPTION_PRESETS[tier].description}
-                >
-                  {tier}
-                </button>
-              ))}
+            <div className="space-y-2">
+              {(['BASIC', 'STANDARD', 'ENTERPRISE'] as const).map(tier => {
+                const preset = SUBSCRIPTION_PRESETS[tier];
+                const selected = plan === tier;
+                const price = billingConfig.plans[tier];
+                return (
+                  <button
+                    key={tier}
+                    type="button"
+                    onClick={() => setPlan(tier)}
+                    aria-pressed={selected}
+                    className={`w-full text-left p-3 rounded-2xl border transition-colors ${selected ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-300' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className={`text-xs font-black uppercase tracking-wide ${selected ? 'text-indigo-700' : 'text-slate-700'}`}>{preset.label}</span>
+                      {price.amountKobo > 0 && (
+                        <span className="text-[11px] font-bold text-slate-600 shrink-0">
+                          {formatCurrency(koboToNaira(price.amountKobo))}/{price.months === 1 ? 'month' : `${price.months} months`}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">{preset.description}</p>
+                    <p className="text-[10px] text-slate-400 mt-1.5">
+                      {preset.modules.length === ALL_MODULE_IDS.length
+                        ? 'Every module included'
+                        : `Includes: ${preset.modules.map(id => ALL_SYSTEM_MODULES.find(m => m.id === id)?.name ?? id).join(', ')}`}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
             <p className="text-[10px] text-slate-400 mt-2">Your plan is confirmed by the platform administrator when the company is approved.</p>
           </div>

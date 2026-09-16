@@ -13,6 +13,29 @@ import { isDemoRuntime } from '../lib/runtimeMode';
 
 export type WelcomeEmailResult = 'sent' | 'skipped' | 'unavailable';
 
+/**
+ * Sends the email-verification link through the API server, so it arrives from the company's own
+ * domain. Firebase's own sender is noreply@<project>.firebaseapp.com, which cannot be aligned with
+ * your domain's SPF and DMARC records and is therefore often filed as spam. Returns 'unavailable'
+ * when the API server is not deployed, so the caller can fall back to Firebase.
+ */
+export async function sendVerificationEmail(): Promise<WelcomeEmailResult> {
+  if (isDemoRuntime || !auth?.currentUser) return 'unavailable';
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const response = await fetch('/api/auth/send-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+    const isJson = response.headers.get('content-type')?.includes('application/json');
+    if (!response.ok || !isJson) return 'unavailable';
+    const body = (await response.json()) as { sent?: boolean };
+    return body.sent ? 'sent' : 'skipped';
+  } catch {
+    return 'unavailable';
+  }
+}
+
 export async function sendWelcomeEmail(params: { email: string; name: string; companyId: string }): Promise<WelcomeEmailResult> {
   if (isDemoRuntime || !auth?.currentUser) return 'unavailable';
   try {
