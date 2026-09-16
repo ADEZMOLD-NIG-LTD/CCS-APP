@@ -53,6 +53,13 @@ export interface Company extends SoftDeletable {
   status?: CompanyStatus;
   subscriptionPlan?: 'BASIC' | 'STANDARD' | 'ENTERPRISE' | 'CUSTOM';
   requestedPlan?: 'BASIC' | 'STANDARD' | 'ENTERPRISE';
+  /**
+   * Written only by the API server after a verified Paystack payment. Absent means the company
+   * is unrestricted; once set, writes stop when it passes (reads continue). See lib/billing.
+   */
+  subscriptionExpiresAt?: TimestampLike;
+  /** Months added by the most recent payment, for display. */
+  subscriptionMonths?: number;
   enabledModules?: string[];
   approvedAt?: string;
   approvedBy?: string;
@@ -365,6 +372,33 @@ export interface PettyCashTransaction extends SoftDeletable {
   reference?: string;
   createdBy: string;
   creatorEmail: string;
+}
+
+export type BillingPlanId = 'BASIC' | 'STANDARD' | 'ENTERPRISE';
+
+export type BillingPaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'ABANDONED';
+
+/** One Paystack payment attempt. Written only by the API server; clients may read their own. */
+export interface BillingPayment {
+  /** Paystack transaction reference; also the document id. */
+  id: string;
+  companyId: string;
+  companyName?: string;
+  plan: BillingPlanId;
+  months: number;
+  amountKobo: number;
+  currency: 'NGN';
+  status: BillingPaymentStatus;
+  /** Who started the payment. */
+  initiatedByUid: string;
+  initiatedByEmail: string;
+  createdAt: TimestampLike;
+  paidAt?: TimestampLike;
+  /** Expiry granted by this payment, for the receipt. */
+  expiresAt?: TimestampLike;
+  paystackId?: number;
+  channel?: string;
+  failureReason?: string;
 }
 
 export const GLOBAL_NOTIFICATION_COMPANY_ID = '__ALL__';

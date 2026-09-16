@@ -179,6 +179,37 @@ API adds a branded invitation email and the SMTP test in the platform admin pane
 The server rate-limits per instance in memory. If you scale beyond one instance, put Cloud Armor or
 API Gateway rate limiting in front of it.
 
+### Paystack payments
+
+Subscriptions are pay-as-you-go: a company pays for a number of months and the payment extends
+`companies/{id}.subscriptionExpiresAt`. Only the API server writes that date, and only after
+verifying the transaction directly with Paystack, so neither the browser nor a forged webhook can
+extend a subscription. When the date passes the company becomes **read-only**: everyone can still
+open and export their records, but writes are refused until a payment goes through.
+
+1. **Get the keys.** Paystack dashboard → Settings → API Keys & Webhooks. Use the **test** secret
+   key (`sk_test_…`) until the flow is proven, then swap in the live key.
+2. **Store the secret key** (never in the repo or in chat):
+   ```bash
+   printf '%s' 'sk_test_xxx' | gcloud secrets create ccs-paystack-secret --data-file=-
+   gcloud secrets add-iam-policy-binding ccs-paystack-secret \
+     --member=serviceAccount:828527972403-compute@developer.gserviceaccount.com \
+     --role=roles/secretmanager.secretAccessor
+   ```
+   Add it to the Cloud Run deploy: `--set-secrets SMTP_PASS=ccs-smtp-pass:latest,PAYSTACK_SECRET_KEY=ccs-paystack-secret:latest`
+3. **Register the webhook.** In the same Paystack settings page set the webhook URL to
+   `https://commodityclick.com.ng/api/billing/webhook`. The server checks the `x-paystack-signature`
+   HMAC on the raw body and ignores anything that does not match.
+4. **Set the prices.** In the app: Platform Admin → Billing. Prices are stored in
+   `platform_config/billing` and can be changed at any time without a deploy. A plan priced at zero
+   is simply not offered for sale.
+5. **Test with Paystack's test card** `4084 0840 8408 4081`, any future expiry, CVV `408`, OTP
+   `123456`. The payment should appear under Settings → Subscription within a few seconds, and the
+   expiry date should move forward by the plan's months.
+
+Rotating the Paystack key later: `printf '%s' 'sk_live_xxx' | gcloud secrets versions add ccs-paystack-secret --data-file=-`
+then `gcloud run services update ccs-api --region europe-west2` to pick up the new version.
+
 ### Self-hosting
 
 `npm run build && npm start` serves the web app and the API on `PORT` (default 3000). Terminate TLS

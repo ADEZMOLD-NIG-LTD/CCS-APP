@@ -62,6 +62,16 @@ service cloud.firestore {
         && c.get('isDeleted', false) != true;
     }
 
+    // Subscription (see src/lib/billing.ts). A company with no expiry date is unrestricted, so
+    // existing customers are unaffected until a platform admin sells them a plan. Once the date
+    // passes the company becomes read-only: writes stop, reads continue, and paying resumes work.
+    // Only the API server writes subscriptionExpiresAt, after verifying the payment with Paystack.
+    function subscriptionActive(cid) {
+      let c = companyData(cid);
+      return c.get('subscriptionExpiresAt', null) == null
+        || c.subscriptionExpiresAt > request.time;
+    }
+
     // Active member of an approved company. The company path is built from the caller's own
     // profile (never from the requested document) so the check also works for list queries.
     function member(cid) {
@@ -107,17 +117,24 @@ service cloud.firestore {
     }
     function onlyKeys(extra) { return incoming().keys().hasOnly(commonKeys().concat(extra)); }
 
+    // Reads ignore the subscription; every write path requires it to be current.
     function readTenant(roles) { return isSuperAdmin() || memberIn(resource.data.companyId, roles); }
-    function createTenant(id, roles) { return memberIn(incoming().companyId, roles) && idOk(id); }
+    function createTenant(id, roles) {
+      return memberIn(incoming().companyId, roles) && subscriptionActive(incoming().companyId) && idOk(id);
+    }
     function editTenant(id, roles) {
       return memberIn(existing().companyId, roles)
+        && subscriptionActive(existing().companyId)
         && incoming().companyId == existing().companyId
         && notDeleted()
         && incoming().get('isDeleted', false) != true
         && idOk(id);
     }
     function softDeleteTenant(roles) {
-      return memberIn(existing().companyId, roles) && notDeleted() && isSoftDelete();
+      return memberIn(existing().companyId, roles)
+        && subscriptionActive(existing().companyId)
+        && notDeleted()
+        && isSoftDelete();
     }
 
     // =========================================================================
@@ -318,6 +335,21 @@ service cloud.firestore {
         && incoming().action in ['CREATE', 'UPDATE', 'DELETE'];
 
       allow update, delete: if false;
+    }
+
+    // Subscription prices, set by a platform admin and shown to company admins.
+    match /platform_config/{configId} {
+      allow get: if realUser();
+      allow list: if isSuperAdmin();
+      allow create, update: if isSuperAdmin();
+      allow delete: if false;
+    }
+
+    // Paystack payments. Written only by the API server (Admin SDK) after verifying the
+    // transaction with Paystack, so a client can never mark its own subscription paid.
+    match /billing_payments/{paymentId} {
+      allow get, list: if isSuperAdmin() || memberIn(resource.data.companyId, ['ADMIN']);
+      allow create, update, delete: if false;
     }
 
     // =========================================================================

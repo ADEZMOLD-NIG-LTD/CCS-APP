@@ -32,6 +32,13 @@ import { commitWrites, type WriteOp } from '../lib/writes';
 import { AuditAction, auditOp, type AuditActor } from '../lib/audit';
 import { enterDemoMode, exitDemoMode, isDemoRuntime } from '../lib/runtimeMode';
 import { isCompanyRole, roleCan, type CompanyRole, type PermissionAction } from '../lib/permissions';
+import {
+  DEFAULT_BILLING_CONFIG,
+  normalizeBillingConfig,
+  subscriptionState as computeSubscriptionState,
+  type BillingConfig,
+  type SubscriptionState,
+} from '../lib/billing';
 import { formatFirestoreError } from '../lib/firestore';
 import { logger } from '../lib/logger';
 import { newId, normalizeEmail } from '../lib/utils';
@@ -79,6 +86,11 @@ interface AuthContextType {
   auditActor: AuditActor | null;
   can: (action: PermissionAction) => boolean;
   isModuleEnabled: (moduleId: string) => boolean;
+  /** Subscription state of the active company. EXPIRED makes it read-only (see lib/billing). */
+  subscriptionState: SubscriptionState;
+  subscriptionExpiresAt: Date | null;
+  isReadOnly: boolean;
+  billingConfig: BillingConfig;
   isAdmin: boolean;
   isManager: boolean;
   isOnline: boolean;
@@ -319,9 +331,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [accessState, profile, user]
   );
 
+  // ------------------------------------------------------------ subscription
+  const [billingConfig, setBillingConfig] = useState<BillingConfig>(DEFAULT_BILLING_CONFIG);
+
+  useEffect(() => {
+    if (!user) {
+      setBillingConfig(DEFAULT_BILLING_CONFIG);
+      return undefined;
+    }
+    return onSnapshot(
+      doc(db, 'platform_config', 'billing'),
+      snapshot => setBillingConfig(normalizeBillingConfig(snapshot.exists() ? snapshot.data() : null)),
+      error => logger.warn('Billing prices unavailable', error)
+    );
+  }, [user]);
+
+  const subscriptionExpiresAt = useMemo(() => {
+    const raw = company?.subscriptionExpiresAt;
+    if (!raw) return null;
+    if (typeof raw === 'string') {
+      const parsed = new Date(raw);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+    return typeof raw.toDate === 'function' ? raw.toDate() : null;
+  }, [company]);
+
+  const subscriptionState = useMemo(
+    () => computeSubscriptionState(subscriptionExpiresAt, new Date(), billingConfig.graceDays),
+    [subscriptionExpiresAt, billingConfig.graceDays]
+  );
+  const isReadOnly = subscriptionState === 'EXPIRED';
+
   const can = useCallback(
-    (action: PermissionAction) => accessState === 'READY' && roleCan(role, action),
-    [accessState, role]
+    (action: PermissionAction) => {
+      if (accessState !== 'READY' || !roleCan(role, action)) return false;
+      // An unpaid company keeps full read access; the rules refuse its writes either way.
+      if (isReadOnly && !action.startsWith('view_')) return false;
+      return true;
+    },
+    [accessState, role, isReadOnly]
   );
 
   const isModuleEnabled = useCallback(
@@ -614,6 +662,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     auditActor,
     can,
     isModuleEnabled,
+    subscriptionState,
+    subscriptionExpiresAt,
+    isReadOnly,
+    billingConfig,
     isAdmin: accessState === 'READY' && role === 'ADMIN',
     isManager: accessState === 'READY' && (role === 'ADMIN' || role === 'MANAGER'),
     isOnline,

@@ -119,7 +119,7 @@ function ModuleView({ view, onNavigate }: { view: ViewKey; onNavigate: (view: Vi
 }
 
 function MainShell({ superAdminOnly }: { superAdminOnly: boolean }) {
-  const { profile, company, user, can, isModuleEnabled, isSuperAdmin, isDemoMode, isOnline, logout, exitDemoMode } = useAuth();
+  const { profile, company, user, can, isModuleEnabled, isSuperAdmin, isDemoMode, isOnline, isReadOnly, logout, exitDemoMode } = useAuth();
   const [view, setView] = useState<ViewKey>(superAdminOnly ? 'superadmin' : 'dashboard');
   const [showMenu, setShowMenu] = useState(false);
 
@@ -157,6 +157,13 @@ function MainShell({ superAdminOnly }: { superAdminOnly: boolean }) {
         <div className="bg-amber-500 text-amber-950 text-[11px] font-bold px-4 py-1.5 flex items-center justify-between gap-2">
           <span>Training mode — data is stored only in this browser and never reaches the live system.</span>
           <button onClick={exitDemoMode} className="underline shrink-0">Exit demo</button>
+        </div>
+      )}
+
+      {isReadOnly && !superAdminOnly && (
+        <div className="bg-rose-600 text-white text-[11px] font-bold px-4 py-1.5 flex items-center justify-between gap-2">
+          <span>Subscription expired — the system is read only. Your records stay available to view and export.</span>
+          <button onClick={() => navigate('settings')} className="underline shrink-0">Renew</button>
         </div>
       )}
 

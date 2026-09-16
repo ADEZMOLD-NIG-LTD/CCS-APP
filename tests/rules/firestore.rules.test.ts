@@ -296,3 +296,58 @@ describe('role permissions on company data', () => {
     await assertFails(setDoc(doc(staff, `stock_balances/${rivalId}`), { id: rivalId, companyId: 'acme', ledger: 'COMMODITY', warehouseId: 'w1', item: 'COCOA', quantity: 10 }));
   });
 });
+
+describe('subscription billing', () => {
+  const supplier = (companyId: string, id: string) => ({ id, companyId, name: 'Farm', previousBalance: 0, createdAt: now });
+
+  it('makes a lapsed company read-only without hiding its data', async () => {
+    await seedCompany('lapsed', { subscriptionExpiresAt: new Date(Date.now() - 86_400_000) });
+    await seedMember('lapsed-admin', 'lapsed', 'ADMIN');
+    await seed('suppliers/l1', supplier('lapsed', 'l1'));
+    const admin = member('lapsed-admin', 'lapsed');
+
+    await assertSucceeds(getDoc(doc(admin, 'suppliers/l1')));
+    await assertSucceeds(getDocs(query(collection(admin, 'suppliers'), where('companyId', '==', 'lapsed'))));
+    await assertFails(setDoc(doc(admin, 'suppliers/l2'), supplier('lapsed', 'l2')));
+    await assertFails(updateDoc(doc(admin, 'suppliers/l1'), { name: 'Renamed' }));
+    await assertFails(updateDoc(doc(admin, 'suppliers/l1'), {
+      isDeleted: true, deletionReason: 'x', deletedByUid: 'lapsed-admin', deletedBy: 'a@b.c', deletedAt: now,
+    }));
+  });
+
+  it('allows writes while the subscription is current', async () => {
+    await seedCompany('paid', { subscriptionExpiresAt: new Date(Date.now() + 86_400_000) });
+    await seedMember('paid-admin', 'paid', 'ADMIN');
+    await assertSucceeds(setDoc(doc(member('paid-admin', 'paid'), 'suppliers/p2'), supplier('paid', 'p2')));
+  });
+
+  it('leaves companies without an expiry date unrestricted', async () => {
+    await assertSucceeds(setDoc(doc(member('acme-admin', 'acme'), 'suppliers/s2'), supplier('acme', 's2')));
+  });
+
+  it('does not let a company extend its own subscription', async () => {
+    const admin = member('acme-admin', 'acme');
+    await assertFails(updateDoc(doc(admin, 'companies/acme'), { subscriptionExpiresAt: new Date(Date.now() + 86_400_000 * 365) }));
+    await assertFails(updateDoc(doc(admin, 'companies/acme'), { subscriptionPlan: 'ENTERPRISE' }));
+  });
+
+  it('keeps prices and payment records out of client hands', async () => {
+    await seed('platform_config/billing', { currency: 'NGN', graceDays: 3, plans: { BASIC: { amountKobo: 500_000, months: 1 } } });
+    await seed('billing_payments/ref1', { id: 'ref1', companyId: 'acme', plan: 'BASIC', months: 1, amountKobo: 500_000, status: 'PENDING' });
+    const admin = member('acme-admin', 'acme');
+
+    await assertSucceeds(getDoc(doc(admin, 'platform_config/billing')));
+    await assertFails(updateDoc(doc(admin, 'platform_config/billing'), { plans: { BASIC: { amountKobo: 1, months: 99 } } }));
+
+    await assertSucceeds(getDoc(doc(admin, 'billing_payments/ref1')));
+    await assertFails(updateDoc(doc(admin, 'billing_payments/ref1'), { status: 'PAID' }));
+    await assertFails(setDoc(doc(admin, 'billing_payments/forged'), {
+      id: 'forged', companyId: 'acme', plan: 'ENTERPRISE', months: 12, amountKobo: 0, status: 'PAID',
+    }));
+    await assertFails(getDoc(doc(member('rival-admin', 'rival'), 'billing_payments/ref1')));
+    await assertFails(getDoc(doc(member('acme-staff', 'acme'), 'billing_payments/ref1')));
+
+    await seed('platform_admins/root', { email: 'root@platform.com' });
+    await assertSucceeds(updateDoc(doc(as('root', 'root@platform.com'), 'platform_config/billing'), { graceDays: 5 }));
+  });
+});
