@@ -207,8 +207,19 @@ Optional environment variables: `VITE_SUPPORT_EMAIL`, and `FIRESTORE_DEPLOY=true
 environments that have their own Firebase project. Rules deploy automatically only for production
 unless that variable is set, so a preview branch can never replace production rules.
 
-The deploy service account needs **Firebase Hosting Admin**, **Firebase Rules Admin** and
-**Cloud Datastore Index Admin**.
+The deploy service account (the `FIREBASE_SERVICE_ACCOUNT` secret) needs:
+
+| Role | Used for |
+| --- | --- |
+| Firebase Hosting Admin | deploying the web app |
+| Firebase Rules Admin | publishing `firestore.rules` |
+| Cloud Datastore Index Admin | applying `firestore.indexes.json` |
+| **Service Usage Consumer** | the CLI checks that the Firestore API is enabled before deploying |
+
+Without **Service Usage Consumer** the rules step fails with
+`Permission denied to get service [firestore.googleapis.com]` and the hosting step never runs.
+A deploy from a developer machine does not hit this, because `firebase login` uses your own
+account rather than the service account.
 
 ---
 

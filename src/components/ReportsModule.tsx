@@ -7,10 +7,10 @@ import React, { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
-import { useActiveCollection, useCompanyCollection, useWarehouses } from '../contexts/CompanyDataContext';
+import { useActiveCollection, useCompanyCollection, useDerivedLevels, useWarehouses } from '../contexts/CompanyDataContext';
 import { buildCashMovements, computeBuyerBalance, computeStockLevels, computeSupplierBalance, levelsByItem } from '../lib/finance';
 import { daysAgoLocal, isoToLocalDate, todayLocal } from '../lib/dates';
-import { attendanceSummary, generatePDF, payrollInPeriod, searchTransactions, type TransferRow } from '../services/reportService';
+import { attendanceSummary, buildReconciliation, generatePDF, payrollInPeriod, searchTransactions, type TransferRow } from '../services/reportService';
 import type { Buyer, Supplier } from '../types';
 import AttendanceReport from './reports/AttendanceReport';
 import AuditLogsReport from './reports/AuditLogsReport';
@@ -19,6 +19,7 @@ import JournalReport from './reports/JournalReport';
 import OperationalTransactionsReport from './reports/OperationalTransactionsReport';
 import PackagingReport from './reports/PackagingReport';
 import PayrollReport from './reports/PayrollReport';
+import ReconciliationReport from './reports/ReconciliationReport';
 import ReportFilters from './reports/ReportFilters';
 import ReportTabs, { REPORT_TABS, type ReportType } from './reports/ReportTabs';
 import SearchReport from './reports/SearchReport';
@@ -122,6 +123,14 @@ export default function ReportsModule() {
   const payrollRows = useMemo(() => payrollInPeriod(payrolls, startDate, endDate), [payrolls, startDate, endDate]);
   const commodities = useMemo(() => Array.from(new Set(['COCOA', 'CASHEW', 'PK', ...transactions.map(t => t.commodity).filter(Boolean)])).sort(), [transactions]);
 
+  // Dual-control check: inventory ledger against the store keeper's register.
+  const canReconcile = available.has('reconciliation');
+  const { levels: stockLevels } = useDerivedLevels({ commodities: canReconcile, store: canReconcile });
+  const reconciliationRows = useMemo(
+    () => (canReconcile ? buildReconciliation(stockLevels, warehouses) : []),
+    [canReconcile, stockLevels, warehouses]
+  );
+
   if (!report || !profile?.companyId) {
     return <div className="p-8 text-center text-slate-500">You do not have access to any reports.</div>;
   }
@@ -155,6 +164,7 @@ export default function ReportsModule() {
       searchResults,
       attendance: attendanceRows,
       payrolls: payrollRows,
+      reconciliation: reconciliationRows,
     });
   };
 
@@ -200,6 +210,8 @@ export default function ReportsModule() {
             <BuyerBalancesReport key="buyers" totalBuyerDebit={absSum(debitBuyers)} totalBuyerCredit={absSum(creditBuyers)} debitBuyers={debitBuyers} creditBuyers={creditBuyers} />
           ) : report === 'packaging_inventory' ? (
             <PackagingReport key="packaging" bagLevels={bagLevels} bagTransactions={periodBags} warehouses={warehouses} suppliers={suppliers} selectedWarehouseId={warehouseId} endDate={endDate} />
+          ) : report === 'reconciliation' ? (
+            <ReconciliationReport key="reconciliation" rows={reconciliationRows} asAt={todayLocal()} />
           ) : report === 'transfers' ? (
             <TransfersReport key="transfers" filteredTransfers={transfers} warehouses={warehouses} startDate={startDate} endDate={endDate} />
           ) : report === 'attendance' ? (

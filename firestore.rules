@@ -12,6 +12,12 @@ rules_version = '2';
 //    be written with the Admin SDK (scripts/grant-super-admin.ts) or the Firebase console.
 //  * A company must be approved (isApproved == true, status ACTIVE) before its members can
 //    read or write any company data.
+//  * Subscription modules gate WRITES on shared collections and both reads and writes on
+//    self-contained ones (store records, petty cash, staff). Reads stay open to members on
+//    shared collections because journal, supplier and warehouse records feed ledgers and
+//    pickers used by every module.
+//  * Documents carry a fixed set of fields. Unknown keys are rejected so a modified client
+//    cannot smuggle extra state into a record.
 //
 // Role groups must stay in sync with src/lib/permissions.ts. Tests: tests/rules.
 // =============================================================================
@@ -94,6 +100,12 @@ service cloud.firestore {
         && text('deletionReason', 500)
         && incoming().deletedByUid == uid();
     }
+    // Fields every tenant document may carry (audit trail + soft delete).
+    function commonKeys() {
+      return ['id', 'companyId', 'createdAt', 'createdByUid', 'updatedAt', 'updatedByUid',
+              'isDeleted', 'deletionReason', 'deletedBy', 'deletedByUid', 'deletedAt'];
+    }
+    function onlyKeys(extra) { return incoming().keys().hasOnly(commonKeys().concat(extra)); }
 
     function readTenant(roles) { return isSuperAdmin() || memberIn(resource.data.companyId, roles); }
     function createTenant(id, roles) { return memberIn(incoming().companyId, roles) && idOk(id); }
@@ -310,32 +322,49 @@ service cloud.firestore {
 
     // =========================================================================
     // Company data
+    //
+    // Key allowlists include legacy fields still present in historical records, so older
+    // documents stay editable. Add a field here before writing it from the app.
     // =========================================================================
 
     match /suppliers/{id} {
       function valid() {
-        return text('name', 200) && (!('previousBalance' in incoming()) || isNum(incoming().previousBalance));
+        return text('name', 200)
+          && (!('previousBalance' in incoming()) || isNum(incoming().previousBalance))
+          && onlyKeys(['name', 'phone', 'location', 'bankName', 'accountNumber', 'accountName',
+                       'previousBalance', 'email']);
       }
       allow read: if readTenant(ALL_ROLES());
-      allow create: if createTenant(id, OPS()) && valid();
-      allow update: if isSuperAdmin() || (editTenant(id, OPS()) && valid()) || softDeleteTenant(MGMT());
+      allow create: if createTenant(id, OPS()) && moduleOn('suppliers') && valid();
+      allow update: if isSuperAdmin()
+        || (editTenant(id, OPS()) && moduleOn('suppliers') && valid())
+        || softDeleteTenant(MGMT());
       allow delete: if false;
     }
 
     match /buyers/{id} {
       function valid() {
-        return text('name', 200) && (!('previousBalance' in incoming()) || isNum(incoming().previousBalance));
+        return text('name', 200)
+          && (!('previousBalance' in incoming()) || isNum(incoming().previousBalance))
+          && onlyKeys(['name', 'phone', 'location', 'previousBalance', 'email']);
       }
       allow read: if readTenant(ALL_ROLES());
-      allow create: if createTenant(id, OPS()) && valid();
-      allow update: if isSuperAdmin() || (editTenant(id, OPS()) && valid()) || softDeleteTenant(MGMT());
+      allow create: if createTenant(id, OPS()) && moduleOn('buyers') && valid();
+      allow update: if isSuperAdmin()
+        || (editTenant(id, OPS()) && moduleOn('buyers') && valid())
+        || softDeleteTenant(MGMT());
       allow delete: if false;
     }
 
     match /warehouses/{id} {
+      function valid() {
+        return text('name', 120) && onlyKeys(['name', 'location', 'capacity']);
+      }
       allow read: if readTenant(ALL_ROLES());
-      allow create: if createTenant(id, MGMT()) && text('name', 120);
-      allow update: if isSuperAdmin() || (editTenant(id, MGMT()) && text('name', 120)) || softDeleteTenant(['ADMIN']);
+      allow create: if createTenant(id, MGMT()) && moduleOn('warehouses') && valid();
+      allow update: if isSuperAdmin()
+        || (editTenant(id, MGMT()) && moduleOn('warehouses') && valid())
+        || softDeleteTenant(['ADMIN']);
       allow delete: if false;
     }
 
@@ -345,15 +374,21 @@ service cloud.firestore {
           && text('commodity', 100)
           && isNum(incoming().netWeight) && incoming().netWeight >= 0
           && nonNeg('grossWeight') && nonNeg('totalValue') && nonNeg('pricePerKg')
-          && nonNeg('bags') && nonNeg('supplierCreditValue') && nonNeg('supplierPricePerKg');
+          && nonNeg('bags') && nonNeg('supplierCreditValue') && nonNeg('supplierPricePerKg')
+          && onlyKeys(['date', 'postingDate', 'type', 'commodity', 'supplierId', 'buyerId', 'buyerName',
+                       'sourceWarehouseId', 'destinationWarehouseId', 'warehouseId', 'warehouse',
+                       'grossWeight', 'netWeight', 'bags', 'noOfBags', 'pricePerKg', 'totalValue',
+                       'calculationMethod', 'deductions', 'referenceId', 'storeRecordId', 'isDirectDelivery',
+                       'supplierPricePerKg', 'supplierCreditValue', 'truckNo', 'driverName', 'driverPhone',
+                       'staffName', 'notes']);
       }
       allow read: if readTenant(ALL_ROLES());
-      allow create: if valid() && (
+      allow create: if valid() && moduleOn('inventory') && (
         (incoming().type == 'TRANSFER' && createTenant(id, MGMT()))
         || (incoming().type != 'TRANSFER' && createTenant(id, OPS()))
       );
       allow update: if isSuperAdmin()
-        || (editTenant(id, FIN()) && valid() && incoming().type == existing().type)
+        || (editTenant(id, FIN()) && moduleOn('inventory') && valid() && incoming().type == existing().type)
         || softDeleteTenant(['ADMIN']);
       allow delete: if false;
     }
@@ -362,11 +397,15 @@ service cloud.firestore {
       function valid() {
         return isNum(incoming().amount) && incoming().amount > 0
           && incoming().supplierId is string
-          && incoming().method in ['CASH', 'BANK_TRANSFER', 'CHECK'];
+          && incoming().method in ['CASH', 'BANK_TRANSFER', 'CHECK']
+          && onlyKeys(['warehouseId', 'date', 'postingDate', 'supplierId', 'amount', 'method',
+                       'reference', 'description']);
       }
       allow read: if readTenant(ALL_ROLES());
-      allow create: if createTenant(id, FIN()) && valid();
-      allow update: if isSuperAdmin() || (editTenant(id, FIN()) && valid()) || softDeleteTenant(['ADMIN']);
+      allow create: if createTenant(id, FIN()) && moduleOn('suppliers') && valid();
+      allow update: if isSuperAdmin()
+        || (editTenant(id, FIN()) && moduleOn('suppliers') && valid())
+        || softDeleteTenant(['ADMIN']);
       allow delete: if false;
     }
 
@@ -374,11 +413,17 @@ service cloud.firestore {
       function valid() {
         return incoming().type in ['INFLOW', 'OUTFLOW']
           && isNum(incoming().amount) && incoming().amount > 0
-          && text('category', 100);
+          && text('category', 100)
+          && onlyKeys(['warehouseId', 'date', 'postingDate', 'type', 'category', 'amount', 'description',
+                       'supplierId', 'buyerId', 'paymentMethod', 'reference', 'bankName',
+                       'excludeFromJournal', 'cashEffect', 'source']);
       }
+      // Reads stay open to members: journal lines form part of supplier and buyer ledgers.
       allow read: if readTenant(ALL_ROLES());
-      allow create: if createTenant(id, OPS()) && valid();
-      allow update: if isSuperAdmin() || (editTenant(id, FIN()) && valid()) || softDeleteTenant(FIN());
+      allow create: if createTenant(id, FIN()) && moduleOn('journal') && valid();
+      allow update: if isSuperAdmin()
+        || (editTenant(id, FIN()) && moduleOn('journal') && valid())
+        || softDeleteTenant(FIN());
       allow delete: if false;
     }
 
@@ -386,14 +431,18 @@ service cloud.firestore {
       function valid() {
         return incoming().type in ['STOCK_IN', 'ISSUE', 'RETURN', 'TRANSFER']
           && incoming().packagingType in ['JUTE_BAG', 'NYLON_BAG']
-          && isNum(incoming().quantity) && incoming().quantity > 0;
+          && isNum(incoming().quantity) && incoming().quantity > 0
+          && onlyKeys(['date', 'supplierId', 'type', 'packagingType', 'quantity', 'reference',
+                       'warehouseId', 'sourceWarehouseId', 'destinationWarehouseId']);
       }
       allow read: if readTenant(ALL_ROLES());
-      allow create: if valid() && (
+      allow create: if valid() && moduleOn('inventory') && (
         (incoming().type == 'TRANSFER' && createTenant(id, MGMT()))
         || (incoming().type != 'TRANSFER' && createTenant(id, OPS_STORE()))
       );
-      allow update: if isSuperAdmin() || (editTenant(id, ['ADMIN']) && valid()) || softDeleteTenant(['ADMIN']);
+      allow update: if isSuperAdmin()
+        || (editTenant(id, ['ADMIN']) && moduleOn('inventory') && valid())
+        || softDeleteTenant(['ADMIN']);
       allow delete: if false;
     }
 
@@ -402,11 +451,15 @@ service cloud.firestore {
         return incoming().adjustmentDirection in ['ADD', 'REMOVE']
           && isNum(incoming().netWeight) && incoming().netWeight >= 0
           && text('commodity', 100)
-          && text('warehouseId', 200);
+          && text('warehouseId', 200)
+          && onlyKeys(['date', 'postingDate', 'commodity', 'warehouseId', 'adjustmentType',
+                       'adjustmentDirection', 'netWeight', 'bags', 'notes', 'createdBy', 'creatorEmail']);
       }
       allow read: if readTenant(ALL_ROLES());
-      allow create: if createTenant(id, MGMT()) && valid();
-      allow update: if isSuperAdmin() || (editTenant(id, MGMT()) && valid()) || softDeleteTenant(['ADMIN']);
+      allow create: if createTenant(id, MGMT()) && moduleOn('inventory') && valid();
+      allow update: if isSuperAdmin()
+        || (editTenant(id, MGMT()) && moduleOn('inventory') && valid())
+        || softDeleteTenant(['ADMIN']);
       allow delete: if false;
     }
 
@@ -415,7 +468,10 @@ service cloud.firestore {
         return incoming().type in ['IN', 'OUT', 'TRANSFER']
           && isNum(incoming().actualWeight) && incoming().actualWeight >= 0
           && nonNeg('nominalWeight') && nonNeg('noOfBags')
-          && text('commodity', 100);
+          && text('commodity', 100)
+          && onlyKeys(['date', 'type', 'customerName', 'location', 'nominalWeight', 'actualWeight',
+                       'noOfBags', 'moisture', 'tare', 'fieldOfficer', 'truckNo', 'commodity',
+                       'warehouseId', 'sourceWarehouseId', 'destinationWarehouseId']);
       }
       allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, STORE_ROLES().concat(['AUDITOR'])) && moduleOn('store'));
       allow create: if createTenant(id, STORE_ROLES()) && moduleOn('store') && valid();
@@ -430,16 +486,19 @@ service cloud.firestore {
         return incoming().type in ['DISBURSEMENT', 'EXPENSE']
           && isNum(incoming().amount) && incoming().amount > 0
           && incoming().status in ['PENDING', 'RETIRED']
-          && text('warehouseId', 200);
+          && text('warehouseId', 200)
+          && onlyKeys(['warehouseId', 'date', 'postingDate', 'type', 'amount', 'category', 'description',
+                       'recipient', 'status', 'reference', 'retiredDate', 'retiredJournalId',
+                       'createdBy', 'creatorEmail']);
       }
       allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, ALL_ROLES()) && moduleOn('petty_cash'));
-      allow create: if valid() && (
-        (incoming().type == 'EXPENSE' && createTenant(id, OPS_STORE()) && moduleOn('petty_cash'))
-        || (incoming().type == 'DISBURSEMENT' && createTenant(id, FIN()) && moduleOn('petty_cash'))
+      allow create: if valid() && moduleOn('petty_cash') && (
+        (incoming().type == 'EXPENSE' && createTenant(id, OPS_STORE()))
+        || (incoming().type == 'DISBURSEMENT' && createTenant(id, FIN()))
       );
       // Only retirement fields can change after posting; corrections are made by deleting and re-entering.
       allow update: if isSuperAdmin()
-        || (editTenant(id, FIN()) && valid()
+        || (editTenant(id, FIN()) && moduleOn('petty_cash') && valid()
             && changed().hasOnly(['status', 'retiredDate', 'retiredJournalId', 'updatedAt', 'updatedByUid']))
         || softDeleteTenant(FIN());
       allow delete: if false;
@@ -450,7 +509,10 @@ service cloud.firestore {
         return text('name', 200)
           && incoming().role in ALL_ROLES()
           && incoming().status in ['ACTIVE', 'SUSPENDED', 'DISMISSED', 'INACTIVE']
-          && nonNeg('salary') && nonNeg('allowances') && nonNeg('annualRent');
+          && nonNeg('salary') && nonNeg('allowances') && nonNeg('annualRent')
+          && onlyKeys(['uid', 'name', 'email', 'role', 'phone', 'salary', 'allowances', 'joinedDate',
+                       'status', 'assignedWarehouseId', 'bankName', 'accountNumber', 'accountName',
+                       'applyPAYE', 'applyPension', 'annualRent']);
       }
       allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, OVERSIGHT()) && moduleOn('staff'));
       allow create: if createTenant(id, MGMT()) && moduleOn('staff') && valid()
@@ -471,7 +533,8 @@ service cloud.firestore {
       allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, OVERSIGHT()) && moduleOn('staff'));
       allow create, update: if memberIn(incoming().companyId, FIN()) && moduleOn('staff') && idOk(id)
         && (resource == null || existing().companyId == incoming().companyId)
-        && incoming().status in ['PRESENT', 'ABSENT', 'LATE'];
+        && incoming().status in ['PRESENT', 'ABSENT', 'LATE']
+        && onlyKeys(['staffId', 'warehouseId', 'date', 'status']);
       allow delete: if false;
     }
 
@@ -479,7 +542,8 @@ service cloud.firestore {
       allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, OVERSIGHT()) && moduleOn('staff'));
       allow create, update: if memberIn(incoming().companyId, FIN()) && moduleOn('staff') && idOk(id)
         && (resource == null || existing().companyId == incoming().companyId)
-        && incoming().shift in ['MORNING', 'AFTERNOON', 'NIGHT', 'OFF'];
+        && incoming().shift in ['MORNING', 'AFTERNOON', 'NIGHT', 'OFF']
+        && onlyKeys(['staffId', 'warehouseId', 'shift', 'date']);
       allow delete: if false;
     }
 
@@ -488,7 +552,10 @@ service cloud.firestore {
         return incoming().month is string && incoming().month.matches('^[0-9]{4}-[0-9]{2}$')
           && incoming().status in ['PENDING', 'PAID']
           && nonNeg('grossIncome') && nonNeg('paye') && nonNeg('pension') && nonNeg('otherDeductions')
-          && isNum(incoming().netPay);
+          && isNum(incoming().netPay)
+          && onlyKeys(['staffId', 'month', 'basicSalary', 'allowances', 'grossIncome', 'cra', 'rentRelief',
+                       'taxableIncome', 'paye', 'pension', 'otherDeductions', 'deductionsNote', 'netPay',
+                       'taxRegime', 'status', 'paidAt', 'paidJournalId']);
       }
       allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, OVERSIGHT()) && moduleOn('staff'));
       allow create: if memberIn(incoming().companyId, FIN()) && moduleOn('staff') && idOk(id) && valid()
@@ -515,7 +582,8 @@ service cloud.firestore {
         && incoming().id == balanceId
         && isNum(incoming().quantity)
         && incoming().ledger in ['COMMODITY', 'BAG', 'STORE', 'PETTY_CASH']
-        && (resource == null || existing().companyId == incoming().companyId);
+        && (resource == null || existing().companyId == incoming().companyId)
+        && incoming().keys().hasOnly(['id', 'companyId', 'ledger', 'warehouseId', 'item', 'quantity', 'updatedAt']);
       allow delete: if false;
     }
   }

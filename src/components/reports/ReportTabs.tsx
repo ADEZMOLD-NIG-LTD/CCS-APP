@@ -10,7 +10,7 @@ import { cn } from '../../lib/utils';
 
 export type ReportType =
   | 'supplier_balances' | 'buyer_balances' | 'operational_purchases' | 'operational_sales' | 'packaging_inventory'
-  | 'transfers' | 'search' | 'audit_logs' | 'journal' | 'attendance' | 'payroll';
+  | 'transfers' | 'search' | 'audit_logs' | 'journal' | 'attendance' | 'payroll' | 'reconciliation';
 
 export interface ReportTab {
   id: ReportType;
@@ -28,6 +28,7 @@ export const REPORT_TABS: ReportTab[] = [
   { id: 'journal', label: 'Cash book', permission: 'view_journal' },
   { id: 'packaging_inventory', label: 'Packaging', permission: 'view_reports' },
   { id: 'transfers', label: 'Transfers', permission: 'view_reports' },
+  { id: 'reconciliation', label: 'Store reconciliation', permission: 'view_store_records', module: 'store' },
   { id: 'attendance', label: 'Attendance', permission: 'view_staff', module: 'staff' },
   { id: 'payroll', label: 'Payroll', permission: 'view_payroll', module: 'staff' },
   { id: 'search', label: 'Search Tranx ID', permission: 'view_reports' },

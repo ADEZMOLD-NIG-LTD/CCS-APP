@@ -9,10 +9,11 @@
 import jsPDF from 'jspdf';
 import autoTable, { type RowInput } from 'jspdf-autotable';
 import type { Attendance, BagTransaction, Buyer, Payroll, Staff, Supplier, Transaction, Warehouse } from '../types';
-import { moistureLossKg, type CashMovement } from '../lib/finance';
+import { moistureLossKg, parseStockKey, type CashMovement } from '../lib/finance';
 import { isoToLocalDate } from '../lib/dates';
-import { formatNumber } from '../lib/utils';
+import { formatNumber, roundTo } from '../lib/utils';
 import type { ReportType } from '../components/reports/ReportTabs';
+import type { ReconciliationRow } from '../components/reports/ReconciliationReport';
 
 /** jsPDF's built-in fonts cannot render "₦". */
 export const pdfMoney = (n: number) => `${n < 0 ? '-' : ''}NGN ${formatNumber(Math.abs(n))}`;
@@ -106,6 +107,34 @@ export function payrollInPeriod(payrolls: Payroll[], start: string, end: string)
   return payrolls.filter(p => p.month >= from && p.month <= to).sort((a, b) => b.month.localeCompare(a.month) || a.staffId.localeCompare(b.staffId));
 }
 
+/**
+ * Compares the inventory ledger (purchases, sales, transfers, adjustments) with the store
+ * keeper's own register, per warehouse and commodity, so the two independent records can be
+ * checked against each other. Balances are current, not as at a past date.
+ */
+export function buildReconciliation(levels: Record<string, number>, warehouses: Warehouse[]): ReconciliationRow[] {
+  const rows = new Map<string, ReconciliationRow>();
+  const nameOf = (id: string) => warehouses.find(w => w.id === id)?.name || (id ? 'Unknown warehouse' : 'Unassigned');
+
+  for (const [key, quantity] of Object.entries(levels)) {
+    const { ledger, warehouseId, item } = parseStockKey(key);
+    if (ledger !== 'COMMODITY' && ledger !== 'STORE') continue;
+    const rowKey = `${warehouseId}|${item}`;
+    const row = rows.get(rowKey) ?? {
+      key: rowKey, warehouseId, warehouseName: nameOf(warehouseId), commodity: item,
+      inventoryKg: 0, storeKg: 0, differenceKg: 0,
+    };
+    if (ledger === 'COMMODITY') row.inventoryKg = roundTo(row.inventoryKg + quantity, 2);
+    else row.storeKg = roundTo(row.storeKg + quantity, 2);
+    rows.set(rowKey, row);
+  }
+
+  return [...rows.values()]
+    .map(r => ({ ...r, differenceKg: roundTo(r.inventoryKg - r.storeKg, 2) }))
+    .filter(r => r.inventoryKg !== 0 || r.storeKg !== 0)
+    .sort((a, b) => Math.abs(b.differenceKg) - Math.abs(a.differenceKg) || a.warehouseName.localeCompare(b.warehouseName));
+}
+
 export interface ReportPdfInput {
   report: ReportType;
   companyName: string;
@@ -128,6 +157,7 @@ export interface ReportPdfInput {
   searchResults: Transaction[];
   attendance: AttendanceSummaryRow[];
   payrolls: Payroll[];
+  reconciliation: ReconciliationRow[];
 }
 
 type Doc = jsPDF & { lastAutoTable?: { finalY: number } };
@@ -306,6 +336,23 @@ export function generatePDF(input: ReportPdfInput): void {
         ]),
         foot: [['TOTAL', '', '', total('grossIncome'), total('pension'), total('paye'), total('otherDeductions'), total('netPay')]],
         columnStyles: { 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
+      });
+      break;
+    }
+    case 'reconciliation': {
+      const y = header('Store reconciliation', `Current balances | Warehouse: ${input.warehouseLabel}`);
+      const flagged = input.reconciliation.filter(r => Math.abs(r.differenceKg) > 1);
+      autoTable(doc, {
+        ...baseStyles,
+        startY: y,
+        head: [['Warehouse', 'Commodity', 'Inventory (kg)', 'Store register (kg)', 'Difference (kg)', 'Status']],
+        body: input.reconciliation.map(r => [
+          r.warehouseName, r.commodity, formatNumber(r.inventoryKg), formatNumber(r.storeKg),
+          `${r.differenceKg > 0 ? '+' : ''}${formatNumber(r.differenceKg)}`,
+          Math.abs(r.differenceKg) > 1 ? 'Investigate' : 'Agrees',
+        ]),
+        foot: [['TOTAL', '', formatNumber(input.reconciliation.reduce((s, r) => s + r.inventoryKg, 0)), formatNumber(input.reconciliation.reduce((s, r) => s + r.storeKg, 0)), '', `${flagged.length} to investigate`]],
+        columnStyles: { 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
       });
       break;
     }

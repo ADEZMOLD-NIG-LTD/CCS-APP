@@ -42,8 +42,9 @@ interface Activity {
 }
 
 export default function Dashboard({ onNavigate }: DashboardProps) {
-  const { can } = useAuth();
-  const canSeeCash = can('view_journal');
+  const { can, isModuleEnabled } = useAuth();
+  // The cash book is only meaningful when the company's plan includes the journal module.
+  const canSeeCash = can('view_journal') && isModuleEnabled('journal');
   const transactions = useActiveCollection('transactions').data;
   const suppliers = useActiveCollection('suppliers').data;
   const payments = useActiveCollection('payments').data;

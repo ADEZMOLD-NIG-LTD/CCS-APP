@@ -42,7 +42,8 @@ export const PERMISSION_MATRIX = {
   record_supplier_payment: FIN,
   adjust_ledger_entries: ADMIN_ONLY,
   view_journal: OVERSIGHT,
-  post_journal: OPS,
+  /** Cash entries against a customer or supplier account (receipts, charges). Finance only. */
+  post_journal: FIN,
   post_general_journal: FIN,
   edit_journal: FIN,
   delete_journal: FIN,
