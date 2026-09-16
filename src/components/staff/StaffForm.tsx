@@ -3,206 +3,149 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Staff, Warehouse, Company } from '../../types';
+import type { Staff, Warehouse } from '../../types';
+import { COMPANY_ROLES, ROLE_LABELS, canAssignRole, type CompanyRole } from '../../lib/permissions';
+import { normalizeEmail, toNumber } from '../../lib/utils';
+import { DigitFormattedInput } from '../DigitFormattedInput';
+
+export interface StaffFormValues {
+  name: string;
+  role: CompanyRole;
+  phone: string;
+  salary: number;
+  allowances: number;
+  annualRent: number;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  applyPAYE: boolean;
+  applyPension: boolean;
+  email: string;
+  assignedWarehouseId: string;
+  grantAccess: boolean;
+}
 
 interface StaffFormProps {
   editingStaff: Staff | null;
   warehouses: Warehouse[];
-  profile: any;
-  company: Company | null;
-  isAdmin: boolean;
+  actorRole: CompanyRole | null;
+  lockedWarehouseId: string | null;
+  hasLogin: boolean;
   submitting: boolean;
   onCancel: () => void;
-  onSubmit: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
+  onSubmit: (values: StaffFormValues) => void;
 }
 
-export default function StaffForm({
-  editingStaff,
-  warehouses,
-  profile,
-  company,
-  isAdmin,
-  submitting,
-  onCancel,
-  onSubmit
-}: StaffFormProps) {
+const inputClass = 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500';
+
+export default function StaffForm({ editingStaff, warehouses, actorRole, lockedWarehouseId, hasLogin, submitting, onCancel, onSubmit }: StaffFormProps) {
+  const [grantAccess, setGrantAccess] = useState(!editingStaff);
+  const assignableRoles = COMPANY_ROLES.filter(r => canAssignRole(actorRole, r) || r === editingStaff?.role);
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    onSubmit({
+      name: String(form.get('name') ?? ''),
+      role: String(form.get('role') ?? 'STAFF') as CompanyRole,
+      phone: String(form.get('phone') ?? ''),
+      salary: toNumber(form.get('salary')),
+      allowances: toNumber(form.get('allowances')),
+      annualRent: toNumber(form.get('annualRent')),
+      bankName: String(form.get('bankName') ?? ''),
+      accountNumber: String(form.get('accountNumber') ?? ''),
+      accountName: String(form.get('accountName') ?? ''),
+      applyPAYE: form.get('applyPAYE') === 'on',
+      applyPension: form.get('applyPension') === 'on',
+      email: normalizeEmail(form.get('email')),
+      assignedWarehouseId: lockedWarehouseId ?? String(form.get('warehouseId') ?? ''),
+      grantAccess: !hasLogin && grantAccess,
+    });
+  };
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200"
-    >
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-bold">{editingStaff ? 'Edit Staff Member' : 'New Staff Member'}</h2>
-        <button onClick={onCancel} className="text-slate-400">Cancel</button>
+        <h2 className="text-lg font-bold">{editingStaff ? 'Edit staff member' : 'New staff member'}</h2>
+        <button type="button" onClick={onCancel} className="text-slate-400">Cancel</button>
       </div>
-      <form onSubmit={onSubmit} className="space-y-4">
-        <div>
-          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Full Name</label>
-          <input 
-            required 
-            name="name" 
-            defaultValue={editingStaff?.name}
-            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
-            placeholder="e.g. John Doe" 
-          />
-        </div>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <label className="block">
+          <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Full name</span>
+          <input required maxLength={200} name="name" defaultValue={editingStaff?.name} className={inputClass} />
+        </label>
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Role</label>
-            <select 
-              required 
-              name="role" 
-              defaultValue={editingStaff?.role || 'STAFF'}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium"
-            >
-              <option value="STAFF">Staff</option>
-              <option value="STORE_KEEPER">Store Keeper</option>
-              <option value="ACCOUNT">Account/Finance</option>
-              <option value="MANAGER">Manager</option>
-              <option value="AUDITOR">Auditor</option>
-              <option value="ADMIN">Admin</option>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Role</span>
+            <select required name="role" defaultValue={editingStaff?.role || 'STAFF'} className={`${inputClass} font-medium`}>
+              {assignableRoles.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
             </select>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Assigned Warehouse</label>
-            <select 
-              name="warehouseId" 
-              defaultValue={editingStaff?.assignedWarehouseId || profile?.assignedWarehouseId || ''}
-              disabled={!!profile?.assignedWarehouseId && !isAdmin}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium disabled:opacity-50"
-            >
-              <option value="">All Warehouses</option>
-              {warehouses.map(w => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Assigned warehouse</span>
+            <select name="warehouseId" defaultValue={lockedWarehouseId ?? editingStaff?.assignedWarehouseId ?? ''} disabled={!!lockedWarehouseId} className={`${inputClass} font-medium disabled:opacity-50`}>
+              <option value="">All warehouses</option>
+              {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
-          </div>
+          </label>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Phone</label>
-            <input 
-              required 
-              name="phone" 
-              defaultValue={editingStaff?.phone}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
-              placeholder="080..." 
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Monthly Basic Salary (₦)</label>
-            <input 
-              required 
-              name="salary" 
-              type="number" 
-              defaultValue={editingStaff?.salary}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold" 
-              placeholder="0.00" 
-            />
-          </div>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Phone</span>
+            <input required name="phone" type="tel" maxLength={30} defaultValue={editingStaff?.phone} className={inputClass} />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Monthly basic salary (₦)</span>
+            <DigitFormattedInput required name="salary" defaultValue={editingStaff?.salary} className={`${inputClass} font-bold`} prefix="₦" />
+          </label>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Monthly Allowances (₦)</label>
-            <input 
-              name="allowances" 
-              type="number" 
-              defaultValue={editingStaff?.allowances}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold" 
-              placeholder="0.00" 
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bank Name</label>
-            <input 
-              name="bankName" 
-              defaultValue={editingStaff?.bankName}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
-              placeholder="e.g. GTBank" 
-            />
-          </div>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Monthly allowances (₦)</span>
+            <DigitFormattedInput name="allowances" defaultValue={editingStaff?.allowances} className={`${inputClass} font-bold`} prefix="₦" />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Annual rent paid (₦, for rent relief)</span>
+            <DigitFormattedInput name="annualRent" defaultValue={editingStaff?.annualRent} className={`${inputClass} font-bold`} prefix="₦" />
+          </label>
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Account Number</label>
-            <input 
-              name="accountNumber" 
-              defaultValue={editingStaff?.accountNumber}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
-              placeholder="0123456789" 
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Account Name</label>
-            <input 
-              name="accountName" 
-              defaultValue={editingStaff?.accountName}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
-              placeholder="e.g. John Doe" 
-            />
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <input name="bankName" maxLength={100} defaultValue={editingStaff?.bankName} className={inputClass} placeholder="Bank name" aria-label="Bank name" />
+          <input name="accountNumber" maxLength={20} inputMode="numeric" defaultValue={editingStaff?.accountNumber} className={inputClass} placeholder="Account number" aria-label="Account number" />
+          <input name="accountName" maxLength={120} defaultValue={editingStaff?.accountName} className={inputClass} placeholder="Account name" aria-label="Account name" />
         </div>
 
-        <div className="flex gap-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
-          <div className="flex items-center gap-3">
-            <input 
-              type="checkbox" 
-              id="applyPAYE" 
-              name="applyPAYE" 
-              defaultChecked={editingStaff ? editingStaff.applyPAYE : true}
-              className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            <label htmlFor="applyPAYE" className="text-xs font-bold text-slate-700 cursor-pointer">
-              Apply PAYE Tax
-            </label>
-          </div>
-          <div className="flex items-center gap-3">
-            <input 
-              type="checkbox" 
-              id="applyPension" 
-              name="applyPension" 
-              defaultChecked={editingStaff ? editingStaff.applyPension : true}
-              className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            <label htmlFor="applyPension" className="text-xs font-bold text-slate-700 cursor-pointer">
-              Apply Pension (8%)
-            </label>
-          </div>
+        <div className="flex flex-wrap gap-6 p-4 bg-slate-50 rounded-xl border border-slate-200">
+          <label className="flex items-center gap-3 text-xs font-bold text-slate-700 cursor-pointer">
+            <input type="checkbox" name="applyPAYE" defaultChecked={editingStaff ? editingStaff.applyPAYE !== false : true} className="w-5 h-5 rounded border-slate-300 text-indigo-600" />
+            Apply PAYE tax
+          </label>
+          <label className="flex items-center gap-3 text-xs font-bold text-slate-700 cursor-pointer">
+            <input type="checkbox" name="applyPension" defaultChecked={editingStaff ? editingStaff.applyPension !== false : true} className="w-5 h-5 rounded border-slate-300 text-indigo-600" />
+            Apply employee pension (8%)
+          </label>
         </div>
 
-        <div>
-          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Email (Optional for Login)</label>
-          <input 
-            name="email" 
-            type="email" 
-            defaultValue={editingStaff?.email}
-            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" 
-            placeholder="staff@example.com" 
-          />
-        </div>
-        {!editingStaff && (
-          <div className="flex items-center gap-3 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
-            <input 
-              type="checkbox" 
-              id="createAccount" 
-              name="createAccount" 
-              className="w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            <label htmlFor="createAccount" className="text-xs font-bold text-indigo-900 cursor-pointer">
-              Create Login Account (Default Password: welcome@2025)
-            </label>
-          </div>
+        <label className="block">
+          <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Email (needed for a login)</span>
+          <input name="email" type="email" maxLength={200} defaultValue={editingStaff?.email} className={inputClass} placeholder="staff@example.com" />
+        </label>
+
+        {hasLogin ? (
+          <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl p-3">This person already has a login. Role and warehouse changes apply to their access immediately.</p>
+        ) : (
+          <label className="flex items-start gap-3 p-4 bg-indigo-50 rounded-xl border border-indigo-100 cursor-pointer">
+            <input type="checkbox" checked={grantAccess} onChange={e => setGrantAccess(e.target.checked)} className="w-5 h-5 mt-0.5 rounded border-slate-300 text-indigo-600" />
+            <span className="text-xs text-indigo-900">
+              <strong>Give this person a login.</strong> They'll receive an email to set their own password, then join with the role above. No password is shared.
+            </span>
+          </label>
         )}
-        <button 
-          type="submit" 
-          disabled={submitting}
-          className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          {submitting ? 'Saving...' : editingStaff ? 'Update Staff' : 'Save Staff'}
+
+        <button type="submit" disabled={submitting} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50">
+          {submitting ? 'Saving…' : editingStaff ? 'Update staff' : 'Save staff'}
         </button>
       </form>
     </motion.div>

@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_APP_ENV?: string;
   readonly VITE_FIREBASE_API_KEY: string;
   readonly VITE_FIREBASE_AUTH_DOMAIN: string;
   readonly VITE_FIREBASE_PROJECT_ID: string;
@@ -9,6 +10,8 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_APP_ID: string;
   readonly VITE_FIREBASE_MEASUREMENT_ID: string;
   readonly VITE_FIREBASE_FIRESTORE_DATABASE_ID: string;
+  readonly VITE_SUPPORT_EMAIL?: string;
+  readonly VITE_ALLOW_MOCK_BUILD?: string;
 }
 
 interface ImportMeta {

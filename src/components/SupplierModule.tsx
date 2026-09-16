@@ -3,503 +3,194 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
-import { Plus, Search, MapPin, Phone, Landmark, Trash2, Edit2, ChevronRight, ArrowLeft, GitMerge } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Supplier, Transaction, Payment, JournalEntry } from '../types';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
-import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, updateDoc, query, orderBy, where, getDocs } from 'firebase/firestore';
+import React, { useMemo, useState } from 'react';
+import { ArrowLeft, ChevronRight, Edit2, Landmark, MapPin, Phone, Plus, Search, Trash2 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
-import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
-import { recordAuditLog, AuditAction } from '../lib/audit';
-import Toast from './Toast';
-import ConfirmModal from './ConfirmModal';
-import { cn, formatNumber, formatCurrency } from '../lib/utils';
+import { useActiveCollection } from '../contexts/CompanyDataContext';
+import { useCommit } from '../hooks/useCommit';
+import { AuditAction, auditOp } from '../lib/audit';
+import { computeSupplierBalance } from '../lib/finance';
+import { cn, formatCurrency, newId, roundTo, toNumber } from '../lib/utils';
+import type { Supplier } from '../types';
 import { DigitFormattedInput } from './DigitFormattedInput';
-
+import ConfirmModal from './ConfirmModal';
 import SupplierDetails from './SupplierDetails';
 
+const field = 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none';
+
 export default function SupplierModule() {
-  const { profile, company, isStaff, isAccount, isAdmin, isOnline } = useAuth();
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [journal, setJournal] = useState<JournalEntry[]>([]);
-  const [isAdding, setIsAdding] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const { can, auditActor, setErrorMessage } = useAuth();
+  const { commit, busy } = useCommit();
+  const suppliers = useActiveCollection('suppliers').data;
+  const transactions = useActiveCollection('transactions').data;
+  const payments = useActiveCollection('payments').data;
+  const journal = useActiveCollection('journal').data;
 
-  // Success message auto-hide
-  useEffect(() => {
-    if (successMessage) {
-      const timer = setTimeout(() => setSuccessMessage(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [successMessage]);
+  const [search, setSearch] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Supplier | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Supplier | null>(null);
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
-  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return suppliers
+      .filter(s => !q || s.name.toLowerCase().includes(q) || (s.phone || '').includes(q) || (s.location || '').toLowerCase().includes(q))
+      .map(s => ({ supplier: s, balance: computeSupplierBalance(s, { transactions, payments, journal }) }))
+      .sort((a, b) => a.supplier.name.localeCompare(b.supplier.name));
+  }, [suppliers, transactions, payments, journal, search]);
 
-  // Load from Firestore
-  useEffect(() => {
-    if (!profile?.companyId) return;
+  if (!auditActor) return null;
+  const actor = auditActor;
 
-    const q = query(
-      collection(db, 'suppliers'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
-      const sorted = data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      setSuppliers(sorted);
-    }, (error) => {
-      setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers'));
-    });
+  const selected = selectedId ? suppliers.find(s => s.id === selectedId) : undefined;
+  if (selected) return <SupplierDetails supplier={selected} onBack={() => setSelectedId(null)} />;
 
-    return () => unsubscribe();
-  }, [profile?.companyId]);
-
-  // Load transactions, payments, journal to compute live balances
-  useEffect(() => {
-    if (!profile?.companyId) return;
-
-    const qTx = query(
-      collection(db, 'transactions'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
-      const data = snapshot.docs
-        .map(doc => ({ ...doc.data(), id: doc.id } as Transaction))
-        .filter(tx => !tx.isDeleted);
-      setTransactions(data);
-    }, (error) => console.error('Failed to load transactions for balances:', error));
-
-    const qPayments = query(
-      collection(db, 'payments'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
-      const data = snapshot.docs
-        .map(doc => ({ ...doc.data(), id: doc.id } as Payment))
-        .filter(p => !p.isDeleted);
-      setPayments(data);
-    }, (error) => console.error('Failed to load payments for balances:', error));
-
-    const qJournal = query(
-      collection(db, 'journal'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
-      const data = snapshot.docs
-        .map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry))
-        .filter(j => !j.isDeleted);
-      setJournal(data);
-    }, (error) => console.error('Failed to load journal for balances:', error));
-
-    return () => {
-      unsubscribeTx();
-      unsubscribePayments();
-      unsubscribeJournal();
-    };
-  }, [profile?.companyId]);
-
-  const getSupplierBalance = (sId: string, previousBalance: number) => {
-    const sTx = transactions.filter(t => t.supplierId === sId);
-    const sPay = payments.filter(p => p.supplierId === sId);
-    const sExp = journal.filter(e => e.supplierId === sId);
-
-    const sPurchases = sTx.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
-    const sReturns = sTx.filter(t => (t.type as string) === 'PURCHASE_RETURN').reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
-    const sSales = sTx.filter(t => t.type === 'SALE').reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
-    const sPayments = sPay.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-    const sCharges = sExp.reduce((sum, e) => {
-      const isOutflow = e.type === 'OUTFLOW' && e.category !== 'SUPPLIER_EXPENSE_DEDUCTION';
-      return sum + (isOutflow ? Number(e.amount) || 0 : -Number(e.amount) || 0);
-    }, 0);
-
-    return (Number(previousBalance) || 0) + sPurchases - sReturns - sSales - sPayments - sCharges;
-  };
-
-  const handleAddSupplier = async (e: React.FormEvent<HTMLFormElement>) => {
+  const save = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    console.log('handleAddSupplier triggered', { isStaff, submitting, companyId: profile?.companyId });
-    if (!isStaff || submitting || !profile?.companyId) {
-      console.warn('handleAddSupplier early exit', { isStaff, submitting, companyId: profile?.companyId });
+    const form = new FormData(e.currentTarget);
+    const name = String(form.get('name') ?? '').trim();
+    const target = editing;
+    if (!name) return;
+    if (suppliers.some(s => s.id !== target?.id && s.name.trim().toLowerCase() === name.toLowerCase())) {
+      setErrorMessage(`A supplier named "${name}" already exists. Duplicate names lead to payments being posted to the wrong account.`);
       return;
     }
-
-    setSubmitting(true);
-    const formData = new FormData(e.currentTarget);
-    const id = editingSupplier?.id || crypto.randomUUID();
-    
-    const newSupplier: any = {
+    const id = target?.id ?? newId();
+    const nowIso = new Date().toISOString();
+    const record = {
+      ...(target ?? {}),
       id,
-      companyId: profile.companyId,
-      name: formData.get('name') as string,
-      phone: formData.get('phone') as string,
-      location: formData.get('location') as string,
-      bankName: (formData.get('bankName') as string) || '',
-      accountNumber: (formData.get('accountNumber') as string) || '',
-      accountName: (formData.get('accountName') as string) || '',
-      previousBalance: Number(formData.get('previousBalance')) || 0,
-      createdAt: editingSupplier?.createdAt || new Date().toISOString(),
+      companyId: actor.companyId,
+      name,
+      phone: String(form.get('phone') ?? '').trim(),
+      location: String(form.get('location') ?? '').trim(),
+      bankName: String(form.get('bankName') ?? '').trim(),
+      accountNumber: String(form.get('accountNumber') ?? '').trim(),
+      accountName: String(form.get('accountName') ?? '').trim(),
+      previousBalance: roundTo(toNumber(form.get('previousBalance')), 2),
+      createdAt: target?.createdAt ?? nowIso,
+      ...(target ? { updatedAt: nowIso } : {}),
     };
-
-    // Clean up undefined values
-    Object.keys(newSupplier).forEach(key => newSupplier[key] === undefined && delete newSupplier[key]);
-
-    // Check for duplicate names to prevent duplicate registration
-    const normalizedNewName = (newSupplier.name || '').trim().toLowerCase();
-    const isDuplicate = suppliers.some(s => 
-      !s.isDeleted && 
-      s.id !== editingSupplier?.id && 
-      (s.name || '').trim().toLowerCase() === normalizedNewName
+    const ok = await commit(
+      [
+        { kind: 'set', collection: 'suppliers', id, data: record },
+        auditOp(actor, { action: target ? AuditAction.UPDATE : AuditAction.CREATE, module: 'Suppliers', recordId: id, details: `${target ? 'Updated' : 'Added'} supplier ${name}`, previousData: target, newData: record }),
+      ],
+      { success: target ? 'Supplier updated.' : 'Supplier added.', context: 'suppliers' }
     );
-
-    if (isDuplicate) {
-      setErrorMessage(`A supplier named "${newSupplier.name}" already exists! Duplicate names can lead to incorrect balances. Please enter a different name or use the Merge tool to combine them.`);
-      setSubmitting(false);
-      return;
-    }
-
-    try {
-      const writePromise = setDoc(doc(db, 'suppliers', id), newSupplier);
-      
-      // If offline, we don't wait for the server to acknowledge.
-      // Firestore will sync it in the background.
-      if (!isOnline) {
-        console.log('Working offline, proceeding optimistically');
-      } else {
-        await writePromise;
-      }
-      
-      // Record Audit Log (non-blocking for UI)
-      recordAuditLog({
-        companyId: profile.companyId,
-        userId: profile.uid,
-        userEmail: profile.email,
-        action: editingSupplier ? AuditAction.UPDATE : AuditAction.CREATE,
-        module: 'Suppliers',
-        recordId: id,
-        details: `${editingSupplier ? 'Updated' : 'Created'} supplier: ${newSupplier.name}`,
-        newData: newSupplier,
-        previousData: editingSupplier || undefined
-      }).catch(err => console.error('Audit log failed:', err));
-
-      setIsAdding(false);
-      setEditingSupplier(null);
-      setSuccessMessage(editingSupplier ? 'Supplier updated successfully!' : 'Supplier added successfully!');
-    } catch (error) {
-      setErrorMessage(reportFirestoreError(error, editingSupplier ? OperationType.UPDATE : OperationType.CREATE, `suppliers/${id}`));
-    } finally {
-      setSubmitting(false);
+    if (ok) {
+      setAdding(false);
+      setEditing(null);
     }
   };
 
-  const deleteSupplier = async (id: string) => {
-    if (!(isStaff || isAccount || isAdmin)) {
-      setErrorMessage('You do not have permission to delete suppliers.');
-      return;
-    }
-    setDeleteConfirmId(id);
+  const remove = async (reason?: string) => {
+    const supplier = deleting;
+    if (!supplier || !reason?.trim()) return;
+    const ok = await commit(
+      [
+        { kind: 'update', collection: 'suppliers', id: supplier.id, data: { isDeleted: true, deletionReason: reason.trim(), deletedBy: actor.email, deletedByUid: actor.uid, deletedAt: new Date().toISOString() } },
+        auditOp(actor, { action: AuditAction.DELETE, module: 'Suppliers', recordId: supplier.id, details: `Deleted supplier ${supplier.name}. Reason: ${reason.trim()}`, previousData: supplier }),
+      ],
+      { success: 'Supplier deleted.', context: 'suppliers' }
+    );
+    if (ok) setDeleting(null);
   };
 
-  const confirmDelete = async (reason?: string) => {
-    if (!deleteConfirmId || !profile) return;
-    try {
-      const updateData = {
-        isDeleted: true,
-        deletionReason: reason || 'No reason provided',
-        deletedBy: profile?.email || profile?.uid || 'Unknown',
-        deletedAt: new Date().toISOString()
-      };
-      await updateDoc(doc(db, 'suppliers', deleteConfirmId), updateData);
-      
-      recordAuditLog({
-        companyId: profile.companyId,
-        userId: profile.uid,
-        userEmail: profile.email,
-        action: AuditAction.DELETE,
-        module: 'Suppliers',
-        recordId: deleteConfirmId,
-        details: `Deleted (Soft) supplier: ${suppliers.find(s => s.id === deleteConfirmId)?.name || deleteConfirmId}. Reason: ${reason}`
-      }).catch(err => console.error('Audit log failed:', err));
-
-      setSuccessMessage('Supplier deleted successfully!');
-    } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, `suppliers/${deleteConfirmId}`));
-    } finally {
-      setDeleteConfirmId(null);
-    }
-  };
-
-  const filteredSuppliers = suppliers.filter(s => 
-    !s.isDeleted && (
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.phone.includes(searchQuery) ||
-      s.location.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  );
-
-  if (selectedSupplier) {
-    return <SupplierDetails supplier={selectedSupplier} onBack={() => setSelectedSupplier(null)} />;
-  }
+  const formTarget = editing;
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)]">
-      {/* Success Toast */}
-      <AnimatePresence>
-        {successMessage && (
-          <Toast 
-            message={successMessage} 
-            type="success" 
-            onClose={() => setSuccessMessage(null)} 
-          />
-        )}
-        {errorMessage && (
-          <Toast 
-            message={errorMessage} 
-            type="error" 
-            onClose={() => setErrorMessage(null)} 
-          />
-        )}
-      </AnimatePresence>
+      <ConfirmModal isOpen={!!deleting} title="Delete supplier" message="The supplier is hidden from lists. Their history stays in reports and the audit log." confirmText="Delete" requireReason onConfirm={remove} onCancel={() => setDeleting(null)} />
 
-      <ConfirmModal
-        isOpen={!!deleteConfirmId}
-        title="Delete Supplier"
-        message="Are you sure you want to delete this supplier? This will hide them from current views but preserve history."
-        onConfirm={confirmDelete}
-        onCancel={() => setDeleteConfirmId(null)}
-        confirmText="Delete"
-        type="danger"
-        requireReason={true}
-      />
-
-      {/* Header */}
       <header className="bg-white border-b border-[var(--border)] px-4 py-4 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-xl font-bold text-[var(--text-primary)]">Suppliers</h1>
-          {!isAdding && !editingSupplier && isStaff && (
-            <button
-              onClick={() => setIsAdding(true)}
-              className="google-btn-primary flex items-center gap-2 text-xs sm:text-sm"
-              id="add-supplier-btn"
-            >
-              <Plus size={20} />
-              <span>Add Supplier</span>
-            </button>
+          {!adding && !editing && can('manage_parties') && (
+            <button onClick={() => setAdding(true)} className="google-btn-primary flex items-center gap-2 text-xs sm:text-sm"><Plus size={20} /> Add supplier</button>
           )}
         </div>
-
-        {!isAdding && !editingSupplier && (
+        {!adding && !editing && (
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" size={18} />
-            <input
-              type="text"
-              placeholder="Search by name, phone or location..."
-              className="w-full pl-12 pr-4 py-3 bg-slate-100 border-none rounded-xl focus:ring-2 focus:ring-[var(--accent)] transition-all text-sm font-medium"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+            <input type="search" placeholder="Search by name, phone or location…" value={search} onChange={e => setSearch(e.target.value)} className="w-full pl-12 pr-4 py-3 bg-slate-100 rounded-xl focus:ring-2 focus:ring-[var(--accent)] text-sm font-medium" />
           </div>
         )}
       </header>
 
       <main className="flex-1 overflow-y-auto p-4">
         <AnimatePresence mode="wait">
-          {isAdding || editingSupplier ? (
-            <motion.div
-              key="form"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="google-card p-6"
-            >
+          {adding || editing ? (
+            <motion.div key={formTarget?.id ?? 'new'} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="google-card p-6">
               <div className="flex items-center gap-2 mb-6">
-                <button 
-                  onClick={() => { setIsAdding(false); setEditingSupplier(null); }}
-                  className="text-slate-500 hover:text-slate-900"
-                >
-                  <ArrowLeft size={20} />
-                </button>
-                <h2 className="text-lg font-semibold">
-                  {editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}
-                </h2>
+                <button onClick={() => { setAdding(false); setEditing(null); }} className="text-slate-500 hover:text-slate-900" aria-label="Back"><ArrowLeft size={20} /></button>
+                <h2 className="text-lg font-semibold">{formTarget ? 'Edit supplier' : 'Add supplier'}</h2>
               </div>
-
-              <form onSubmit={handleAddSupplier} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Full Name</label>
-                  <input
-                    required
-                    name="name"
-                    defaultValue={editingSupplier?.name}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                    placeholder="e.g. John Doe"
-                  />
-                </div>
-
+              <form onSubmit={save} className="space-y-4">
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-500 uppercase mb-1">Full name</span>
+                  <input required maxLength={200} name="name" defaultValue={formTarget?.name} className={field} />
+                </label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Phone Number</label>
-                    <input
-                      required
-                      name="phone"
-                      type="tel"
-                      defaultValue={editingSupplier?.phone}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                      placeholder="e.g. +234..."
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Location</label>
-                    <input
-                      required
-                      name="location"
-                      defaultValue={editingSupplier?.location}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                      placeholder="e.g. Kumasi, Ghana"
-                    />
-                  </div>
+                  <label className="block">
+                    <span className="block text-xs font-medium text-slate-500 uppercase mb-1">Phone</span>
+                    <input required maxLength={30} name="phone" type="tel" defaultValue={formTarget?.phone} className={field} />
+                  </label>
+                  <label className="block">
+                    <span className="block text-xs font-medium text-slate-500 uppercase mb-1">Location</span>
+                    <input required maxLength={120} name="location" defaultValue={formTarget?.location} className={field} />
+                  </label>
                 </div>
-
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-4">
-                  <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                    <Landmark size={16} /> Bank Details
-                  </h3>
-                  <div className="space-y-3">
-                    <input
-                      name="bankName"
-                      defaultValue={editingSupplier?.bankName}
-                      className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                      placeholder="Bank Name"
-                    />
-                    <input
-                      name="accountNumber"
-                      defaultValue={editingSupplier?.accountNumber}
-                      className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                      placeholder="Account Number"
-                    />
-                    <input
-                      name="accountName"
-                      defaultValue={editingSupplier?.accountName}
-                      className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm"
-                      placeholder="Account Name"
-                    />
-                  </div>
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Landmark size={16} /> Bank details</h3>
+                  <input name="bankName" maxLength={100} defaultValue={formTarget?.bankName} className={field} placeholder="Bank name" aria-label="Bank name" />
+                  <input name="accountNumber" maxLength={20} inputMode="numeric" defaultValue={formTarget?.accountNumber} className={field} placeholder="Account number" aria-label="Account number" />
+                  <input name="accountName" maxLength={120} defaultValue={formTarget?.accountName} className={field} placeholder="Account name" aria-label="Account name" />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Previous Balance (Stock/Cash)</label>
-                  <DigitFormattedInput
-                    name="previousBalance"
-                    defaultValue={editingSupplier?.previousBalance}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                    placeholder="0.00"
-                    prefix="₦"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Positive for Credit (we owe), Negative for Debit (they owe)</p>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg hover:bg-emerald-700 transition-all transform active:scale-[0.98] mt-4 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {submitting ? 'Saving...' : (editingSupplier ? 'Update Supplier' : 'Save Supplier')}
+                <label className="block">
+                  <span className="block text-xs font-medium text-slate-500 uppercase mb-1">Opening balance</span>
+                  <DigitFormattedInput name="previousBalance" allowNegative defaultValue={formTarget?.previousBalance} className={field} prefix="₦" />
+                  <span className="block text-[10px] text-slate-400 mt-1">Positive = you owe the supplier. Negative = the supplier owes you.</span>
+                </label>
+                <button type="submit" disabled={busy} className="w-full bg-emerald-600 text-white py-4 rounded-xl font-bold shadow-lg disabled:opacity-50">
+                  {busy ? 'Saving…' : formTarget ? 'Update supplier' : 'Save supplier'}
                 </button>
               </form>
             </motion.div>
           ) : (
-            <motion.div
-              key="list"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="space-y-3"
-            >
-              {filteredSuppliers.length === 0 ? (
+            <motion.div key="list" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3">
+              {rows.length === 0 ? (
                 <div className="text-center py-20">
-                  <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Search className="text-slate-300" size={32} />
-                  </div>
+                  <Search className="text-slate-300 mx-auto mb-4" size={32} />
                   <p className="text-slate-500 font-medium">No suppliers found</p>
-                  <button 
-                    onClick={() => setIsAdding(true)}
-                    className="text-emerald-600 text-sm font-bold mt-2"
-                  >
-                    Add your first supplier
-                  </button>
                 </div>
-              ) : (
-                filteredSuppliers.map((supplier) => (
-                  <motion.div
-                    layout
-                    key={supplier.id}
-                    onClick={() => setSelectedSupplier(supplier)}
-                    className="google-card p-4 group relative overflow-hidden cursor-pointer active:bg-slate-50 transition-colors"
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h3 className="font-bold text-[var(--text-primary)]">{supplier.name}</h3>
-                        <div className="flex items-center gap-3 mt-1">
-                          <span className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
-                            <Phone size={12} /> {supplier.phone}
-                          </span>
-                          <span className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
-                            <MapPin size={12} /> {supplier.location}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className={cn(
-                           "text-sm font-bold",
-                           getSupplierBalance(supplier.id, supplier.previousBalance) >= 0 ? "text-emerald-600" : "text-rose-600"
-                        )}>
-                          {getSupplierBalance(supplier.id, supplier.previousBalance) >= 0 ? '+' : ''}{formatNumber(getSupplierBalance(supplier.id, supplier.previousBalance))}
-                        </span>
-                        <p className="text-[10px] text-[var(--text-secondary)] uppercase tracking-tighter">Balance</p>
+              ) : rows.map(({ supplier, balance }) => (
+                <div key={supplier.id} className="google-card p-4">
+                  <button type="button" onClick={() => setSelectedId(supplier.id)} className="w-full text-left flex justify-between items-start gap-3">
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-[var(--text-primary)] truncate">{supplier.name}</h3>
+                      <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-[var(--text-secondary)]">
+                        <span className="flex items-center gap-1"><Phone size={12} /> {supplier.phone}</span>
+                        <span className="flex items-center gap-1"><MapPin size={12} /> {supplier.location}</span>
                       </div>
                     </div>
-
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-50">
-                      <div className="flex items-center gap-2">
-                        <Landmark size={14} className="text-[var(--text-secondary)]" />
-                        <span className="text-[10px] font-medium text-[var(--text-secondary)] truncate max-w-[150px]">
-                          {supplier.bankName || 'No bank details'}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {isStaff && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setEditingSupplier(supplier); }}
-                            className="p-2 text-slate-400 hover:text-[var(--accent)] hover:bg-blue-50 rounded-lg transition-all"
-                          >
-                            <Edit2 size={16} />
-                          </button>
-                        )}
-                        {(isStaff || isAccount || isAdmin) && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); deleteSupplier(supplier.id); }}
-                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                            title="Delete Supplier"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                        <button className="p-2 text-slate-400 hover:text-[var(--text-primary)] rounded-lg transition-all">
-                          <ChevronRight size={18} />
-                        </button>
-                      </div>
+                    <div className="text-right shrink-0">
+                      <span className={cn('text-sm font-bold', balance >= 0 ? 'text-emerald-600' : 'text-rose-600')}>{formatCurrency(Math.abs(balance))}</span>
+                      <p className="text-[10px] text-[var(--text-secondary)] uppercase">{balance >= 0 ? 'We owe' : 'Owes us'}</p>
                     </div>
-                  </motion.div>
-                ))
-              )}
+                  </button>
+                  <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-50">
+                    <span className="text-[10px] font-medium text-[var(--text-secondary)] flex items-center gap-2 truncate"><Landmark size={14} /> {supplier.bankName || 'No bank details'}</span>
+                    <div className="flex items-center gap-1">
+                      {can('manage_parties') && <button onClick={() => setEditing(supplier)} className="p-2 text-slate-400 hover:text-[var(--accent)]" aria-label={`Edit ${supplier.name}`}><Edit2 size={16} /></button>}
+                      {can('delete_parties') && <button onClick={() => setDeleting(supplier)} className="p-2 text-slate-400 hover:text-rose-600" aria-label={`Delete ${supplier.name}`}><Trash2 size={16} /></button>}
+                      <ChevronRight size={18} className="text-slate-400" />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </motion.div>
           )}
         </AnimatePresence>

@@ -1,46 +1,33 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
 import fs from 'fs';
-import {defineConfig, loadEnv} from 'vite';
+import path from 'path';
+import { defineConfig, loadEnv } from 'vite';
 
-export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
 
-  const isProd = mode === 'production';
-  const hasConfigJson = fs.existsSync(path.resolve(__dirname, './firebase-applet-config.json'));
-  
-  // Check if we are running in the AI Studio preview/developer environment.
-  // In this environment, we strictly require hasConfigJson to be true to use real Firebase.
-  // This prevents the production build from mistakenly using default platform environment variables when the project hasn't been provisioned yet.
-  const isAIStudioPreview = !!process.env.APPLET_ID || !!env.APPLET_ID || (process.env.K_SERVICE && process.env.K_SERVICE.startsWith('ais-'));
-  
-  const hasRealFirebase = isAIStudioPreview 
-    ? hasConfigJson 
-    : (hasConfigJson || (isProd && (!!env.VITE_FIREBASE_API_KEY || !!env.FIREBASE_API_KEY)));
-
-  const aliases: Record<string, string> = {
-    '@': path.resolve(__dirname, '.'),
-  };
-
-  if (!hasRealFirebase) {
-    console.log("No real Firebase configuration detected. Using local mock fallback.");
-    aliases['firebase/app'] = path.resolve(__dirname, './src/mockFirebase.ts');
-    aliases['firebase/auth'] = path.resolve(__dirname, './src/mockFirebase.ts');
-    aliases['firebase/firestore'] = path.resolve(__dirname, './src/mockFirebase.ts');
+  // Demo mode is chosen at runtime (lib/runtimeMode). A production bundle without a Firebase
+  // configuration can only run the local demo, so fail loudly instead of shipping it by accident.
+  const hasConfigFile = fs.existsSync(path.resolve(__dirname, 'firebase-applet-config.json'));
+  const hasEnvConfig = !!(env.VITE_FIREBASE_API_KEY && env.VITE_FIREBASE_PROJECT_ID && env.VITE_FIREBASE_APP_ID);
+  if (mode === 'production' && !hasConfigFile && !hasEnvConfig && env.VITE_ALLOW_MOCK_BUILD !== 'true') {
+    throw new Error(
+      'Production build has no Firebase configuration. Set VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID and ' +
+      'VITE_FIREBASE_APP_ID (see .env.example), or set VITE_ALLOW_MOCK_BUILD=true for a demo-only build.'
+    );
   }
 
   return {
     plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY),
-    },
     resolve: {
-      alias: aliases,
+      alias: { '@': path.resolve(__dirname, '.') },
+    },
+    build: {
+      sourcemap: false,
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify file watching is disabled to prevent flickering during agent edits.
+      // HMR can be disabled via DISABLE_HMR (used by some hosted editors).
       hmr: process.env.DISABLE_HMR !== 'true',
     },
   };

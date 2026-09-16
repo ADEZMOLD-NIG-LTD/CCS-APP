@@ -1,6 +1,7 @@
 node_modules/
 build/
 dist/
+dist-server/
 coverage/
 .DS_Store
 *.log
@@ -8,3 +9,10 @@ coverage/
 !.env.example
 firebase-applet-config.json
 !firebase-applet-config.example.json
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+# Never commit service account keys
+service-account*.json
+*-service-account.json

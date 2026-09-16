@@ -1,112 +1,86 @@
-import React from 'react';
-import { Receipt, ArrowUpRight, ArrowDownRight, Calendar, Trash2, AlertCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { ArrowDownRight, ArrowUpRight, Calendar, Edit2, Receipt, Trash2 } from 'lucide-react';
+import type { CashMovement } from '../../lib/finance';
+import type { Buyer, Supplier, Warehouse } from '../../types';
 import { cn, formatCurrency } from '../../lib/utils';
-import { JournalEntry, Supplier, Buyer, Warehouse } from '../../types';
 
 interface JournalListProps {
-  filteredEntries: JournalEntry[];
+  movements: CashMovement[];
   suppliers: Supplier[];
   buyers: Buyer[];
   warehouses: Warehouse[];
-  isAdmin: boolean;
-  onDeleteEntry: (id: string) => void;
+  canEdit: boolean;
+  canDelete: boolean;
+  onEdit: (movement: CashMovement) => void;
+  onDelete: (movement: CashMovement) => void;
 }
 
-export default function JournalList({
-  filteredEntries,
-  suppliers,
-  buyers,
-  warehouses,
-  isAdmin,
-  onDeleteEntry
-}: JournalListProps) {
+const PAGE = 50;
+const LOCKED_SOURCES = new Set(['PAYROLL', 'PETTY_CASH']);
+
+export default function JournalList({ movements, suppliers, buyers, warehouses, canEdit, canDelete, onEdit, onDelete }: JournalListProps) {
+  const [visible, setVisible] = useState(PAGE);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between px-1">
-        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Transaction History</h2>
-        <span className="text-[10px] font-bold text-slate-400">{filteredEntries.length} Records</span>
+        <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Cash book</h2>
+        <span className="text-[10px] font-bold text-slate-400">{movements.length} records</span>
       </div>
-      
-      {filteredEntries.length === 0 ? (
+
+      {movements.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 border border-dashed border-slate-300 text-center">
           <Receipt className="mx-auto text-slate-200 mb-2" size={48} />
-          <p className="text-sm text-slate-400">No entries found</p>
+          <p className="text-sm text-slate-400">No entries for this filter</p>
         </div>
       ) : (
-        filteredEntries.map(entry => (
-          <div key={entry.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm group">
-            <div className="flex justify-between items-start mb-2">
-              <div className="flex items-center gap-3">
-                <div className={cn(
-                  "w-10 h-10 rounded-xl flex items-center justify-center",
-                  entry.type === 'INFLOW' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
-                )}>
-                  {entry.type === 'INFLOW' ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className={cn(
-                      "text-[8px] font-black px-1.5 py-0.5 rounded uppercase",
-                      entry.type === 'INFLOW' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
-                    )}>
-                      {entry.category}
-                    </p>
-                    {entry.bankName && (
-                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase bg-indigo-100 text-indigo-700">
-                        {entry.bankName}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-slate-400 font-medium">{entry.paymentMethod}</span>
+        movements.slice(0, visible).map(m => {
+          const source = m.journal?.source;
+          const managedElsewhere = m.source === 'SUPPLIER_PAYMENT' || (source && LOCKED_SOURCES.has(source));
+          const origin = m.source === 'SUPPLIER_PAYMENT' ? 'Supplier payment' : source === 'PAYROLL' ? 'Payroll' : source === 'PETTY_CASH' ? 'Petty cash' : source === 'BUYER' ? 'Customer receipt' : null;
+          return (
+            <div key={`${m.source}-${m.id}`} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="flex justify-between items-start gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center shrink-0', m.direction === 'IN' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600')}>
+                    {m.direction === 'IN' ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />}
                   </div>
-                  <h3 className="font-bold text-slate-900 mt-0.5">{entry.description}</h3>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <Calendar size={10} className="text-slate-300" />
-                    <p className="text-[10px] text-slate-400">{new Date(entry.date).toLocaleDateString()}</p>
-                    <span className="text-[10px] text-slate-300">•</span>
-                    <p className="text-[10px] font-bold text-indigo-400 uppercase">
-                      {warehouses.find(w => w.id === entry.warehouseId)?.name || 'Unknown Store'}
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className={cn('text-[8px] font-black px-1.5 py-0.5 rounded uppercase', m.direction === 'IN' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{m.category.replace(/_/g, ' ')}</span>
+                      <span className="text-[10px] text-slate-400 font-medium">{m.channel}</span>
+                      {origin && <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase bg-slate-100 text-slate-600">{origin}</span>}
+                      {m.journal?.bankName && <span className="text-[8px] font-black px-1.5 py-0.5 rounded uppercase bg-indigo-100 text-indigo-700">{m.journal.bankName}</span>}
+                    </div>
+                    <h3 className="font-bold text-slate-900 mt-0.5 break-words">{m.description}</h3>
+                    <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                      <Calendar size={10} /> {new Date(m.date).toLocaleDateString()} · {warehouses.find(w => w.id === m.warehouseId)?.name || 'Unassigned'}
                     </p>
+                    {m.supplierId && <p className="text-[10px] font-bold text-slate-500 mt-1">Supplier: {suppliers.find(s => s.id === m.supplierId)?.name ?? 'Unknown'}</p>}
+                    {m.buyerId && <p className="text-[10px] font-bold text-slate-500 mt-1">Buyer: {buyers.find(b => b.id === m.buyerId)?.name ?? 'Unknown'}</p>}
                   </div>
                 </div>
-              </div>
-              <div className="text-right">
-                <p className={cn(
-                  "text-lg font-black",
-                  entry.type === 'INFLOW' ? "text-emerald-600" : "text-rose-600"
-                )}>
-                  {entry.type === 'INFLOW' ? '+' : '-'}{formatCurrency(entry.amount || 0)}
-                </p>
-                 {isAdmin && (
-                  <div className="flex items-center gap-3 mt-2 justify-end">
-                    <button 
-                      onClick={() => onDeleteEntry(entry.id)}
-                      className="text-slate-400 hover:text-rose-600 transition-colors flex items-center gap-1 text-[11px] font-bold bg-slate-50 hover:bg-rose-50 px-2 py-1 rounded-lg"
-                      title="Delete Entry"
-                    >
-                      <Trash2 size={11} /> Delete
-                    </button>
-                  </div>
-                )}
+                <div className="text-right shrink-0">
+                  <p className={cn('text-lg font-black', m.direction === 'IN' ? 'text-emerald-600' : 'text-rose-600')}>{m.direction === 'IN' ? '+' : '-'}{formatCurrency(m.amount)}</p>
+                  {managedElsewhere ? (
+                    <p className="text-[9px] text-slate-400 mt-2">Managed in {origin?.toLowerCase()}</p>
+                  ) : (
+                    <div className="flex items-center gap-2 mt-2 justify-end">
+                      {canEdit && <button onClick={() => onEdit(m)} className="text-[11px] font-bold text-indigo-600 flex items-center gap-1"><Edit2 size={11} /> Adjust</button>}
+                      {canDelete && <button onClick={() => onDelete(m)} className="text-[11px] font-bold text-rose-600 flex items-center gap-1"><Trash2 size={11} /> Delete</button>}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-            {entry.supplierId && (
-              <div className="mt-3 pt-3 border-t border-slate-50 flex items-center gap-2">
-                <AlertCircle size={12} className={entry.type === 'INFLOW' ? "text-emerald-500" : "text-rose-500"} />
-                <p className={cn("text-[10px] font-bold uppercase", entry.type === 'INFLOW' ? "text-emerald-600" : "text-rose-600")}>
-                  {entry.type === 'INFLOW' ? 'Refunded/Reversed from' : 'Charged to'}: {suppliers.find(s => s.id === entry.supplierId)?.name}
-                </p>
-              </div>
-            )}
-            {entry.buyerId && (
-              <div className="mt-3 pt-3 border-t border-slate-50 flex items-center gap-2">
-                <AlertCircle size={12} className="text-emerald-500" />
-                <p className="text-[10px] font-bold text-emerald-600 uppercase">
-                  Received from: {buyers.find(b => b.id === entry.buyerId)?.name}
-                </p>
-              </div>
-            )}
-          </div>
-        ))
+          );
+        })
+      )}
+
+      {movements.length > visible && (
+        <button onClick={() => setVisible(v => v + PAGE)} className="w-full py-3 text-xs font-bold text-indigo-600 bg-white border border-slate-200 rounded-xl">
+          Show more ({movements.length - visible} remaining)
+        </button>
       )}
     </div>
   );

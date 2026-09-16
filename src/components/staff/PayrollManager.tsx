@@ -4,64 +4,54 @@
  */
 
 import React from 'react';
-import { Calculator, Download, CreditCard, FileText } from 'lucide-react';
-import { Payroll, Staff } from '../../types';
-import { roundTo, formatCurrency } from '../../lib/utils';
+import { Banknote, Calculator, CreditCard, Download, FileText } from 'lucide-react';
+import type { Payroll, Staff } from '../../types';
+import { ROLE_LABELS } from '../../lib/permissions';
+import { NTA_2025_EFFECTIVE_MONTH } from '../../lib/finance';
+import { cn, formatCurrency, roundTo } from '../../lib/utils';
 
 interface PayrollManagerProps {
-  filteredPayrolls: Payroll[];
+  payrolls: Payroll[];
   staffList: Staff[];
-  isAdmin: boolean;
-  isAccount: boolean;
+  month: string;
+  canManage: boolean;
   submitting: boolean;
   onExportCSV: () => void;
   onGenerate: () => void;
   onViewPayslip: (payroll: Payroll) => void;
   onEditDeductions: (payroll: Payroll) => void;
+  onPay: (payrolls: Payroll[]) => void;
 }
 
-export default function PayrollManager({
-  filteredPayrolls,
-  staffList,
-  isAdmin,
-  isAccount,
-  submitting,
-  onExportCSV,
-  onGenerate,
-  onViewPayslip,
-  onEditDeductions
-}: PayrollManagerProps) {
+export default function PayrollManager({ payrolls, staffList, month, canManage, submitting, onExportCSV, onGenerate, onViewPayslip, onEditDeductions, onPay }: PayrollManagerProps) {
+  const pending = payrolls.filter(p => p.status === 'PENDING');
+  const total = payrolls.reduce((sum, p) => sum + roundTo(p.netPay || 0, 2), 0);
+  const usesNewLaw = month >= NTA_2025_EFFECTIVE_MONTH;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex-1 mr-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Total Payroll Cost</p>
-              <p className="text-xl font-black text-slate-900">
-                {formatCurrency(filteredPayrolls.reduce((sum, p) => sum + roundTo(p.netPay || 0, 2), 0))}
-              </p>
-            </div>
-            <Calculator className="text-indigo-600" size={24} />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex-1 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase">Net payroll · {month}</p>
+            <p className="text-xl font-black text-slate-900">{formatCurrency(total)}</p>
+            <p className="text-[10px] text-slate-400">{pending.length} pending · {payrolls.length - pending.length} paid</p>
           </div>
+          <Calculator className="text-indigo-600" size={24} />
         </div>
         <div className="flex gap-2">
-          {(isAdmin || isAccount) && (
-            <button
-              onClick={onExportCSV}
-              className="bg-white text-slate-600 border border-slate-200 px-4 py-4 rounded-2xl font-bold shadow-sm flex items-center gap-2 active:scale-95 transition-all"
-            >
-              <Download size={18} />
-            </button>
-          )}
-          {(isAdmin || isAccount) && (
-            <button
-              onClick={onGenerate}
-              disabled={submitting}
-              className="bg-indigo-600 text-white px-6 py-4 rounded-2xl font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-all disabled:opacity-50"
-            >
-              <CreditCard size={18} /> Generate
-            </button>
+          <button onClick={onExportCSV} disabled={payrolls.length === 0} className="bg-white text-slate-600 border border-slate-200 px-4 py-4 rounded-2xl font-bold shadow-sm disabled:opacity-40" title="Export CSV" aria-label="Export CSV">
+            <Download size={18} />
+          </button>
+          {canManage && (
+            <>
+              <button onClick={onGenerate} disabled={submitting} className="bg-indigo-600 text-white px-5 py-4 rounded-2xl font-bold shadow-lg flex items-center gap-2 disabled:opacity-50">
+                <CreditCard size={18} /> Generate
+              </button>
+              <button onClick={() => onPay(pending)} disabled={submitting || pending.length === 0} className="bg-emerald-600 text-white px-5 py-4 rounded-2xl font-bold shadow-lg flex items-center gap-2 disabled:opacity-50">
+                <Banknote size={18} /> Pay all
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -71,46 +61,46 @@ export default function PayrollManager({
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">Staff</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">Gross</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">Pension</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">PAYE</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase">Deductions</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">Net Pay</th>
-                <th className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase text-right">Action</th>
+                {['Staff', 'Gross', 'Pension', 'PAYE', 'Deductions', 'Net pay', 'Status', ''].map(h => (
+                  <th key={h} className="px-4 py-3 text-[10px] font-bold text-slate-400 uppercase whitespace-nowrap">{h}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {filteredPayrolls.length === 0 ? (
+              {payrolls.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400 text-sm">
-                    No payroll data for this month. Click generate to compute.
-                  </td>
+                  <td colSpan={8} className="px-4 py-12 text-center text-slate-400 text-sm">No payroll for this month yet.{canManage ? ' Press Generate to compute it.' : ''}</td>
                 </tr>
               ) : (
-                filteredPayrolls.map(p => {
+                payrolls.map(p => {
                   const staff = staffList.find(s => s.id === p.staffId);
+                  const editable = canManage && p.status === 'PENDING';
                   return (
-                    <tr key={p.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                    <tr key={p.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                       <td className="px-4 py-4">
-                        <p className="font-bold text-slate-900 text-sm">{staff?.name || 'Unknown'}</p>
-                        <p className="text-[9px] text-slate-400 uppercase">{staff?.role}</p>
+                        <p className="font-bold text-slate-900 text-sm">{staff?.name || 'Former staff'}</p>
+                        <p className="text-[9px] text-slate-400 uppercase">{staff ? ROLE_LABELS[staff.role] ?? staff.role : ''}</p>
                       </td>
                       <td className="px-4 py-4 text-xs font-medium text-slate-600">{formatCurrency(p.grossIncome)}</td>
                       <td className="px-4 py-4 text-xs font-medium text-rose-500">-{formatCurrency(p.pension)}</td>
                       <td className="px-4 py-4 text-xs font-medium text-rose-500">-{formatCurrency(p.paye)}</td>
-                      <td className="px-4 py-4 text-xs font-medium text-rose-500 cursor-pointer hover:bg-slate-100 rounded-lg transition-colors" onClick={() => onEditDeductions(p)} title={p.deductionsNote || "Click to add deductions (Loans, Advance, etc.)"}>
-                        {p.otherDeductions ? `-${formatCurrency(p.otherDeductions)}` : <span className="text-slate-300">Add...</span>}
-                        {p.deductionsNote && <p className="text-[9px] text-slate-400 truncate max-w-[100px]">{p.deductionsNote}</p>}
+                      <td className="px-4 py-4 text-xs font-medium text-rose-500">
+                        {editable ? (
+                          <button type="button" onClick={() => onEditDeductions(p)} className="hover:underline text-left" title={p.deductionsNote || 'Add loans, advances, etc.'}>
+                            {p.otherDeductions ? `-${formatCurrency(p.otherDeductions)}` : <span className="text-slate-300">Add…</span>}
+                          </button>
+                        ) : p.otherDeductions ? `-${formatCurrency(p.otherDeductions)}` : '—'}
+                        {p.deductionsNote && <p className="text-[9px] text-slate-400 truncate max-w-[120px]">{p.deductionsNote}</p>}
                       </td>
-                      <td className="px-4 py-4 text-sm font-black text-indigo-600 text-right">{formatCurrency(p.netPay)}</td>
-                      <td className="px-4 py-4 text-right">
-                        <button 
-                          onClick={() => onViewPayslip(p)}
-                          className="text-slate-400 hover:text-indigo-600 transition-colors"
-                        >
-                          <FileText size={16} />
-                        </button>
+                      <td className="px-4 py-4 text-sm font-black text-indigo-600">{formatCurrency(p.netPay)}</td>
+                      <td className="px-4 py-4">
+                        <span className={cn('text-[9px] font-black uppercase px-2 py-1 rounded-lg', p.status === 'PAID' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{p.status}</span>
+                      </td>
+                      <td className="px-4 py-4 text-right whitespace-nowrap">
+                        {editable && (
+                          <button type="button" onClick={() => onPay([p])} className="text-[10px] font-bold text-emerald-600 hover:underline mr-3">Pay</button>
+                        )}
+                        <button type="button" onClick={() => onViewPayslip(p)} className="text-slate-400 hover:text-indigo-600" aria-label="View payslip"><FileText size={16} /></button>
                       </td>
                     </tr>
                   );
@@ -120,16 +110,17 @@ export default function PayrollManager({
           </table>
         </div>
       </div>
-      
-      <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
-        <div className="flex gap-3">
-          <FileText className="text-amber-600 shrink-0" size={20} />
-          <div>
-            <h4 className="text-sm font-bold text-amber-900">Nigerian Tax Compliance</h4>
-            <p className="text-xs text-amber-700 mt-1">
-              Calculations include Consolidated Relief Allowance (CRA), 8% Pension contribution, and progressive PAYE rates (7% to 24%). Minimum tax of 1% applied where applicable.
-            </p>
-          </div>
+
+      <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100 flex gap-3">
+        <FileText className="text-amber-600 shrink-0" size={20} />
+        <div>
+          <h4 className="text-sm font-bold text-amber-900">Tax basis for {month}</h4>
+          <p className="text-xs text-amber-700 mt-1 leading-relaxed">
+            {usesNewLaw
+              ? 'Nigeria Tax Act 2025: first ₦800,000 of annual taxable income at 0%, then 15%–25% bands. Reliefs: employee pension (8%) and rent relief (20% of annual rent, capped at ₦500,000).'
+              : 'Personal Income Tax Act (pre-2026): Consolidated Relief Allowance, 8% pension relief, 7%–24% bands and a 1% minimum tax.'}
+            {' '}Paid payroll is locked and posted to the journal. Confirm figures with your tax adviser before filing.
+          </p>
         </div>
       </div>
     </div>

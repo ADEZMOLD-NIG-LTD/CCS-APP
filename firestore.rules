@@ -1,90 +1,522 @@
 rules_version = '2';
+
+// =============================================================================
+// Commodity Control System - Firestore Security Rules
+//
+// Model
+//  * Every tenant document carries `companyId`.
+//  * Membership lives in users/{uid}: { companyId, role, status }. Only the rules below
+//    can grant it: owners of a company they created, invitees holding a pending invite for
+//    their verified email, or company managers maintaining existing members.
+//  * Platform (super) admins are listed in platform_admins/{uid}; that collection can only
+//    be written with the Admin SDK (scripts/grant-super-admin.ts) or the Firebase console.
+//  * A company must be approved (isApproved == true, status ACTIVE) before its members can
+//    read or write any company data.
+//
+// Role groups must stay in sync with src/lib/permissions.ts. Tests: tests/rules.
+// =============================================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    function isSignedIn() {
-      return request.auth != null;
+
+    // ---------------------------------------------------------------- role groups
+    function ALL_ROLES() { return ['ADMIN', 'MANAGER', 'ACCOUNT', 'AUDITOR', 'STORE_KEEPER', 'STAFF']; }
+    function WRITERS() { return ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'STORE_KEEPER']; }
+    function OPS() { return ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF']; }
+    function OPS_STORE() { return ['ADMIN', 'MANAGER', 'ACCOUNT', 'STAFF', 'STORE_KEEPER']; }
+    function FIN() { return ['ADMIN', 'MANAGER', 'ACCOUNT']; }
+    function MGMT() { return ['ADMIN', 'MANAGER']; }
+    function OVERSIGHT() { return ['ADMIN', 'MANAGER', 'ACCOUNT', 'AUDITOR']; }
+    function STORE_ROLES() { return ['ADMIN', 'MANAGER', 'STORE_KEEPER']; }
+
+    // ---------------------------------------------------------------- identity
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function realUser() {
+      return signedIn()
+        && request.auth.token.get('firebase', {}).get('sign_in_provider', '') != 'anonymous';
+    }
+    function tokenEmail() { return request.auth.token.get('email', '').lower(); }
+    function emailVerified() { return request.auth.token.get('email_verified', false) == true; }
+    function isSuperAdmin() {
+      return realUser() && exists(/databases/$(database)/documents/platform_admins/$(uid()));
+    }
+
+    function myPath() { return /databases/$(database)/documents/users/$(uid()); }
+    function hasProfile() { return exists(myPath()); }
+    function me() { return get(myPath()).data; }
+    function profileActive(p) {
+      return p.get('status', 'ACTIVE') == 'ACTIVE' && p.get('suspended', false) != true;
+    }
+    function companyData(cid) { return get(/databases/$(database)/documents/companies/$(cid)).data; }
+    function companyOperational(cid) {
+      let c = companyData(cid);
+      return c.get('isApproved', false) == true
+        && c.get('status', 'ACTIVE') == 'ACTIVE'
+        && c.get('isDeleted', false) != true;
+    }
+
+    // Active member of an approved company. The company path is built from the caller's own
+    // profile (never from the requested document) so the check also works for list queries.
+    function member(cid) {
+      return realUser()
+        && hasProfile()
+        && me().get('companyId', '') != ''
+        && me().companyId == cid
+        && profileActive(me())
+        && companyOperational(me().companyId);
+    }
+    function role() { return me().role; }
+    function memberIn(cid, roles) { return member(cid) && role() in roles; }
+    function moduleOn(moduleId) {
+      let c = companyData(me().companyId);
+      return !('enabledModules' in c) || c.enabledModules.size() == 0 || moduleId in c.enabledModules;
+    }
+
+    // ---------------------------------------------------------------- record helpers
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function changed() { return incoming().diff(existing()).affectedKeys(); }
+    function idOk(id) { return incoming().get('id', id) == id; }
+    function notDeleted() { return existing().get('isDeleted', false) != true; }
+    function isNum(v) { return v is int || v is float; }
+    function nonNeg(field) { return !(field in incoming()) || (isNum(incoming()[field]) && incoming()[field] >= 0); }
+    function text(field, maxLen) {
+      return field in incoming() && incoming()[field] is string
+        && incoming()[field].size() > 0 && incoming()[field].size() <= maxLen;
+    }
+    function softDeleteKeys() {
+      return ['isDeleted', 'deletionReason', 'deletedBy', 'deletedByUid', 'deletedAt', 'updatedAt', 'updatedByUid'];
+    }
+    function isSoftDelete() {
+      return changed().hasOnly(softDeleteKeys())
+        && incoming().isDeleted == true
+        && text('deletionReason', 500)
+        && incoming().deletedByUid == uid();
+    }
+
+    function readTenant(roles) { return isSuperAdmin() || memberIn(resource.data.companyId, roles); }
+    function createTenant(id, roles) { return memberIn(incoming().companyId, roles) && idOk(id); }
+    function editTenant(id, roles) {
+      return memberIn(existing().companyId, roles)
+        && incoming().companyId == existing().companyId
+        && notDeleted()
+        && incoming().get('isDeleted', false) != true
+        && idOk(id);
+    }
+    function softDeleteTenant(roles) {
+      return memberIn(existing().companyId, roles) && notDeleted() && isSoftDelete();
+    }
+
+    // =========================================================================
+    // Platform
+    // =========================================================================
+
+    match /platform_admins/{adminId} {
+      allow get: if realUser() && uid() == adminId;
+      allow list, create, update, delete: if false;
     }
 
     match /companies/{companyId} {
-      allow read, write, delete: if isSignedIn();
+      allow get: if isSuperAdmin()
+        || (realUser() && resource.data.get('ownerUid', '') == uid())
+        || (realUser() && emailVerified() && resource.data.get('ownerEmail', '') == tokenEmail())
+        || (realUser() && hasProfile() && me().get('companyId', '') == companyId && profileActive(me()));
+
+      allow list: if isSuperAdmin()
+        || (realUser() && resource.data.ownerUid == uid())
+        || (realUser() && emailVerified() && resource.data.ownerEmail == tokenEmail());
+
+      // Self-service registration always starts pending; plan and modules are set on approval.
+      allow create: if isSuperAdmin() || (
+        realUser() && emailVerified()
+        && incoming().id == companyId
+        && incoming().ownerUid == uid()
+        && incoming().ownerEmail == tokenEmail()
+        && incoming().isApproved == false
+        && incoming().status == 'PENDING'
+        && text('name', 120)
+        && incoming().keys().hasOnly(['id', 'name', 'ownerUid', 'ownerEmail', 'createdAt', 'isApproved', 'status', 'requestedPlan'])
+      );
+
+      allow update: if isSuperAdmin()
+        // Company admins may rename or request deletion only.
+        || (memberIn(companyId, ['ADMIN'])
+            && changed().hasOnly(['name', 'updatedAt', 'deletionRequestedAt'])
+            && text('name', 120))
+        // Owner of a still-pending registration may correct the name / requested plan.
+        || (realUser() && existing().get('ownerUid', '') == uid()
+            && existing().get('isApproved', false) == false
+            && changed().hasOnly(['name', 'updatedAt', 'requestedPlan'])
+            && text('name', 120))
+        // Legacy companies without ownerUid: the verified owner email may claim ownership.
+        || (realUser() && emailVerified()
+            && existing().get('ownerUid', '') == ''
+            && existing().get('ownerEmail', '') == tokenEmail()
+            && changed().hasOnly(['ownerUid'])
+            && incoming().ownerUid == uid());
+
+      allow delete: if false;
     }
 
     match /users/{userId} {
-      allow read, write, delete: if isSignedIn();
+      function invite(inviteId) { return get(/databases/$(database)/documents/invites/$(inviteId)).data; }
+      function inviteAfter(inviteId) { return getAfter(/databases/$(database)/documents/invites/$(inviteId)).data; }
+
+      // The invite must be pending before this write and marked accepted by this user in the same batch.
+      function validInviteClaim() {
+        return 'inviteId' in incoming()
+          && emailVerified()
+          && invite(incoming().inviteId).status == 'PENDING'
+          && invite(incoming().inviteId).email == tokenEmail()
+          && invite(incoming().inviteId).companyId == incoming().companyId
+          && invite(incoming().inviteId).role == incoming().role
+          && invite(incoming().inviteId).get('assignedWarehouseId', null) == incoming().get('assignedWarehouseId', null)
+          && inviteAfter(incoming().inviteId).status == 'ACCEPTED'
+          && inviteAfter(incoming().inviteId).acceptedByUid == uid();
+      }
+
+      function ownsCompany(cid) {
+        let c = getAfter(/databases/$(database)/documents/companies/$(cid)).data;
+        return c.get('ownerUid', '') == uid();
+      }
+
+      function selfProfileShape() {
+        return incoming().uid == userId
+          && incoming().email == tokenEmail()
+          && incoming().get('status', 'ACTIVE') == 'ACTIVE'
+          && incoming().get('mustChangePassword', false) == false
+          && incoming().role in ALL_ROLES()
+          && incoming().keys().hasOnly(['uid', 'email', 'displayName', 'role', 'companyId', 'assignedWarehouseId',
+                                        'status', 'createdAt', 'updatedAt', 'lastPasswordUpdate', 'inviteId']);
+      }
+
+      allow get: if isSuperAdmin()
+        || (signedIn() && uid() == userId)
+        || memberIn(resource.data.companyId, MGMT());
+
+      allow list: if isSuperAdmin() || memberIn(resource.data.companyId, MGMT());
+
+      allow create: if isSuperAdmin() || (
+        realUser() && uid() == userId && selfProfileShape() && (
+          (incoming().role == 'ADMIN' && ownsCompany(incoming().companyId))
+          || validInviteClaim()
+        )
+      );
+
+      allow update: if isSuperAdmin()
+        // 1. Own housekeeping. Clearing a forced password change requires a sign-in after it was requested.
+        || (realUser() && uid() == userId
+            && changed().hasOnly(['displayName', 'lastPasswordUpdate', 'mustChangePassword', 'updatedAt'])
+            && (!changed().hasAny(['mustChangePassword'])
+                || (incoming().mustChangePassword == false
+                    && request.auth.token.auth_time * 1000 > existing().get('mustChangePasswordSetAt', timestamp.value(0)).toMillis())))
+        // 2. An owner switching to a company they own. A platform suspension (suspended == true)
+        //    still blocks this; a dismissal by another company does not.
+        || (realUser() && uid() == userId
+            && existing().get('suspended', false) != true
+            && changed().hasOnly(['companyId', 'role', 'assignedWarehouseId', 'status', 'updatedAt'])
+            && incoming().role == 'ADMIN'
+            && incoming().get('status', 'ACTIVE') == 'ACTIVE'
+            && ownsCompany(incoming().companyId))
+        // 3. Accepting an invitation.
+        || (realUser() && uid() == userId
+            && changed().hasOnly(['companyId', 'role', 'assignedWarehouseId', 'status', 'inviteId', 'updatedAt'])
+            && incoming().get('status', 'ACTIVE') == 'ACTIVE'
+            && validInviteClaim())
+        // 4. Company admins/managers maintaining other members of their company.
+        || (memberIn(existing().companyId, MGMT())
+            && userId != uid()
+            && incoming().companyId == existing().companyId
+            && changed().hasOnly(['role', 'status', 'assignedWarehouseId', 'mustChangePassword', 'mustChangePasswordSetAt', 'displayName', 'updatedAt'])
+            && incoming().role in ALL_ROLES()
+            && incoming().get('status', 'ACTIVE') in ['ACTIVE', 'SUSPENDED', 'DISMISSED']
+            && (role() == 'ADMIN' || (existing().role != 'ADMIN' && incoming().role != 'ADMIN'))
+            && (!changed().hasAny(['mustChangePasswordSetAt']) || incoming().mustChangePasswordSetAt == request.time));
+
+      allow delete: if isSuperAdmin();
+
+      match /notification_reads/{notificationId} {
+        allow read: if realUser() && uid() == userId;
+        allow create, update: if realUser() && uid() == userId && request.resource.data.keys().hasOnly(['readAt']);
+        allow delete: if realUser() && uid() == userId;
+      }
     }
 
-    match /staff/{id} {
-      allow read, write, delete: if isSignedIn();
+    match /invites/{inviteId} {
+      function inviteShape() {
+        return incoming().id == inviteId
+          && inviteId == incoming().companyId + '__' + incoming().email
+          && incoming().email is string
+          && incoming().email.matches('^[^@\\s]+@[^@\\s]+[.][^@\\s]+$')
+          && incoming().role in ALL_ROLES()
+          && incoming().status in ['PENDING', 'REVOKED']
+          && incoming().staffId is string
+          && text('companyName', 200);
+      }
+
+      allow get, list: if isSuperAdmin()
+        || (realUser() && emailVerified() && resource.data.email == tokenEmail())
+        || memberIn(resource.data.companyId, MGMT());
+
+      allow create: if memberIn(incoming().companyId, MGMT())
+        && inviteShape()
+        && incoming().status == 'PENDING'
+        && incoming().invitedByUid == uid()
+        && (role() == 'ADMIN' || incoming().role != 'ADMIN');
+
+      allow update: if isSuperAdmin()
+        || (memberIn(existing().companyId, MGMT())
+            && inviteShape()
+            && incoming().companyId == existing().companyId
+            && incoming().email == existing().email
+            && (role() == 'ADMIN' || (existing().role != 'ADMIN' && incoming().role != 'ADMIN')))
+        || (realUser() && emailVerified()
+            && existing().email == tokenEmail()
+            && existing().status == 'PENDING'
+            && changed().hasOnly(['status', 'acceptedAt', 'acceptedByUid'])
+            && incoming().status == 'ACCEPTED'
+            && incoming().acceptedByUid == uid());
+
+      allow delete: if isSuperAdmin() || memberIn(resource.data.companyId, MGMT());
     }
 
-    match /transactions/{id} {
-      allow read, write, delete: if isSignedIn();
+    match /notifications/{notificationId} {
+      allow read: if isSuperAdmin()
+        || (realUser() && hasProfile() && profileActive(me()) && resource.data.companyId == '__ALL__')
+        || member(resource.data.companyId);
+
+      allow create: if (isSuperAdmin() || memberIn(incoming().companyId, MGMT()))
+        && incoming().createdBy == uid()
+        && text('title', 120)
+        && text('message', 2000)
+        && incoming().type in ['info', 'alert', 'update'];
+
+      allow update, delete: if isSuperAdmin();
     }
 
-    match /journal/{id} {
-      allow read, write, delete: if isSignedIn();
+    match /audit_logs/{logId} {
+      allow read: if isSuperAdmin() || memberIn(resource.data.companyId, ['ADMIN', 'MANAGER', 'AUDITOR']);
+
+      // Append-only: author must be the caller and the timestamp must be server time.
+      allow create: if (isSuperAdmin() || memberIn(incoming().companyId, ALL_ROLES()))
+        && incoming().id == logId
+        && incoming().userId == uid()
+        && incoming().createdAt == request.time
+        && incoming().action in ['CREATE', 'UPDATE', 'DELETE'];
+
+      allow update, delete: if false;
     }
 
-    match /payments/{id} {
-      allow read, write, delete: if isSignedIn();
-    }
-
-    match /buyer_payments/{id} {
-      allow read, write, delete: if isSignedIn();
-    }
-
-    match /bag_transactions/{id} {
-      allow read, write, delete: if isSignedIn();
-    }
+    // =========================================================================
+    // Company data
+    // =========================================================================
 
     match /suppliers/{id} {
-      allow read, write, delete: if isSignedIn();
+      function valid() {
+        return text('name', 200) && (!('previousBalance' in incoming()) || isNum(incoming().previousBalance));
+      }
+      allow read: if readTenant(ALL_ROLES());
+      allow create: if createTenant(id, OPS()) && valid();
+      allow update: if isSuperAdmin() || (editTenant(id, OPS()) && valid()) || softDeleteTenant(MGMT());
+      allow delete: if false;
     }
 
     match /buyers/{id} {
-      allow read, write, delete: if isSignedIn();
-    }
-
-    match /store_records/{id} {
-      allow read, write, delete: if isSignedIn();
+      function valid() {
+        return text('name', 200) && (!('previousBalance' in incoming()) || isNum(incoming().previousBalance));
+      }
+      allow read: if readTenant(ALL_ROLES());
+      allow create: if createTenant(id, OPS()) && valid();
+      allow update: if isSuperAdmin() || (editTenant(id, OPS()) && valid()) || softDeleteTenant(MGMT());
+      allow delete: if false;
     }
 
     match /warehouses/{id} {
-      allow read, write, delete: if isSignedIn();
+      allow read: if readTenant(ALL_ROLES());
+      allow create: if createTenant(id, MGMT()) && text('name', 120);
+      allow update: if isSuperAdmin() || (editTenant(id, MGMT()) && text('name', 120)) || softDeleteTenant(['ADMIN']);
+      allow delete: if false;
     }
 
-    match /attendance/{id} {
-      allow read, write, delete: if isSignedIn();
+    match /transactions/{id} {
+      function valid() {
+        return incoming().type in ['PURCHASE', 'SALE', 'TRANSFER', 'PURCHASE_RETURN', 'SALES_RETURN']
+          && text('commodity', 100)
+          && isNum(incoming().netWeight) && incoming().netWeight >= 0
+          && nonNeg('grossWeight') && nonNeg('totalValue') && nonNeg('pricePerKg')
+          && nonNeg('bags') && nonNeg('supplierCreditValue') && nonNeg('supplierPricePerKg');
+      }
+      allow read: if readTenant(ALL_ROLES());
+      allow create: if valid() && (
+        (incoming().type == 'TRANSFER' && createTenant(id, MGMT()))
+        || (incoming().type != 'TRANSFER' && createTenant(id, OPS()))
+      );
+      allow update: if isSuperAdmin()
+        || (editTenant(id, FIN()) && valid() && incoming().type == existing().type)
+        || softDeleteTenant(['ADMIN']);
+      allow delete: if false;
     }
 
-    match /rosters/{id} {
-      allow read, write, delete: if isSignedIn();
+    match /payments/{id} {
+      function valid() {
+        return isNum(incoming().amount) && incoming().amount > 0
+          && incoming().supplierId is string
+          && incoming().method in ['CASH', 'BANK_TRANSFER', 'CHECK'];
+      }
+      allow read: if readTenant(ALL_ROLES());
+      allow create: if createTenant(id, FIN()) && valid();
+      allow update: if isSuperAdmin() || (editTenant(id, FIN()) && valid()) || softDeleteTenant(['ADMIN']);
+      allow delete: if false;
     }
 
-    match /payrolls/{id} {
-      allow read, write, delete: if isSignedIn();
+    match /journal/{id} {
+      function valid() {
+        return incoming().type in ['INFLOW', 'OUTFLOW']
+          && isNum(incoming().amount) && incoming().amount > 0
+          && text('category', 100);
+      }
+      allow read: if readTenant(ALL_ROLES());
+      allow create: if createTenant(id, OPS()) && valid();
+      allow update: if isSuperAdmin() || (editTenant(id, FIN()) && valid()) || softDeleteTenant(FIN());
+      allow delete: if false;
     }
 
-    match /audit_logs/{id} {
-      allow read, write, delete: if isSignedIn();
+    match /bag_transactions/{id} {
+      function valid() {
+        return incoming().type in ['STOCK_IN', 'ISSUE', 'RETURN', 'TRANSFER']
+          && incoming().packagingType in ['JUTE_BAG', 'NYLON_BAG']
+          && isNum(incoming().quantity) && incoming().quantity > 0;
+      }
+      allow read: if readTenant(ALL_ROLES());
+      allow create: if valid() && (
+        (incoming().type == 'TRANSFER' && createTenant(id, MGMT()))
+        || (incoming().type != 'TRANSFER' && createTenant(id, OPS_STORE()))
+      );
+      allow update: if isSuperAdmin() || (editTenant(id, ['ADMIN']) && valid()) || softDeleteTenant(['ADMIN']);
+      allow delete: if false;
     }
 
     match /inventory_adjustments/{id} {
-      allow read, write, delete: if isSignedIn();
+      function valid() {
+        return incoming().adjustmentDirection in ['ADD', 'REMOVE']
+          && isNum(incoming().netWeight) && incoming().netWeight >= 0
+          && text('commodity', 100)
+          && text('warehouseId', 200);
+      }
+      allow read: if readTenant(ALL_ROLES());
+      allow create: if createTenant(id, MGMT()) && valid();
+      allow update: if isSuperAdmin() || (editTenant(id, MGMT()) && valid()) || softDeleteTenant(['ADMIN']);
+      allow delete: if false;
+    }
+
+    match /store_records/{id} {
+      function valid() {
+        return incoming().type in ['IN', 'OUT', 'TRANSFER']
+          && isNum(incoming().actualWeight) && incoming().actualWeight >= 0
+          && nonNeg('nominalWeight') && nonNeg('noOfBags')
+          && text('commodity', 100);
+      }
+      allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, STORE_ROLES().concat(['AUDITOR'])) && moduleOn('store'));
+      allow create: if createTenant(id, STORE_ROLES()) && moduleOn('store') && valid();
+      allow update: if isSuperAdmin()
+        || (editTenant(id, STORE_ROLES()) && moduleOn('store') && valid())
+        || softDeleteTenant(MGMT());
+      allow delete: if false;
     }
 
     match /petty_cash/{id} {
-      allow read, write, delete: if isSignedIn();
+      function valid() {
+        return incoming().type in ['DISBURSEMENT', 'EXPENSE']
+          && isNum(incoming().amount) && incoming().amount > 0
+          && incoming().status in ['PENDING', 'RETIRED']
+          && text('warehouseId', 200);
+      }
+      allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, ALL_ROLES()) && moduleOn('petty_cash'));
+      allow create: if valid() && (
+        (incoming().type == 'EXPENSE' && createTenant(id, OPS_STORE()) && moduleOn('petty_cash'))
+        || (incoming().type == 'DISBURSEMENT' && createTenant(id, FIN()) && moduleOn('petty_cash'))
+      );
+      // Only retirement fields can change after posting; corrections are made by deleting and re-entering.
+      allow update: if isSuperAdmin()
+        || (editTenant(id, FIN()) && valid()
+            && changed().hasOnly(['status', 'retiredDate', 'retiredJournalId', 'updatedAt', 'updatedByUid']))
+        || softDeleteTenant(FIN());
+      allow delete: if false;
     }
 
-    match /test/connection {
-      allow read, write: if isSignedIn();
+    match /staff/{id} {
+      function valid() {
+        return text('name', 200)
+          && incoming().role in ALL_ROLES()
+          && incoming().status in ['ACTIVE', 'SUSPENDED', 'DISMISSED', 'INACTIVE']
+          && nonNeg('salary') && nonNeg('allowances') && nonNeg('annualRent');
+      }
+      allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, OVERSIGHT()) && moduleOn('staff'));
+      allow create: if createTenant(id, MGMT()) && moduleOn('staff') && valid()
+        && (role() == 'ADMIN' || incoming().role != 'ADMIN');
+      allow update: if isSuperAdmin()
+        || (editTenant(id, MGMT()) && moduleOn('staff') && valid()
+            && (role() == 'ADMIN' || (incoming().role != 'ADMIN' && existing().role != 'ADMIN')))
+        || (softDeleteTenant(MGMT()) && (role() == 'ADMIN' || existing().role != 'ADMIN'))
+        // The invited person links their login to the staff record.
+        || (realUser() && emailVerified()
+            && existing().get('email', '') == tokenEmail()
+            && changed().hasOnly(['uid'])
+            && incoming().uid == uid());
+      allow delete: if false;
     }
 
-    match /_health_check_/ping {
-      allow read: if true;
+    match /attendance/{id} {
+      allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, OVERSIGHT()) && moduleOn('staff'));
+      allow create, update: if memberIn(incoming().companyId, FIN()) && moduleOn('staff') && idOk(id)
+        && (resource == null || existing().companyId == incoming().companyId)
+        && incoming().status in ['PRESENT', 'ABSENT', 'LATE'];
+      allow delete: if false;
+    }
+
+    match /rosters/{id} {
+      allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, OVERSIGHT()) && moduleOn('staff'));
+      allow create, update: if memberIn(incoming().companyId, FIN()) && moduleOn('staff') && idOk(id)
+        && (resource == null || existing().companyId == incoming().companyId)
+        && incoming().shift in ['MORNING', 'AFTERNOON', 'NIGHT', 'OFF'];
+      allow delete: if false;
+    }
+
+    match /payrolls/{id} {
+      function valid() {
+        return incoming().month is string && incoming().month.matches('^[0-9]{4}-[0-9]{2}$')
+          && incoming().status in ['PENDING', 'PAID']
+          && nonNeg('grossIncome') && nonNeg('paye') && nonNeg('pension') && nonNeg('otherDeductions')
+          && isNum(incoming().netPay);
+      }
+      allow read: if isSuperAdmin() || (memberIn(resource.data.companyId, OVERSIGHT()) && moduleOn('staff'));
+      allow create: if memberIn(incoming().companyId, FIN()) && moduleOn('staff') && idOk(id) && valid()
+        && incoming().status == 'PENDING';
+      // Paid payroll is locked.
+      allow update: if isSuperAdmin()
+        || (memberIn(existing().companyId, FIN()) && moduleOn('staff')
+            && incoming().companyId == existing().companyId
+            && existing().status != 'PAID'
+            && valid());
+      allow delete: if false;
+    }
+
+    // Balance counters used to guard stock, bags and petty cash inside transactions.
+    // Document id: {companyId}~{ledger}~{warehouseId}~{item}
+    match /stock_balances/{balanceId} {
+      function balanceCompany() { return balanceId.split('~')[0]; }
+      allow get: if isSuperAdmin()
+        || (resource == null && member(balanceCompany()))
+        || (resource != null && member(resource.data.companyId));
+      allow list: if isSuperAdmin() || member(resource.data.companyId);
+      allow create, update: if memberIn(incoming().companyId, WRITERS())
+        && balanceCompany() == incoming().companyId
+        && incoming().id == balanceId
+        && isNum(incoming().quantity)
+        && incoming().ledger in ['COMMODITY', 'BAG', 'STORE', 'PETTY_CASH']
+        && (resource == null || existing().companyId == incoming().companyId);
+      allow delete: if false;
     }
   }
 }
-

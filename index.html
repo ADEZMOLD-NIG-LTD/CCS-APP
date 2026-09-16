@@ -27,18 +27,16 @@
           <div id="error-output" style="color: #ef4444; font-size: 12px; font-family: 'JetBrains Mono', 'Fira Code', monospace; margin-bottom: 20px; background: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #f1f5f9; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto;"></div>
           
           <div style="background: #eff6ff; border: 1px solid #dbeafe; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
-            <p style="color: #1e40af; font-size: 11px; font-weight: 600; margin: 0 0 8px 0;">RECOMMENDED ACTIONS:</p>
+            <p style="color: #1e40af; font-size: 11px; font-weight: 600; margin: 0 0 8px 0;">WHAT YOU CAN TRY:</p>
             <ul style="color: #3b82f6; font-size: 11px; margin: 0; padding-left: 18px; line-height: 1.6;">
-              <li>Check your <b>GitHub Secrets</b> (VITE_FIREBASE_API_KEY, etc.)</li>
-              <li>Ensure your domain is added to <b>Authorized Domains</b> in Firebase Console</li>
-              <li>Open <b>Browser DevTools (F12)</b> and check the "Console" and "Network" tabs</li>
-              <li>Verify that the latest CI/CD deployment was successful</li>
+              <li>Check your internet connection and reload the page</li>
+              <li>Update your browser, or try a different browser</li>
+              <li>If the problem continues, contact your administrator with the message above</li>
             </ul>
           </div>
-          
+
           <div style="display: flex; gap: 10px;">
-            <button onclick="window.location.reload()" style="flex: 1; background: #4f46e5; color: white; border: none; padding: 12px; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer;">RETRY BOOT</button>
-            <button onclick="window.location.href='/api/diagnostics'" style="flex: 1; background: white; color: #4f46e5; border: 1px solid #4f46e5; padding: 12px; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer;">APP STATUS</button>
+            <button onclick="window.location.reload()" style="flex: 1; background: #4f46e5; color: white; border: none; padding: 12px; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer;">RELOAD</button>
           </div>
         </div>
       </div>
@@ -56,23 +54,27 @@
           }
         }
 
-        window.onerror = function(msg, url, line, col, error) {
-          showError(`Fatal JS Error: ${msg}\nAt: ${url}:${line}:${col}\n\nEnv: ${window.location.hostname}\nConfig Error: ${window.FIREBASE_CONFIG_ERROR || 'None'}`);
+        // Only boot-time failures are shown here; once React renders, its ErrorBoundary takes over.
+        function booting() {
+          const root = document.getElementById('root');
+          return !!root && !!document.getElementById('loading-screen');
+        }
+
+        window.onerror = function(msg) {
+          if (booting()) showError(`The application failed to start: ${msg}`);
           return false;
         };
 
         window.onunhandledrejection = function(event) {
-          showError(`Unhandled Async Rejection: ${event.reason}\n\nFirebase Init Error: ${window.FIREBASE_INIT_ERROR || 'None'}`);
+          if (booting()) showError(`The application failed to start: ${event.reason}`);
         };
 
-        // If root is empty or still has loading screen after 15s, show diagnostics
         setTimeout(() => {
           const root = document.getElementById('root');
-          const loadingScreen = document.getElementById('loading-screen');
-          if (loadingScreen && root.contains(loadingScreen)) {
-            showError("BOOT_TIMEOUT: The system initialization sequence is taking too long.\n\nPossible Causes:\n- Missing environment variables in production\n- Network connectivity issues to Firebase\n- Failed asset build or serving");
-          } else if (root.innerHTML.trim() === "") {
-             showError("WHITE_SCREEN: The application crashed during React hydration.\n\nCheck Browser Console (F12) for detailed stack trace.");
+          if (booting()) {
+            showError('The application is taking too long to start. This is usually a network problem.');
+          } else if (root && root.innerHTML.trim() === '') {
+            showError('The application stopped unexpectedly while loading.');
           }
         }, 15000);
       })();

@@ -1,44 +1,36 @@
-import React from 'react';
-import { CommodityType, PackagingType } from '../../types';
-import { formatNumber } from '../../lib/utils';
+import React, { useMemo } from 'react';
+import type { PackagingType } from '../../types';
+import { cn, formatNumber } from '../../lib/utils';
 
 interface InventoryStatsProps {
   activeTab: 'COMMODITIES' | 'PACKAGING';
   inventory: Record<string, number>;
-  packagingInventory: Record<PackagingType, number>;
+  packagingInventory: Partial<Record<PackagingType, number>>;
 }
 
-export default function InventoryStats({
-  activeTab,
-  inventory,
-  packagingInventory
-}: InventoryStatsProps) {
-  const PACKAGING: PackagingType[] = ['JUTE_BAG', 'NYLON_BAG'];
+const DEFAULT_COMMODITIES = ['COCOA', 'CASHEW', 'PK'];
+const PACKAGING: PackagingType[] = ['JUTE_BAG', 'NYLON_BAG'];
 
-  const commoditiesToRender = React.useMemo(() => {
-    const keys = Object.keys(inventory || {});
-    const defaults = ['COCOA', 'CASHEW', 'PK'];
-    const otherKeys = keys.filter(k => !defaults.includes(k) && inventory[k] !== 0).sort();
-    return [...defaults, ...otherKeys];
+export default function InventoryStats({ activeTab, inventory, packagingInventory }: InventoryStatsProps) {
+  const commodities = useMemo(() => {
+    const extra = Object.keys(inventory).filter(k => !DEFAULT_COMMODITIES.includes(k) && Math.abs(inventory[k]) > 0.004).sort();
+    return [...DEFAULT_COMMODITIES, ...extra];
   }, [inventory]);
 
+  const items = activeTab === 'COMMODITIES'
+    ? commodities.map(c => ({ key: c, label: c, value: inventory[c] || 0, unit: 'kg', decimals: 2 }))
+    : PACKAGING.map(p => ({ key: p, label: p.replace('_', ' '), value: packagingInventory[p] || 0, unit: 'bags', decimals: 0 }));
+
   return (
-    <div className="grid grid-cols-3 gap-3">
-      {activeTab === 'COMMODITIES' ? (
-        commoditiesToRender.map(c => (
-          <div key={c} className="google-card p-3 text-center">
-            <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase mb-1">{c}</p>
-            <p className="text-sm font-bold text-[var(--text-primary)]">{formatNumber(inventory[c] || 0)} kg</p>
-          </div>
-        ))
-      ) : (
-        PACKAGING.map(p => (
-          <div key={p} className="google-card p-3 text-center">
-            <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase mb-1">{p.replace('_', ' ')}</p>
-            <p className="text-sm font-bold text-[var(--text-primary)]">{formatNumber(packagingInventory[p] || 0, 0)} pcs</p>
-          </div>
-        ))
-      )}
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      {items.map(item => (
+        <div key={item.key} className="google-card p-3 text-center">
+          <p className="text-[9px] font-bold text-[var(--text-secondary)] uppercase mb-1">{item.label}</p>
+          <p className={cn('text-sm font-bold', item.value < 0 ? 'text-rose-600' : 'text-[var(--text-primary)]')}>
+            {formatNumber(item.value, item.decimals)} {item.unit}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }

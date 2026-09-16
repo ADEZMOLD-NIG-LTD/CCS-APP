@@ -3,403 +3,177 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  LayoutDashboard, 
-  Users, 
-  Package, 
-  ShoppingCart, 
-  TrendingUp, 
-  TrendingDown,
-  Wallet, 
-  ArrowUpRight, 
-  ArrowDownRight,
-  Plus,
-  History,
-  AlertCircle,
-  ChevronLeft,
-  ChevronRight
+import React, { useMemo, useState } from 'react';
+import {
+  AlertCircle, ArrowDownRight, ArrowRightLeft, ArrowUpRight, ChevronLeft, ChevronRight, LayoutDashboard,
+  ShoppingCart, TrendingDown, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { db } from '../firebase';
-import { collection, onSnapshot, query, orderBy, limit, where } from 'firebase/firestore';
-import { Transaction, Payment, JournalEntry, Supplier } from '../types';
 import { useAuth } from '../contexts/AuthContext';
-import { handleFirestoreError, OperationType } from '../lib/firestore';
-import { roundTo, formatCurrency } from '../lib/utils';
-
-const getLocalDateString = (dateObj: Date = new Date()) => {
-  const year = dateObj.getFullYear();
-  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const day = String(dateObj.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const parseLocalDate = (dateStr: string) => {
-  const parts = dateStr.split('-');
-  if (parts.length === 3) {
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const day = parseInt(parts[2], 10);
-    return new Date(year, month, day);
-  }
-  return new Date(dateStr);
-};
-
-const isSameDay = (recordDateStr: string, selectedDateStr: string) => {
-  if (!recordDateStr || !selectedDateStr) return false;
-  try {
-    const d1 = new Date(recordDateStr);
-    const d2 = parseLocalDate(selectedDateStr);
-    return d1.getFullYear() === d2.getFullYear() &&
-           d1.getMonth() === d2.getMonth() &&
-           d1.getDate() === d2.getDate();
-  } catch (e) {
-    return false;
-  }
-};
-
-const formatFriendlyDate = (dateStr: string) => {
-  try {
-    const d = parseLocalDate(dateStr);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch (e) {
-    return dateStr;
-  }
-};
+import { useActiveCollection } from '../contexts/CompanyDataContext';
+import { buildCashMovements, computeSupplierBalance, summarizeCash } from '../lib/finance';
+import { isoToLocalDate, todayLocal, toLocalDateString } from '../lib/dates';
+import type { AppModuleKey, PermissionAction } from '../lib/permissions';
+import { formatCurrency, roundTo } from '../lib/utils';
 
 interface DashboardProps {
-  onNavigate: (module: any) => void;
+  onNavigate: (module: AppModuleKey) => void;
+}
+
+function shiftDay(day: string, offset: number): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return toLocalDateString(new Date(y, m - 1, d + offset));
+}
+
+function friendly(day: string): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+interface Activity {
+  id: string;
+  title: string;
+  amount: number;
+  sign: '+' | '-' | '';
+  date: string;
+  sortKey: number;
+  icon: typeof Wallet;
+  tone: string;
 }
 
 export default function Dashboard({ onNavigate }: DashboardProps) {
-  const { profile, company, isSuperAdmin } = useAuth();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [journal, setJournal] = useState<JournalEntry[]>([]);
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string>(getLocalDateString());
+  const { can } = useAuth();
+  const canSeeCash = can('view_journal');
+  const transactions = useActiveCollection('transactions').data;
+  const suppliers = useActiveCollection('suppliers').data;
+  const payments = useActiveCollection('payments').data;
+  const journal = useActiveCollection('journal').data;
+  const [day, setDay] = useState(todayLocal());
 
-  const handleNavigateDate = (days: number) => {
-    try {
-      const current = parseLocalDate(selectedDate);
-      current.setDate(current.getDate() + days);
-      setSelectedDate(getLocalDateString(current));
-    } catch (e) {
-      console.error('Error navigating date:', e);
-    }
-  };
+  const movements = useMemo(() => buildCashMovements(journal, payments), [journal, payments]);
 
-  React.useEffect(() => {
-    if (!profile?.companyId || (company && !company.isApproved && !isSuperAdmin)) return;
-
-    const qTx = query(
-      collection(db, 'transactions'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setTransactions(sorted);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'transactions'));
-
-    const qPayments = query(
-      collection(db, 'payments'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setPayments(sorted);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'payments'));
-
-    const qJournal = query(
-      collection(db, 'journal'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
-      const sorted = data.sort((a, b) => {
-        const dateA = new Date(a.date || 0).getTime();
-        const dateB = new Date(b.date || 0).getTime();
-        if (dateA !== dateB) return dateA - dateB;
-        const postA = new Date(a.postingDate || a.date || 0).getTime();
-        const postB = new Date(b.postingDate || b.date || 0).getTime();
-        return postA - postB;
-      });
-      setJournal(sorted);
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'journal'));
-
-    const qSuppliers = query(
-      collection(db, 'suppliers'),
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
-      setSuppliers(snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'suppliers'));
-
-    return () => {
-      unsubscribeTx();
-      unsubscribePayments();
-      unsubscribeJournal();
-      unsubscribeSuppliers();
-    };
-  }, [profile?.companyId]);
-
-  const stats = React.useMemo(() => {
-    const activeTransactions = transactions.filter(t => !t.isDeleted);
-    const activePayments = payments.filter(p => !p.isDeleted);
-    const activeJournal = journal.filter(e => !e.isDeleted);
-
-    // Filter transactions and journal entries specifically for the selected date
-    const dailyTransactions = activeTransactions.filter(t => isSameDay(t.date, selectedDate));
-    const dailyJournal = activeJournal.filter(e => isSameDay(e.date, selectedDate));
-
-    const totalPurchases = dailyTransactions.filter(t => t.type === 'PURCHASE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
-    const totalSales = dailyTransactions.filter(t => t.type === 'SALE').reduce((sum, t) => sum + roundTo(t.totalValue || 0, 2), 0);
-    const totalPayments = activePayments.filter(p => isSameDay(p.date, selectedDate)).reduce((sum, p) => sum + roundTo(p.amount || 0, 2), 0);
-    const totalInflow = dailyJournal.filter(e => e.type === 'INFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
-    const totalOutflow = dailyJournal.filter(e => e.type === 'OUTFLOW').reduce((sum, e) => sum + roundTo(e.amount || 0, 2), 0);
-
-    // Calculate total supplier balance (cumulative outstanding balance)
-    const totalSupplierBalance = suppliers.reduce((sum, s) => {
-      const sTx = activeTransactions.filter(t => t.supplierId === s.id);
-      const sPay = activePayments.filter(p => p.supplierId === s.id);
-      const sExp = activeJournal.filter(e => e.supplierId === s.id);
-      
-      const sPurchases = sTx.filter(t => t.type === 'PURCHASE').reduce((sSum, t) => sSum + roundTo(t.totalValue || 0, 2), 0);
-      const sReturns = sTx.filter(t => (t.type as string) === 'PURCHASE_RETURN').reduce((sSum, t) => sSum + roundTo(t.totalValue || 0, 2), 0);
-      const sSales = sTx.filter(t => t.type === 'SALE').reduce((sSum, t) => sSum + roundTo(t.totalValue || 0, 2), 0);
-      const sPayments = sPay.reduce((sSum, p) => sSum + roundTo(p.amount || 0, 2), 0);
-      const sCharges = sExp.reduce((sSum, e) => {
-        const isOutflow = e.type === 'OUTFLOW' && e.category !== 'SUPPLIER_EXPENSE_DEDUCTION';
-        return sSum + roundTo(isOutflow ? Number(e.amount) || 0 : -Number(e.amount) || 0, 2);
-      }, 0);
-      
-      const supplierBalance = roundTo((Number(s.previousBalance) || 0) + sPurchases - sReturns - sSales - sPayments - sCharges, 2);
-      return roundTo(sum + supplierBalance, 2);
-    }, 0);
-
+  const stats = useMemo(() => {
+    const daily = transactions.filter(t => isoToLocalDate(t.date) === day);
+    const sum = (type: string) => roundTo(daily.filter(t => t.type === type).reduce((s, t) => s + (t.totalValue || 0), 0), 2);
+    const cash = summarizeCash(movements, { start: day, end: day });
+    const payable = roundTo(suppliers.reduce((s, supplier) => s + Math.max(0, computeSupplierBalance(supplier, { transactions, payments, journal })), 0), 2);
     return {
-      totalPurchases,
-      totalSales,
-      totalPayments,
-      totalInflow,
-      totalOutflow,
-      totalSupplierBalance
+      sales: roundTo(sum('SALE') - sum('SALES_RETURN'), 2),
+      purchases: roundTo(sum('PURCHASE') - sum('PURCHASE_RETURN'), 2),
+      inflow: cash.inflow,
+      outflow: cash.outflow,
+      payable,
     };
-  }, [transactions, payments, journal, suppliers, selectedDate]);
+  }, [transactions, suppliers, payments, journal, movements, day]);
 
-  const recentActivity = React.useMemo(() => {
-    const activeTransactions = transactions.filter(t => !t.isDeleted);
-    const activePayments = payments.filter(p => !p.isDeleted);
-    const activeJournal = journal.filter(e => !e.isDeleted);
-
-    const activities = [
-      ...activeTransactions.map(t => ({
-        id: `tx-${t.id}`,
-        type: t.type === 'PURCHASE' ? 'PURCHASE' : 'SALE',
-        title: `${t.type === 'PURCHASE' ? 'Purchase' : 'Sale'}: ${t.commodity}`,
-        amount: t.totalValue || 0,
+  const recent = useMemo(() => {
+    const time = (doc: { postingDate?: string; date: string }) => new Date(doc.postingDate || doc.date).getTime() || 0;
+    const items: Activity[] = transactions.map(t => {
+      const label = { PURCHASE: 'Purchase', SALE: 'Sale', TRANSFER: 'Transfer', PURCHASE_RETURN: 'Purchase return', SALES_RETURN: 'Sales return' }[t.type];
+      const moneyOut = t.type === 'PURCHASE' || t.type === 'SALES_RETURN';
+      return {
+        id: `t-${t.id}`,
+        title: `${label}: ${t.commodity}${t.type === 'TRANSFER' ? ` (${t.netWeight}kg)` : ''}`,
+        amount: t.type === 'TRANSFER' ? 0 : t.totalValue || 0,
+        sign: t.type === 'TRANSFER' ? '' : moneyOut ? '-' : '+',
         date: t.date,
-        icon: t.type === 'PURCHASE' ? ArrowUpRight : ArrowDownRight,
-        color: t.type === 'PURCHASE' ? 'text-emerald-600' : 'text-blue-600',
-        bgColor: t.type === 'PURCHASE' ? 'bg-emerald-50' : 'bg-blue-50'
-      })),
-      ...activePayments.map(p => ({
-        id: `pay-${p.id}`,
-        type: 'PAYMENT',
-        title: `Payment: ${p.method}`,
-        amount: p.amount,
-        date: p.date,
-        icon: Wallet,
-        color: 'text-amber-600',
-        bgColor: 'bg-amber-50'
-      })),
-      ...activeJournal.map(e => ({
-        id: `jr-${e.id}`,
-        type: e.type,
-        title: `${e.type === 'INFLOW' ? 'Inflow' : 'Outflow'}: ${e.category}`,
-        amount: e.amount,
-        date: e.date,
-        icon: e.type === 'INFLOW' ? ArrowUpRight : ArrowDownRight,
-        color: e.type === 'INFLOW' ? 'text-emerald-600' : 'text-rose-600',
-        bgColor: e.type === 'INFLOW' ? 'bg-emerald-50' : 'bg-rose-50'
-      }))
-    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
+        sortKey: time(t),
+        icon: t.type === 'TRANSFER' ? ArrowRightLeft : moneyOut ? ArrowDownRight : ArrowUpRight,
+        tone: t.type === 'TRANSFER' ? 'bg-slate-100 text-slate-600' : moneyOut ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600',
+      };
+    });
+    if (canSeeCash) {
+      for (const m of movements) {
+        items.push({
+          id: `m-${m.source}-${m.id}`,
+          title: m.source === 'SUPPLIER_PAYMENT' ? `Supplier payment (${m.channel.toLowerCase()})` : `${m.direction === 'IN' ? 'Inflow' : 'Outflow'}: ${m.category}`,
+          amount: m.amount,
+          sign: m.direction === 'IN' ? '+' : '-',
+          date: m.date,
+          sortKey: time(m),
+          icon: m.source === 'SUPPLIER_PAYMENT' ? Wallet : m.direction === 'IN' ? ArrowUpRight : ArrowDownRight,
+          tone: m.direction === 'IN' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600',
+        });
+      }
+    }
+    return items.sort((a, b) => b.sortKey - a.sortKey).slice(0, 6);
+  }, [transactions, movements, canSeeCash]);
 
-    return activities;
-  }, [transactions, payments, journal]);
+  const cards = [
+    { label: 'Sales (net of returns)', value: stats.sales, icon: TrendingUp, tone: 'bg-blue-100 text-[var(--accent)]', show: true },
+    { label: 'Purchases (net of returns)', value: stats.purchases, icon: TrendingDown, tone: 'bg-rose-100 text-rose-600', show: true },
+    { label: 'Cash in', value: stats.inflow, icon: ArrowUpRight, tone: 'bg-emerald-100 text-emerald-600', show: canSeeCash },
+    { label: 'Cash out', value: stats.outflow, icon: ArrowDownRight, tone: 'bg-amber-100 text-amber-600', show: canSeeCash },
+  ].filter(c => c.show);
+
+  const actions: { icon: typeof Wallet; label: string; tone: string; module: AppModuleKey; permission: PermissionAction }[] = [
+    { icon: ShoppingCart, label: 'Buy', tone: 'bg-emerald-50 text-emerald-600', module: 'purchases', permission: 'create_trade' },
+    { icon: TrendingUp, label: 'Sell', tone: 'bg-blue-50 text-blue-600', module: 'sales', permission: 'create_trade' },
+    { icon: Wallet, label: 'Pay', tone: 'bg-amber-50 text-amber-600', module: 'suppliers', permission: 'record_supplier_payment' },
+    { icon: Users, label: 'Suppliers', tone: 'bg-purple-50 text-purple-600', module: 'suppliers', permission: 'view_trade' },
+  ];
 
   return (
     <div className="p-4 space-y-6 bg-[var(--bg-app)] min-h-full pb-24">
-      {/* Date Navigator Header */}
       <div className="google-card p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="bg-blue-100 w-10 h-10 rounded-xl flex items-center justify-center text-[var(--accent)]">
-            <LayoutDashboard size={20} />
-          </div>
+          <div className="bg-blue-100 w-10 h-10 rounded-xl flex items-center justify-center text-[var(--accent)]"><LayoutDashboard size={20} /></div>
           <div>
-            <h1 className="text-lg font-bold text-[var(--text-primary)]">Daily Report</h1>
-            <p className="text-xs text-[var(--text-secondary)]">
-              Daily metrics of sales, purchases, inflows, and outflows
-            </p>
+            <h1 className="text-lg font-bold text-[var(--text-primary)]">Daily report</h1>
+            <p className="text-xs text-[var(--text-secondary)]">Sales, purchases and cash movement for the selected day</p>
           </div>
         </div>
-
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => handleNavigateDate(-1)}
-            className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            title="Previous Day"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-bold bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-[var(--accent)] text-center cursor-pointer"
-          />
-
-          <button
-            onClick={() => handleNavigateDate(1)}
-            className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            title="Next Day"
-          >
-            <ChevronRight size={16} />
-          </button>
-
-          <button
-            onClick={() => setSelectedDate(getLocalDateString())}
-            className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-bold text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            Today
-          </button>
+          <button onClick={() => setDay(d => shiftDay(d, -1))} className="p-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50" aria-label="Previous day"><ChevronLeft size={16} /></button>
+          <input type="date" value={day} max={todayLocal()} onChange={e => e.target.value && setDay(e.target.value)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-bold bg-white text-center" aria-label="Day" />
+          <button onClick={() => setDay(d => (d < todayLocal() ? shiftDay(d, 1) : d))} disabled={day >= todayLocal()} className="p-2 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40" aria-label="Next day"><ChevronRight size={16} /></button>
+          <button onClick={() => setDay(todayLocal())} className="px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-bold text-gray-600 hover:bg-gray-50">Today</button>
         </div>
       </div>
 
-      {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="google-card p-4"
-        >
-          <div className="bg-blue-100 w-8 h-8 rounded-lg flex items-center justify-center text-[var(--accent)] mb-3">
-            <TrendingUp size={18} />
-          </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Daily Sales</p>
-          <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalSales || 0)}</p>
-          <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{formatFriendlyDate(selectedDate)}</p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="google-card p-4"
-        >
-          <div className="bg-rose-100 w-8 h-8 rounded-lg flex items-center justify-center text-rose-600 mb-3">
-            <TrendingDown size={18} />
-          </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Daily Purchases</p>
-          <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalPurchases || 0)}</p>
-          <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{formatFriendlyDate(selectedDate)}</p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="google-card p-4"
-        >
-          <div className="bg-emerald-100 w-8 h-8 rounded-lg flex items-center justify-center text-emerald-600 mb-3">
-            <TrendingUp size={18} />
-          </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Daily Inflow</p>
-          <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalInflow || 0)}</p>
-          <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{formatFriendlyDate(selectedDate)}</p>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="google-card p-4"
-        >
-          <div className="bg-rose-100 w-8 h-8 rounded-lg flex items-center justify-center text-rose-600 mb-3">
-            <TrendingDown size={18} />
-          </div>
-          <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">Daily Outflow</p>
-          <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(stats.totalOutflow || 0)}</p>
-          <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{formatFriendlyDate(selectedDate)}</p>
-        </motion.div>
+        {cards.map((card, i) => (
+          <motion.div key={card.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="google-card p-4">
+            <div className={`${card.tone} w-8 h-8 rounded-lg flex items-center justify-center mb-3`}><card.icon size={18} /></div>
+            <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">{card.label}</p>
+            <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(card.value)}</p>
+            <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{friendly(day)}</p>
+          </motion.div>
+        ))}
       </div>
 
-      {/* Accounts Payable Highlight */}
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="bg-[var(--text-primary)] rounded-[var(--radius-lg)] p-6 text-white shadow-lg flex items-center justify-between overflow-hidden relative"
-      >
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-[var(--text-primary)] rounded-[var(--radius-lg)] p-6 text-white shadow-lg flex items-center justify-between overflow-hidden relative">
         <div className="relative z-10">
-          <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">Total Accounts Payable</p>
-          <h2 className="text-3xl font-bold">{formatCurrency(stats.totalSupplierBalance || 0)}</h2>
-          <p className="text-[10px] text-slate-400 mt-2 flex items-center gap-1">
-            <AlertCircle size={10} /> Total outstanding balance to all suppliers
-          </p>
+          <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">Total accounts payable</p>
+          <h2 className="text-3xl font-bold">{formatCurrency(stats.payable)}</h2>
+          <p className="text-[10px] text-slate-400 mt-2 flex items-center gap-1"><AlertCircle size={10} /> Sum of what is currently owed to suppliers (as of today)</p>
         </div>
         <Wallet className="absolute -right-4 -bottom-4 text-white/5 w-32 h-32" />
       </motion.div>
 
-      {/* Recent Activity */}
       <section className="space-y-3">
-        <h2 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-wider">Recent Activity</h2>
-        <div className="space-y-3">
-          {recentActivity.map((activity, i) => (
-            <motion.div
-              key={activity.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="google-card p-4 flex items-center justify-between group cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 ${activity.bgColor} ${activity.color} rounded-xl flex items-center justify-center`}>
-                  <activity.icon size={20} />
-                </div>
-                <div>
-                  <h3 className="font-bold text-[var(--text-primary)]">{activity.title}</h3>
-                  <p className="text-xs text-[var(--text-secondary)]">{activity.date ? new Date(activity.date).toLocaleString() : 'N/A'}</p>
-                </div>
+        <h2 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-wider">Recent activity</h2>
+        {recent.length === 0 && <p className="text-xs text-[var(--text-secondary)]">Nothing recorded yet.</p>}
+        {recent.map((activity, i) => (
+          <motion.div key={activity.id} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} className="google-card p-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-10 h-10 ${activity.tone} rounded-xl flex items-center justify-center shrink-0`}><activity.icon size={20} /></div>
+              <div className="min-w-0">
+                <h3 className="font-bold text-[var(--text-primary)] truncate">{activity.title}</h3>
+                <p className="text-xs text-[var(--text-secondary)]">{activity.date ? new Date(activity.date).toLocaleDateString() : 'N/A'}</p>
               </div>
-              <div className="text-right">
-                <p className={`font-bold ${activity.color}`}>
-                  {activity.type === 'PURCHASE' || activity.type === 'EXPENSE' ? '-' : '+'}{formatCurrency(activity.amount || 0)}
-                </p>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+            </div>
+            {activity.sign && <p className="font-bold shrink-0">{activity.sign}{formatCurrency(activity.amount)}</p>}
+          </motion.div>
+        ))}
       </section>
 
-      {/* Quick Actions */}
       <section className="space-y-3">
-        <h2 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-wider">Quick Actions</h2>
+        <h2 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-wider">Quick actions</h2>
         <div className="grid grid-cols-4 gap-4">
-          {[
-            { icon: ShoppingCart, label: 'Buy', color: 'bg-emerald-50 text-emerald-600', module: 'purchases' },
-            { icon: TrendingUp, label: 'Sell', color: 'bg-blue-50 text-blue-600', module: 'sales' },
-            { icon: Wallet, label: 'Pay', color: 'bg-amber-50 text-amber-600', module: 'suppliers' },
-            { icon: Users, label: 'Suppliers', color: 'bg-purple-50 text-purple-600', module: 'suppliers' },
-          ].map((action) => (
+          {actions.filter(a => can(a.permission)).map(action => (
             <div key={action.label} className="flex flex-col items-center gap-2">
-              <button 
-                onClick={() => onNavigate(action.module)}
-                className={`${action.color} w-12 h-12 rounded-xl flex items-center justify-center shadow-sm active:scale-95 transition-all border border-transparent hover:border-current`}
-              >
+              <button onClick={() => onNavigate(action.module)} className={`${action.tone} w-12 h-12 rounded-xl flex items-center justify-center shadow-sm active:scale-95 border border-transparent hover:border-current`} aria-label={action.label}>
                 <action.icon size={20} />
               </button>
               <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase">{action.label}</span>

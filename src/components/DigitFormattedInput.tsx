@@ -3,15 +3,47 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 
-interface DigitFormattedInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
+interface DigitFormattedInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value' | 'defaultValue'> {
   value?: string | number;
   defaultValue?: string | number;
+  /** Receives the raw numeric string without separators, e.g. "1234.5". */
   onChange?: (rawValue: string) => void;
   suffix?: string;
   prefix?: string;
   name?: string;
+  /** Negative values are rejected unless explicitly allowed (e.g. opening balances). */
+  allowNegative?: boolean;
+  /** Maximum decimal places accepted (default 2). */
+  decimals?: number;
+}
+
+function formatValue(raw: string): string {
+  if (raw === '' || raw === '-') return raw;
+  const isNegative = raw.startsWith('-');
+  const body = isNegative ? raw.slice(1) : raw;
+  const [intPart, decPart] = body.split('.');
+  const formattedInt = intPart ? Number(intPart).toLocaleString('en-US') : '0';
+  const result = decPart !== undefined ? `${formattedInt}.${decPart}` : formattedInt;
+  return isNegative ? `-${result}` : result;
+}
+
+function parseValue(input: string, allowNegative: boolean, decimals: number): string {
+  let clean = input.replace(/,/g, '').trim();
+  const isNegative = allowNegative && clean.startsWith('-');
+  clean = clean.replace(/-/g, '');
+  const dotIndex = clean.indexOf('.');
+  if (dotIndex !== -1) {
+    const intPart = clean.slice(0, dotIndex).replace(/\D/g, '');
+    const decPart = decimals > 0 ? clean.slice(dotIndex + 1).replace(/\D/g, '').slice(0, decimals) : '';
+    clean = decimals > 0 ? `${intPart}.${decPart}` : intPart;
+  } else {
+    clean = clean.replace(/\D/g, '');
+  }
+  // Remove leading zeros ("007" -> "7") but keep "0" and "0.x".
+  clean = clean.replace(/^0+(?=\d)/, '');
+  return isNegative ? `-${clean}` : clean;
 }
 
 export function DigitFormattedInput({
@@ -23,117 +55,43 @@ export function DigitFormattedInput({
   name,
   className,
   placeholder,
+  allowNegative = false,
+  decimals = 2,
   ...props
 }: DigitFormattedInputProps) {
-  
-  // Format numeric string to grouped format with commas (e.g. "1234567.89" -> "1,234,567.89")
-  function formatValue(val: string): string {
-    if (val === undefined || val === null || val === '') return '';
-    
-    let str = String(val).replace(/,/g, '');
-    if (isNaN(Number(str)) && str !== '.' && str !== '-') return val;
+  const initial = parseValue(String(value ?? defaultValue ?? ''), allowNegative, decimals);
+  const [rawValue, setRawValue] = useState<string>(initial);
 
-    const parts = str.split('.');
-    const isNegative = parts[0].startsWith('-');
-    const intPart = isNegative ? parts[0].substring(1) : parts[0];
-
-    const formattedInt = intPart ? Number(intPart).toLocaleString('en-US') : '';
-    const resultInt = isNegative ? `-${formattedInt}` : formattedInt;
-
-    if (parts.length > 1) {
-      return `${resultInt}.${parts[1]}`;
-    }
-    return resultInt;
-  }
-
-  // Parse entered text back to clean raw numeric string (e.g. "1,234,567.89" -> "1234567.89")
-  function parseValue(val: string): string {
-    let clean = val.replace(/,/g, '');
-    const isNegative = clean.startsWith('-');
-    if (isNegative) {
-      clean = clean.substring(1);
-    }
-
-    const dotIndex = clean.indexOf('.');
-    if (dotIndex !== -1) {
-      const intPart = clean.substring(0, dotIndex).replace(/\D/g, '');
-      const decPart = clean.substring(dotIndex + 1).replace(/\D/g, '');
-      clean = `${intPart}.${decPart}`;
-    } else {
-      clean = clean.replace(/\D/g, '');
-    }
-
-    return isNegative ? `-${clean}` : clean;
-  }
-
-  const getInitialValue = () => {
-    const val = value !== undefined ? value : (defaultValue !== undefined ? defaultValue : '');
-    return formatValue(String(val));
-  };
-
-  const [displayValue, setDisplayValue] = useState<string>(getInitialValue);
-  const [rawValue, setRawValue] = useState<string>(() => parseValue(String(value !== undefined ? value : (defaultValue !== undefined ? defaultValue : ''))));
-
-  // Sync with value prop updates from parent
   useEffect(() => {
     if (value !== undefined) {
-      const parsed = parseValue(String(value));
-      setRawValue(parsed);
-      setDisplayValue(formatValue(parsed));
+      setRawValue(parseValue(String(value), allowNegative, decimals));
     }
-  }, [value]);
+  }, [value, allowNegative, decimals]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const inputElement = e.target;
-    const originalPos = inputElement.selectionStart || 0;
-    const valueBefore = inputElement.value;
-
-    const rawVal = parseValue(valueBefore);
-    const formatted = formatValue(rawVal);
-
-    // Calculate cursor shift due to added/removed commas
-    const commasBefore = (valueBefore.substring(0, originalPos).match(/,/g) || []).length;
-    const commasAfter = (formatted.substring(0, originalPos).match(/,/g) || []).length;
-    const shift = commasAfter - commasBefore;
-
-    setDisplayValue(formatted);
-    setRawValue(rawVal);
-    
-    if (onChange) {
-      onChange(rawVal);
-    }
-
-    // Restore cursor position in next tick after React render
-    requestAnimationFrame(() => {
-      const newPos = Math.max(0, originalPos + shift);
-      inputElement.setSelectionRange(newPos, newPos);
-    });
+    const next = parseValue(e.target.value, allowNegative, decimals);
+    setRawValue(next);
+    onChange?.(next);
   };
 
   return (
     <div className="relative w-full">
       {prefix && (
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm select-none z-10">
-          {prefix}
-        </span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm select-none z-10">{prefix}</span>
       )}
       <input
         type="text"
-        value={displayValue}
+        inputMode="decimal"
+        value={formatValue(rawValue)}
         onChange={handleChange}
         placeholder={placeholder}
-        className={`${className} ${prefix ? 'pl-8' : ''} ${suffix ? 'pr-12' : ''}`}
+        className={`${className ?? ''} ${prefix ? 'pl-8' : ''} ${suffix ? 'pr-12' : ''}`}
         {...props}
       />
       {suffix && (
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold select-none z-10">
-          {suffix}
-        </span>
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold select-none z-10">{suffix}</span>
       )}
-      {/* Hidden input field containing the raw value so standard form submissions work out of the box */}
-      {name && (
-        <input type="hidden" name={name} value={rawValue} />
-      )}
+      {name && <input type="hidden" name={name} value={rawValue} />}
     </div>
   );
 }

@@ -1,44 +1,85 @@
-name: Master CI/CD Pipeline
+name: CI/CD
 
 on:
   push:
-    branches:
-      - main
-      - master
-      - staging
-      - develop
+    branches: [main, master, staging, develop]
   pull_request:
-    branches:
-      - main
-      - master
-      - staging
+    branches: [main, master, staging]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build_and_deploy:
-    name: Build and Deploy
+  verify:
+    name: Typecheck, tests, build
     runs-on: ubuntu-latest
-    environment:
-      name: ${{ github.ref_name == 'main' && 'production' || github.ref_name == 'master' && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
-    env:
-      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM }}
-    
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 22
+          cache: npm
 
-      - name: Install Dependencies
+      # The Firestore emulator used by the security-rules tests needs Java.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build Application
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Firestore security rules tests
+        run: npm run test:rules
+
+      # Compile check only (no secrets on pull requests); deploy builds use the real config.
+      - name: Build (compile check)
         run: npm run build
         env:
-          VITE_APP_ENV: ${{ github.ref_name == 'main' && 'production' || github.ref_name == 'master' && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
+          VITE_ALLOW_MOCK_BUILD: 'true'
+
+  deploy:
+    name: Build and deploy
+    needs: verify
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ (github.ref_name == 'main' || github.ref_name == 'master') && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT || secrets.FIREBASE_SERVICE_ACCOUNT_COMMODITY_CONTROL_SYSTEM }}
+      FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || secrets.FIREBASE_PROJECT_ID }}
+      IS_LIVE: ${{ github.ref_name == 'main' || github.ref_name == 'master' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Fails if the Firebase web configuration is missing (see vite.config.ts).
+      - name: Build web app
+        run: npx vite build
+        env:
+          VITE_APP_ENV: ${{ (github.ref_name == 'main' || github.ref_name == 'master') && 'production' || github.ref_name == 'staging' && 'staging' || 'development' }}
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY || secrets.FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN || secrets.FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID || secrets.FIREBASE_PROJECT_ID }}
@@ -47,14 +88,26 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID || secrets.FIREBASE_APP_ID }}
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID || secrets.FIREBASE_MEASUREMENT_ID }}
           VITE_FIREBASE_FIRESTORE_DATABASE_ID: ${{ secrets.VITE_FIREBASE_FIRESTORE_DATABASE_ID || secrets.FIREBASE_FIRESTORE_DATABASE_ID }}
-          VITE_APP_URL: ${{ secrets.APP_URL || secrets.VITE_APP_URL }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          VITE_SUPPORT_EMAIL: ${{ vars.VITE_SUPPORT_EMAIL }}
+
+      # Rules are deployed before hosting so the new client never runs against old rules.
+      # Non-production branches deploy rules only when their environment points at its own
+      # Firebase project (set the FIRESTORE_DEPLOY variable to "true" on that environment).
+      - name: Deploy Firestore rules and indexes
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' && (env.IS_LIVE == 'true' || vars.FIRESTORE_DEPLOY == 'true') }}
+        run: |
+          umask 077
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/service-account.json"
+          GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/service-account.json" \
+            npx --yes firebase-tools@15 deploy --only firestore:rules,firestore:indexes \
+            --project "$FIREBASE_PROJECT_ID" --non-interactive
+          rm -f "$RUNNER_TEMP/service-account.json"
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
-        if: ${{ github.event_name == 'push' && env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
         with:
-          repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ env.FIREBASE_SERVICE_ACCOUNT }}'
-          channelId: ${{ github.ref_name == 'main' && 'live' || github.ref_name == 'master' && 'live' || github.ref_name }}
-          projectId: ${{ secrets.VITE_FIREBASE_PROJECT_ID || secrets.FIREBASE_PROJECT_ID }}
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ env.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: ${{ env.IS_LIVE == 'true' && 'live' || github.ref_name }}
+          projectId: ${{ env.FIREBASE_PROJECT_ID }}

@@ -4,181 +4,142 @@
  */
 
 import React from 'react';
-import { Users, Lock, Clock, XCircle, Briefcase, Phone, Building2, UserMinus, UserCheck, UserX, FileText, Trash2, Mail } from 'lucide-react';
-import { Staff, Roster, Warehouse } from '../../types';
-import { cn, formatCurrency } from '../../lib/utils';
+import { Briefcase, Building2, Clock, FileText, KeyRound, Lock, Mail, Phone, Send, Trash2, UserCheck, UserMinus, UserX, Users, XCircle } from 'lucide-react';
+import type { Invite, Roster, Staff, UserProfile, Warehouse } from '../../types';
+import { ROLE_LABELS, type CompanyRole } from '../../lib/permissions';
+import { cn, formatCurrency, normalizeEmail } from '../../lib/utils';
 
 interface RosterManagerProps {
-  filteredStaff: Staff[];
+  staff: Staff[];
   rosters: Roster[];
   warehouses: Warehouse[];
   selectedDate: string;
+  actorRole: CompanyRole | null;
+  currentUid: string;
   canManageStaff: boolean;
-  onUpdateRoster: (staffId: string, shift: 'MORNING' | 'AFTERNOON' | 'NIGHT' | 'OFF') => void;
-  onUpdateStatus: (staffId: string, status: 'ACTIVE' | 'SUSPENDED' | 'DISMISSED') => void;
-  onResetPassword: (userId: string) => void;
-  onSendResetEmail: (email: string) => void;
+  canManageRoster: boolean;
+  invitesByEmail: Record<string, Invite>;
+  usersById: Record<string, UserProfile>;
+  onUpdateRoster: (staff: Staff, shift: Roster['shift']) => void;
+  onUpdateStatus: (staff: Staff, status: Staff['status']) => void;
+  onInvite: (staff: Staff) => void;
+  onSendPasswordEmail: (staff: Staff) => void;
+  onForcePasswordChange: (staff: Staff) => void;
   onEdit: (staff: Staff) => void;
-  onDelete: (staffId: string) => void;
+  onDelete: (staff: Staff) => void;
+}
+
+function IconButton({ title, onClick, className, children }: { title: string; onClick: () => void; className: string; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} title={title} aria-label={title} className={cn('text-slate-400 transition-colors p-1', className)}>
+      {children}
+    </button>
+  );
 }
 
 export default function RosterManager({
-  filteredStaff,
-  rosters,
-  warehouses,
-  selectedDate,
-  canManageStaff,
-  onUpdateRoster,
-  onUpdateStatus,
-  onResetPassword,
-  onSendResetEmail,
-  onEdit,
-  onDelete
+  staff, rosters, warehouses, selectedDate, actorRole, currentUid, canManageStaff, canManageRoster,
+  invitesByEmail, usersById, onUpdateRoster, onUpdateStatus, onInvite, onSendPasswordEmail, onForcePasswordChange, onEdit, onDelete,
 }: RosterManagerProps) {
+  if (staff.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl p-12 border border-dashed border-slate-300 text-center">
+        <Users className="mx-auto text-slate-200 mb-2" size={48} />
+        <p className="text-sm text-slate-400">No staff members found for this warehouse</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
-      {filteredStaff.length === 0 ? (
-        <div className="bg-white rounded-2xl p-12 border border-dashed border-slate-300 text-center">
-          <Users className="mx-auto text-slate-200 mb-2" size={48} />
-          <p className="text-sm text-slate-400">No staff members found for this warehouse</p>
-        </div>
-      ) : (
-        filteredStaff.map(staff => {
-          const roster = rosters.find(r => r.staffId === staff.id && r.date === selectedDate);
-          return (
-            <div key={staff.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm group">
-              <div className="flex justify-between items-start">
-                <div className="flex gap-3">
-                  <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg">
-                    {staff.name.charAt(0)}
+      {staff.map(member => {
+        const roster = rosters.find(r => r.staffId === member.id && r.date === selectedDate);
+        const email = normalizeEmail(member.email);
+        const pendingInvite = email ? invitesByEmail[email] : undefined;
+        const account = member.uid ? usersById[member.uid] : undefined;
+        const isSelf = member.uid === currentUid;
+        const protectedAdmin = member.role === 'ADMIN' && actorRole !== 'ADMIN';
+        const canAct = canManageStaff && !isSelf && !protectedAdmin;
+
+        return (
+          <div key={member.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex justify-between items-start gap-3">
+              <div className="flex gap-3 min-w-0">
+                <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg shrink-0">
+                  {member.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-bold text-slate-900 flex flex-wrap items-center gap-2">
+                    {member.name}
+                    {member.uid ? (
+                      <span className={cn('text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase flex items-center gap-0.5', account?.status && account.status !== 'ACTIVE' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600')}>
+                        <Lock size={8} /> {account?.status && account.status !== 'ACTIVE' ? `Login ${account.status.toLowerCase()}` : 'Login active'}
+                      </span>
+                    ) : pendingInvite ? (
+                      <span className="bg-amber-50 text-amber-600 text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase">Invite pending</span>
+                    ) : null}
+                    {member.status !== 'ACTIVE' && (
+                      <span className={cn('text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase flex items-center gap-0.5', member.status === 'SUSPENDED' ? 'bg-amber-50 text-amber-600' : 'bg-rose-50 text-rose-600')}>
+                        {member.status === 'SUSPENDED' ? <Clock size={8} /> : <XCircle size={8} />} {member.status}
+                      </span>
+                    )}
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                    <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium"><Briefcase size={10} /> {ROLE_LABELS[member.role] ?? member.role}</span>
+                    <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium"><Phone size={10} /> {member.phone}</span>
+                    {member.assignedWarehouseId && (
+                      <span className="flex items-center gap-1 text-[10px] text-indigo-500 font-bold">
+                        <Building2 size={10} /> {warehouses.find(w => w.id === member.assignedWarehouseId)?.name || 'Store'}
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                      {staff.name}
-                      {staff.uid && (
-                        <span className="bg-emerald-50 text-emerald-600 text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter flex items-center gap-0.5">
-                          <Lock size={8} /> Login Enabled
-                        </span>
-                      )}
-                      {staff.status !== 'ACTIVE' && (
-                        <span className={cn(
-                          "text-[8px] px-1.5 py-0.5 rounded-full font-black uppercase tracking-tighter flex items-center gap-0.5",
-                          staff.status === 'SUSPENDED' ? "bg-amber-50 text-amber-600" : "bg-rose-50 text-rose-600"
-                        )}>
-                          {staff.status === 'SUSPENDED' ? <Clock size={8} /> : <XCircle size={8} />} {staff.status}
-                        </span>
-                      )}
-                    </h3>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                      <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium">
-                        <Briefcase size={10} /> {staff.role}
-                      </span>
-                      <span className="flex items-center gap-1 text-[10px] text-slate-500 font-medium">
-                        <Phone size={10} /> {staff.phone}
-                      </span>
-                      {staff.assignedWarehouseId && (
-                        <span className="flex items-center gap-1 text-[10px] text-indigo-500 font-bold">
-                          <Building2 size={10} /> {warehouses.find(w => w.id === staff.assignedWarehouseId)?.name || 'Store'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-3 flex gap-2">
+                  {canManageRoster && member.status === 'ACTIVE' && (
+                    <div className="mt-3 flex flex-wrap gap-2">
                       {(['MORNING', 'AFTERNOON', 'NIGHT', 'OFF'] as const).map(shift => (
                         <button
                           key={shift}
-                          onClick={() => onUpdateRoster(staff.id, shift)}
-                          className={cn(
-                            "px-2 py-1 rounded text-[8px] font-black uppercase tracking-tighter transition-all",
-                            roster?.shift === shift 
-                              ? "bg-indigo-600 text-white shadow-md scale-105" 
-                              : "bg-slate-50 text-slate-400 hover:bg-slate-100"
-                          )}
+                          type="button"
+                          onClick={() => onUpdateRoster(member, shift)}
+                          className={cn('px-2 py-1 rounded text-[8px] font-black uppercase', roster?.shift === shift ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-50 text-slate-400 hover:bg-slate-100')}
                         >
                           {shift}
                         </button>
                       ))}
                     </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-black text-slate-900">{formatCurrency((staff.salary || 0) + (staff.allowances || 0))}</p>
-                  <p className="text-[9px] text-slate-400 uppercase">Gross Salary</p>
-                  {canManageStaff && (
-                    <div className="flex items-center justify-end gap-2 mt-2">
-                      {staff.status === 'ACTIVE' ? (
-                        <button 
-                          onClick={() => onUpdateStatus(staff.id, 'SUSPENDED')}
-                          title="Suspend Staff"
-                          className="text-slate-400 hover:text-amber-600 transition-colors"
-                        >
-                          <UserMinus size={14} />
-                        </button>
-                      ) : (staff.status === 'SUSPENDED' || staff.status === 'DISMISSED') ? (
-                        <button 
-                          onClick={() => onUpdateStatus(staff.id, 'ACTIVE')}
-                          title={staff.status === 'SUSPENDED' ? "Recall Staff" : "Reinstate Staff"}
-                          className="text-slate-400 hover:text-emerald-600 transition-colors"
-                        >
-                          <UserCheck size={14} />
-                        </button>
-                      ) : null}
-
-                      <button 
-                        onClick={() => onResetPassword(staff.uid || staff.id || staff.email!)}
-                        disabled={!staff.email}
-                        title={staff.email ? "Force Password Policy Reset & Send Reset Email" : "No email address found for this staff member"}
-                        className={cn(
-                          "transition-colors",
-                          staff.email ? "text-slate-400 hover:text-amber-600" : "text-slate-200 cursor-not-allowed"
-                        )}
-                      >
-                        <Lock size={14} />
-                      </button>
-
-                      <button 
-                        onClick={() => onSendResetEmail(staff.email!)}
-                        disabled={!staff.email}
-                        title={staff.email ? "Send Password Reset Email" : "No email address found for this staff member"}
-                        className={cn(
-                          "transition-colors",
-                          staff.email ? "text-slate-400 hover:text-indigo-600" : "text-slate-200 cursor-not-allowed"
-                        )}
-                      >
-                        <Mail size={14} />
-                      </button>
-                      
-                      {staff.status !== 'DISMISSED' && (
-                        <button 
-                          onClick={() => onUpdateStatus(staff.id, 'DISMISSED')}
-                          title="Dismiss Staff"
-                          className="text-slate-400 hover:text-rose-600 transition-colors"
-                        >
-                          <UserX size={14} />
-                        </button>
-                      )}
-
-                      <button 
-                        onClick={() => onEdit(staff)}
-                        title="Edit Staff"
-                        className="text-slate-400 hover:text-indigo-600 transition-colors"
-                      >
-                        <FileText size={14} />
-                      </button>
-                      <button 
-                        onClick={() => onDelete(staff.id)}
-                        title="Delete Staff"
-                        className="text-slate-400 hover:text-rose-600 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
                   )}
                 </div>
               </div>
+              <div className="text-right shrink-0">
+                <p className="text-sm font-black text-slate-900">{formatCurrency((member.salary || 0) + (member.allowances || 0))}</p>
+                <p className="text-[9px] text-slate-400 uppercase">Monthly gross</p>
+                {canAct && (
+                  <div className="flex items-center justify-end gap-1 mt-2">
+                    {member.status === 'ACTIVE' ? (
+                      <IconButton title="Suspend" onClick={() => onUpdateStatus(member, 'SUSPENDED')} className="hover:text-amber-600"><UserMinus size={14} /></IconButton>
+                    ) : (
+                      <IconButton title="Reinstate" onClick={() => onUpdateStatus(member, 'ACTIVE')} className="hover:text-emerald-600"><UserCheck size={14} /></IconButton>
+                    )}
+                    {email && !member.uid && (
+                      <IconButton title={pendingInvite ? 'Resend invitation' : 'Invite to log in'} onClick={() => onInvite(member)} className="hover:text-indigo-600"><Send size={14} /></IconButton>
+                    )}
+                    {email && (
+                      <IconButton title="Send password email" onClick={() => onSendPasswordEmail(member)} className="hover:text-indigo-600"><Mail size={14} /></IconButton>
+                    )}
+                    {member.uid && account && (
+                      <IconButton title="Require a new password at next sign-in" onClick={() => onForcePasswordChange(member)} className="hover:text-amber-600"><KeyRound size={14} /></IconButton>
+                    )}
+                    {member.status !== 'DISMISSED' && (
+                      <IconButton title="Dismiss" onClick={() => onUpdateStatus(member, 'DISMISSED')} className="hover:text-rose-600"><UserX size={14} /></IconButton>
+                    )}
+                    <IconButton title="Edit" onClick={() => onEdit(member)} className="hover:text-indigo-600"><FileText size={14} /></IconButton>
+                    <IconButton title="Remove" onClick={() => onDelete(member)} className="hover:text-rose-600"><Trash2 size={14} /></IconButton>
+                  </div>
+                )}
+              </div>
             </div>
-          );
-        })
-      )}
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -3,446 +3,308 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
-import { Truck, Calculator, Users } from 'lucide-react';
-import { CommodityType, Warehouse, Supplier, Buyer, UserProfile, CalculationMethod, Transaction } from '../../types';
-import { cn, formatNumber, formatCurrency } from '../../lib/utils';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Calculator, Truck, Users } from 'lucide-react';
+import type { Buyer, CalculationMethod, DeductionParams, Supplier, Transaction, Warehouse } from '../../types';
+import { benchmarkFor, computeNetWeight } from '../../lib/finance';
+import { isoToLocalDate, todayLocal } from '../../lib/dates';
+import { cn, formatCurrency, formatNumber, roundTo, toNumber } from '../../lib/utils';
 import { DigitFormattedInput } from '../DigitFormattedInput';
+import CommodityPicker from '../inventory/CommodityPicker';
 
-interface SaleFormProps {
-  profile: UserProfile | null;
-  commodity: CommodityType;
-  setCommodity: (c: CommodityType) => void;
+export interface SaleInput {
+  date: string;
+  commodity: string;
   calculationMethod: CalculationMethod;
-  setCalculationMethod: (m: CalculationMethod) => void;
-  grossWeight: number | string;
-  setGrossWeight: (w: number | string) => void;
-  moistureActual: number | string;
-  setMoistureActual: (m: number | string) => void;
-  moistureBenchmark: number | string;
-  setMoistureBenchmark: (m: number | string) => void;
-  tareWeight: number | string;
-  setTareWeight: (w: number | string) => void;
-  moldWeight: number | string;
-  setMoldWeight: (w: number | string) => void;
-  otherDeduction: number | string;
-  setOtherDeduction: (d: number | string) => void;
   isDirectDelivery: boolean;
-  setIsDirectDelivery: (d: boolean) => void;
-  isSupplierBuyer: boolean;
-  setIsSupplierBuyer: (s: boolean) => void;
-  selectedWarehouseId: string;
-  setSelectedWarehouseId: (id: string) => void;
-  warehouses: Warehouse[];
-  suppliers: Supplier[];
-  buyers: Buyer[];
-  inventory: Record<CommodityType, number>;
+  warehouseId: string;
+  buyerId?: string;
+  supplierId?: string;
+  supplierPricePerKg?: number;
+  supplierCreditValue?: number;
+  storeRecordId: string;
+  grossWeight: number;
   netWeight: number;
-  price: number | string;
-  setPrice: (p: number | string) => void;
-  manualNetWeight: number | string;
-  setManualNetWeight: (w: number | string) => void;
-  manualTotalValue: number | string;
-  setManualTotalValue: (v: number | string) => void;
-  transactionDate: string;
-  setTransactionDate: (d: string) => void;
-  submitting: boolean;
-  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
-  onCancel: () => void;
-  editingTransaction?: Transaction | null;
+  bags: number;
+  pricePerKg: number;
+  totalValue: number;
+  truckNo: string;
+  driverName: string;
+  driverPhone: string;
+  staffName: string;
+  notes: string;
+  deductions: DeductionParams;
 }
 
-const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
+interface SaleFormProps {
+  editingTransaction: Transaction | null;
+  warehouses: Warehouse[];
+  buyers: Buyer[];
+  suppliers: Supplier[];
+  defaultWarehouseId: string;
+  defaultStaffName: string;
+  available: (warehouseId: string, commodity: string) => number;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (input: SaleInput) => void;
+}
 
-export default function SaleForm({
-  profile,
-  commodity,
-  setCommodity,
-  grossWeight,
-  setGrossWeight,
-  moistureActual,
-  setMoistureActual,
-  moistureBenchmark,
-  setMoistureBenchmark,
-  tareWeight,
-  setTareWeight,
-  moldWeight,
-  setMoldWeight,
-  otherDeduction,
-  setOtherDeduction,
-  isDirectDelivery,
-  setIsDirectDelivery,
-  isSupplierBuyer,
-  setIsSupplierBuyer,
-  selectedWarehouseId,
-  setSelectedWarehouseId,
-  warehouses,
-  suppliers,
-  buyers,
-  inventory,
-  netWeight,
-  price,
-  setPrice,
-  manualNetWeight,
-  setManualNetWeight,
-  manualTotalValue,
-  setManualTotalValue,
-  transactionDate,
-  setTransactionDate,
-  submitting,
-  onSubmit,
-  onCancel,
-  calculationMethod,
-  setCalculationMethod,
-  editingTransaction
-}: SaleFormProps) {
-  const [isCustomCommodity, setIsCustomCommodity] = React.useState<boolean>(() => {
-    return !!editingTransaction && !COMMODITIES.includes(editingTransaction.commodity);
-  });
-  const [customName, setCustomName] = React.useState<string>(() => {
-    return editingTransaction && !COMMODITIES.includes(editingTransaction.commodity)
-      ? editingTransaction.commodity
-      : '';
-  });
+const field = 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm';
 
-  const handleCustomNameChange = (val: string) => {
-    setCustomName(val);
-    setCommodity(val.trim() || 'Custom Item');
+function Toggle({ on, onChange, label, description, icon: Icon, color }: { on: boolean; onChange: (v: boolean) => void; label: string; description: string; icon: typeof Truck; color: string }) {
+  return (
+    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-2 text-sm font-bold text-slate-700"><Icon size={18} className="text-slate-400" /> {label}</span>
+        <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={() => onChange(!on)} className={cn('w-12 h-6 rounded-full relative', on ? color : 'bg-slate-300')}>
+          <span className={cn('absolute top-1 w-4 h-4 bg-white rounded-full transition-all', on ? 'left-7' : 'left-1')} />
+        </button>
+      </div>
+      <p className="text-[10px] text-slate-500 mt-2 leading-tight">{description}</p>
+    </div>
+  );
+}
+
+export default function SaleForm({ editingTransaction: tx, warehouses, buyers, suppliers, defaultWarehouseId, defaultStaffName, available, submitting, onCancel, onSubmit }: SaleFormProps) {
+  const [isDirectDelivery, setIsDirectDelivery] = useState(!!tx?.isDirectDelivery);
+  const [supplierAsBuyer, setSupplierAsBuyer] = useState(!!tx && !tx.buyerId && !!tx.supplierId && !tx.isDirectDelivery);
+  const [date, setDate] = useState(tx ? isoToLocalDate(tx.date) || todayLocal() : todayLocal());
+  const [warehouseId, setWarehouseId] = useState(tx?.warehouseId ?? defaultWarehouseId);
+  const [buyerId, setBuyerId] = useState(tx?.buyerId ?? '');
+  const [supplierId, setSupplierId] = useState(tx?.supplierId ?? '');
+  const [supplierPrice, setSupplierPrice] = useState(String(tx?.supplierPricePerKg ?? ''));
+  const [commodity, setCommodity] = useState(tx?.commodity ?? 'COCOA');
+  const [method, setMethod] = useState<CalculationMethod>(tx?.calculationMethod ?? 'DIRECT');
+  const [bags, setBags] = useState(String(tx?.noOfBags ?? tx?.bags ?? ''));
+  const [gross, setGross] = useState(String(tx?.grossWeight ?? ''));
+  const [price, setPrice] = useState(String(tx?.pricePerKg ?? ''));
+  const [moistureActual, setMoistureActual] = useState(String(tx?.deductions?.moistureActual ?? benchmarkFor(commodity)));
+  const [moistureBenchmark, setMoistureBenchmark] = useState(String(tx?.deductions?.moistureBenchmark ?? benchmarkFor(commodity)));
+  const [tare, setTare] = useState(String(tx?.deductions?.tareWeight ?? ''));
+  const [mold, setMold] = useState(String(tx?.deductions?.moldWeight ?? ''));
+  const [other, setOther] = useState(String(tx?.deductions?.otherDeduction ?? ''));
+  const [manualNet, setManualNet] = useState(String(tx?.calculationMethod === 'MANUAL' ? tx.netWeight : ''));
+  const [manualTotal, setManualTotal] = useState(String(tx?.calculationMethod === 'MANUAL' ? tx.totalValue ?? '' : ''));
+  const [storeRecordId, setStoreRecordId] = useState(tx?.storeRecordId ?? '');
+  const [truckNo, setTruckNo] = useState(tx?.truckNo ?? '');
+  const [driverName, setDriverName] = useState(tx?.driverName ?? '');
+  const [driverPhone, setDriverPhone] = useState(tx?.driverPhone ?? '');
+  const [staffName, setStaffName] = useState(tx?.staffName ?? defaultStaffName);
+  const [notes, setNotes] = useState(tx?.notes ?? '');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!tx) {
+      setMoistureBenchmark(String(benchmarkFor(commodity)));
+      setMoistureActual(String(benchmarkFor(commodity)));
+    }
+  }, [commodity, tx]);
+
+  const calc = useMemo(() => computeNetWeight({ grossWeight: gross, moistureActual, moistureBenchmark, tareWeight: tare, moldWeight: mold, otherDeduction: other }), [gross, moistureActual, moistureBenchmark, tare, mold, other]);
+  const netWeight = method === 'MANUAL' ? toNumber(manualNet) : calc.netWeight;
+  const totalValue = method === 'MANUAL' ? toNumber(manualTotal) : roundTo(calc.netWeight * toNumber(price), 2);
+
+  // Stock available for this sale, adding back the original sale when editing.
+  const stock = useMemo(() => {
+    if (isDirectDelivery || !warehouseId) return null;
+    let kg = available(warehouseId, commodity);
+    if (tx && !tx.isDirectDelivery && tx.warehouseId === warehouseId && tx.commodity === commodity) kg += tx.netWeight;
+    return roundTo(kg, 2);
+  }, [isDirectDelivery, warehouseId, commodity, available, tx]);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    const grossWeight = roundTo(toNumber(gross), 2);
+    if (!isDirectDelivery && !warehouseId) return setError('Select the warehouse the goods leave from.');
+    if (supplierAsBuyer ? !supplierId : !buyerId) return setError(supplierAsBuyer ? 'Select the supplier who is buying.' : 'Select the buyer.');
+    if (isDirectDelivery && !supplierId) return setError('Select the supplier delivering the goods.');
+    if (grossWeight <= 0) return setError('Gross weight must be greater than zero.');
+    if (netWeight <= 0) return setError('Net weight must be greater than zero.');
+    if (netWeight > grossWeight) return setError('Net weight cannot exceed gross weight.');
+    if (totalValue <= 0) return setError('Sale value must be greater than zero.');
+    if (stock !== null && netWeight > stock) return setError(`Insufficient stock: only ${formatNumber(stock)}kg of ${commodity} at this warehouse.`);
+    const supplierPricePerKg = isDirectDelivery ? roundTo(toNumber(supplierPrice), 2) : undefined;
+    if (isDirectDelivery && (!supplierPricePerKg || supplierPricePerKg <= 0)) return setError('Enter the price per kg owed to the supplier.');
+
+    onSubmit({
+      date,
+      commodity,
+      calculationMethod: method,
+      isDirectDelivery,
+      warehouseId: isDirectDelivery ? '' : warehouseId,
+      buyerId: supplierAsBuyer ? undefined : buyerId,
+      supplierId: supplierAsBuyer || isDirectDelivery ? supplierId : undefined,
+      supplierPricePerKg,
+      supplierCreditValue: supplierPricePerKg ? roundTo(netWeight * supplierPricePerKg, 2) : undefined,
+      storeRecordId: storeRecordId.trim(),
+      grossWeight,
+      netWeight: roundTo(netWeight, 2),
+      bags: Math.max(0, Math.round(toNumber(bags))),
+      pricePerKg: method === 'MANUAL' && toNumber(price) <= 0 ? roundTo(totalValue / netWeight, 2) : roundTo(toNumber(price), 2),
+      totalValue: roundTo(totalValue, 2),
+      truckNo: truckNo.trim(),
+      driverName: driverName.trim(),
+      driverPhone: driverPhone.trim(),
+      staffName: staffName.trim(),
+      notes: notes.trim(),
+      deductions: {
+        moistureActual: toNumber(moistureActual),
+        moistureBenchmark: toNumber(moistureBenchmark),
+        tareWeight: Math.max(0, toNumber(tare)),
+        moldWeight: Math.max(0, toNumber(mold)),
+        otherDeduction: Math.max(0, toNumber(other)),
+      },
+    });
   };
 
   return (
     <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-bold">{editingTransaction ? 'Adjust Sale Entry' : 'Record New Sale'}</h2>
-        <button onClick={onCancel} className="text-slate-400">Cancel</button>
+        <h2 className="text-lg font-bold">{tx ? 'Adjust sale' : 'New sale'}</h2>
+        <button type="button" onClick={onCancel} className="text-slate-400">Cancel</button>
       </div>
+      {error && <p className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold rounded-xl p-3" role="alert">{error}</p>}
 
-      <form onSubmit={onSubmit} className="space-y-6">
-        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Truck size={18} className="text-slate-400" />
-              <span className="text-sm font-bold text-slate-700">Direct Delivery</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsDirectDelivery(!isDirectDelivery)}
-              className={cn(
-                "w-12 h-6 rounded-full transition-all relative",
-                isDirectDelivery ? "bg-blue-600" : "bg-slate-300"
-              )}
-            >
-              <div className={cn(
-                "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                isDirectDelivery ? "left-7" : "left-1"
-              )} />
-            </button>
-          </div>
-          <p className="text-[10px] text-slate-500 font-medium leading-tight">
-            Enable this if the supplier is delivering directly to the buyer. This will bypass warehouse inventory checks and credit the supplier's ledger.
-          </p>
-        </div>
-
-        <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Users size={18} className="text-indigo-400" />
-              <span className="text-sm font-bold text-indigo-700">Supplier as Buyer</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsSupplierBuyer(!isSupplierBuyer)}
-              className={cn(
-                "w-12 h-6 rounded-full transition-all relative",
-                isSupplierBuyer ? "bg-indigo-600" : "bg-slate-300"
-              )}
-            >
-              <div className={cn(
-                "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
-                isSupplierBuyer ? "left-7" : "left-1"
-              )} />
-            </button>
-          </div>
-          <p className="text-[10px] text-indigo-500 font-medium leading-tight">
-            Enable this if a registered supplier is the one buying from the company. This will debit the supplier's ledger.
-          </p>
+      <form onSubmit={submit} className="space-y-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Toggle on={isDirectDelivery} onChange={v => { setIsDirectDelivery(v); if (v) setSupplierAsBuyer(false); }} label="Direct delivery" color="bg-blue-600" icon={Truck}
+            description="A supplier delivers straight to the buyer. No warehouse stock is used and the supplier is credited at the supplier price." />
+          <Toggle on={supplierAsBuyer} onChange={v => { setSupplierAsBuyer(v); if (v) setIsDirectDelivery(false); }} label="Supplier is the buyer" color="bg-indigo-600" icon={Users}
+            description="A registered supplier buys from you. The sale is charged to their supplier account." />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           {!isDirectDelivery && (
-            <div className="col-span-2">
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</label>
-              <select 
-                value={selectedWarehouseId} 
-                onChange={(e) => setSelectedWarehouseId(e.target.value)}
-                required 
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="ALL">ALL WAREHOUSES</option>
+            <label className="col-span-2 block">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Warehouse</span>
+              <select required value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className={field}>
+                <option value="">Select warehouse</option>
                 {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
-            </div>
-          )}
-          {isDirectDelivery && (
-            <div className="col-span-2">
-              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier (Direct Delivery From)</label>
-              <select name="supplierId" defaultValue={editingTransaction?.supplierId || ''} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">Select Supplier</option>
-                {suppliers.filter(s => !s.isDeleted || s.id === editingTransaction?.supplierId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
-          )}
-          <div className="col-span-2">
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-              {isSupplierBuyer ? 'Supplier (Buying From Company)' : 'Buyer'}
             </label>
-            {isSupplierBuyer ? (
-              <select name="supplierId" defaultValue={editingTransaction?.supplierId || ''} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">Select Supplier</option>
-                {suppliers.filter(s => !s.isDeleted || s.id === editingTransaction?.supplierId).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          )}
+          {(isDirectDelivery || supplierAsBuyer) && (
+            <label className="col-span-2 block">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{isDirectDelivery ? 'Delivering supplier' : 'Buying supplier'}</span>
+              <select required value={supplierId} onChange={e => setSupplierId(e.target.value)} className={field}>
+                <option value="">Select supplier</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
-            ) : (
-              <select name="buyerId" defaultValue={editingTransaction?.buyerId || ''} required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="">Select Buyer</option>
-                {buyers
-                  .filter(b => !b.isDeleted || b.id === editingTransaction?.buyerId)
-                  .map(b => <option key={b.id} value={b.id}>{b.name} {b.location ? `(${b.location})` : ''}</option>)}
+            </label>
+          )}
+          {!supplierAsBuyer && (
+            <label className="col-span-2 block">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Buyer</span>
+              <select required value={buyerId} onChange={e => setBuyerId(e.target.value)} className={field}>
+                <option value="">Select buyer</option>
+                {buyers.map(b => <option key={b.id} value={b.id}>{b.name}{b.location ? ` (${b.location})` : ''}</option>)}
               </select>
-            )}
-          </div>
-          <div className="col-span-1">
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Store Record ID (Tranx ID)</label>
-            <input 
-              name="storeRecordId" 
-              type="text" 
-              defaultValue={editingTransaction?.storeRecordId || ''}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" 
-              placeholder="Quote Tranx ID from Store Keeper" 
-            />
-          </div>
-          <div className="col-span-1">
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Transaction Date</label>
-            <input 
-              name="transactionDate"
-              type="date"
-              required
-              value={transactionDate}
-              onChange={(e) => setTransactionDate(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
-            />
-          </div>
-          <div className={isCustomCommodity ? "col-span-2" : "col-span-1"}>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
-            <div className="flex flex-col gap-2">
-              <select 
-                value={isCustomCommodity ? "OTHER" : commodity} 
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === "OTHER") {
-                    setIsCustomCommodity(true);
-                    setCommodity(customName.trim() || 'Custom Item');
-                  } else {
-                    setIsCustomCommodity(false);
-                    setCommodity(val);
-                  }
-                }}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
-              >
-                {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
-                <option value="OTHER">Other (Custom Stock Item)</option>
-              </select>
-              {isCustomCommodity && (
-                <input
-                  type="text"
-                  required
-                  placeholder="Enter custom item name"
-                  value={customName}
-                  onChange={(e) => handleCustomNameChange(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium focus:ring-2 focus:ring-blue-500"
-                />
-              )}
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calculation Method</label>
-            <select 
-              value={calculationMethod} 
-              onChange={(e) => setCalculationMethod(e.target.value as CalculationMethod)}
-              className="w-full px-4 py-3 bg-indigo-50 border border-indigo-100 text-indigo-700 font-bold rounded-xl outline-none"
-            >
-              <option value="DIRECT">Direct (Auto)</option>
-              <option value="MANUAL">Manual (Custom)</option>
+            </label>
+          )}
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Store record ID</span>
+            <input value={storeRecordId} maxLength={60} onChange={e => setStoreRecordId(e.target.value)} className={field} placeholder="Optional" />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</span>
+            <input type="date" required max={todayLocal()} value={date} onChange={e => setDate(e.target.value)} className={field} />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</span>
+            <CommodityPicker value={commodity} onChange={setCommodity} className={field} />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Calculation</span>
+            <select value={method} onChange={e => setMethod(e.target.value as CalculationMethod)} className={cn(field, 'font-bold text-indigo-700')}>
+              <option value="DIRECT">Automatic</option>
+              <option value="MANUAL">Manual figures</option>
             </select>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">No of Bags</label>
-            <DigitFormattedInput 
-              name="bags" 
-              defaultValue={editingTransaction?.noOfBags || editingTransaction?.bags || ''} 
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium" 
-              placeholder="0" 
-              suffix="bags"
-            />
-          </div>
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags</span>
+            <DigitFormattedInput value={bags} onChange={setBags} decimals={0} className={field} suffix="bags" />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross weight</span>
+            <DigitFormattedInput required value={gross} onChange={setGross} className={cn(field, 'font-bold')} suffix="kg" />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Selling price per kg</span>
+            <DigitFormattedInput required={method === 'DIRECT'} value={price} onChange={setPrice} className={cn(field, 'font-bold')} prefix="₦" />
+          </label>
+          {isDirectDelivery && (
+            <label className="block">
+              <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Supplier price per kg</span>
+              <DigitFormattedInput required value={supplierPrice} onChange={setSupplierPrice} className={cn(field, 'font-bold')} prefix="₦" />
+            </label>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross Weight (kg)</label>
-            <DigitFormattedInput 
-              value={grossWeight} 
-              onChange={setGrossWeight}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" 
-              placeholder="0.00" 
-              suffix="kg"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Selling Price per kg (₦)</label>
-            <DigitFormattedInput 
-              name="price" 
-              value={price}
-              onChange={setPrice}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-lg" 
-              placeholder="0.00" 
-              prefix="₦"
-              required
-            />
-          </div>
+          <input value={truckNo} maxLength={30} onChange={e => setTruckNo(e.target.value)} className={field} placeholder="Truck no." aria-label="Truck number" />
+          <input value={staffName} maxLength={100} onChange={e => setStaffName(e.target.value)} className={field} placeholder="Staff name" aria-label="Staff name" />
+          <input value={driverName} maxLength={100} onChange={e => setDriverName(e.target.value)} className={field} placeholder="Driver's name" aria-label="Driver name" />
+          <input value={driverPhone} maxLength={30} onChange={e => setDriverPhone(e.target.value)} className={field} placeholder="Driver's phone" aria-label="Driver phone" />
+          <textarea value={notes} maxLength={500} onChange={e => setNotes(e.target.value)} rows={2} className={cn(field, 'col-span-2 resize-none')} placeholder="Notes" aria-label="Notes" />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Truck No</label>
-            <input name="truckNo" defaultValue={editingTransaction?.truckNo || ''} type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="ABC-123" />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Staff Name</label>
-            <input name="staffName" type="text" defaultValue={editingTransaction?.staffName || profile?.displayName} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="Staff Name" />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Driver's Name</label>
-            <input name="driverName" defaultValue={editingTransaction?.driverName || ''} type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="John Doe" />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Driver's Phone</label>
-            <input name="driverPhone" defaultValue={editingTransaction?.driverPhone || ''} type="text" className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="080..." />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Notes</label>
-          <textarea name="notes" defaultValue={editingTransaction?.notes || ''} rows={2} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none" placeholder="Additional details..."></textarea>
-        </div>
-
-        <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 space-y-4">
-          <h3 className="text-xs font-bold text-blue-800 flex items-center gap-2">
-            <Calculator size={14} /> Deduction Parameters
-          </h3>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-bold text-blue-600 uppercase mb-1">Actual Moisture (%)</label>
-              <input 
-                type="number" 
-                step="0.1" 
-                value={moistureActual} 
-                onChange={(e) => setMoistureActual(e.target.value)}
-                className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg outline-none text-sm" 
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-blue-600 uppercase mb-1">Benchmark (%)</label>
-              <input 
-                type="number" 
-                step="0.1" 
-                value={moistureBenchmark} 
-                onChange={(e) => setMoistureBenchmark(e.target.value)}
-                className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg outline-none text-sm" 
-              />
+        {method === 'DIRECT' && (
+          <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 space-y-3">
+            <h3 className="text-xs font-bold text-blue-800 flex items-center gap-2"><Calculator size={14} /> Deductions</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              {([
+                ['Moisture %', moistureActual, setMoistureActual],
+                ['Benchmark %', moistureBenchmark, setMoistureBenchmark],
+                ['Tare kg', tare, setTare],
+                ['Mould kg', mold, setMold],
+                ['Other kg', other, setOther],
+              ] as const).map(([label, value, setter]) => (
+                <label key={label} className="block">
+                  <span className="block text-[9px] font-bold text-blue-700 uppercase mb-1">{label}</span>
+                  <input type="number" min="0" step="0.1" value={value} onChange={e => setter(e.target.value)} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm" />
+                </label>
+              ))}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-bold text-blue-600 uppercase mb-1">TARE (kg)</label>
-              <input 
-                type="number" 
-                step="0.1" 
-                value={tareWeight} 
-                onChange={(e) => setTareWeight(e.target.value)}
-                className="w-full px-4 py-2 bg-white border border-blue-200 rounded-lg outline-none text-sm" 
-              />
-            </div>
-          </div>
-        </div>
+        )}
 
-        <div className={cn(
-          "rounded-2xl p-6 text-white shadow-xl transition-all",
-          !isDirectDelivery && netWeight > inventory[commodity] ? "bg-rose-600" : (calculationMethod === 'MANUAL' ? "bg-indigo-600" : "bg-blue-600")
-        )}>
+        <div className={cn('rounded-2xl p-6 text-white shadow-xl', stock !== null && netWeight > stock ? 'bg-rose-600' : method === 'MANUAL' ? 'bg-indigo-600' : 'bg-blue-600')}>
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Final Net Weight (kg)</p>
-              {calculationMethod === 'MANUAL' ? (
-                <DigitFormattedInput 
-                  value={manualNetWeight}
-                  onChange={setManualNetWeight}
-                  className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xl font-black outline-none placeholder:text-white/40 text-white"
-                  placeholder="0.00"
-                  suffix="kg"
-                />
+              <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Net weight</p>
+              {method === 'MANUAL' ? (
+                <DigitFormattedInput value={manualNet} onChange={setManualNet} className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xl font-black outline-none text-white" suffix="kg" />
               ) : (
-                <p className="text-3xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal text-white/70">kg</span></p>
+                <p className="text-3xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal">kg</span></p>
               )}
             </div>
-            {!isDirectDelivery && (
-              <div className="text-right">
-                <p className="text-[10px] uppercase font-bold opacity-80 mb-1">Available {commodity} Stock</p>
-                <p className="text-xl font-black">
-                  {formatNumber(inventory[commodity] || 0)} <span className="text-xs font-normal">kg</span>
-                </p>
-                {netWeight > inventory[commodity] && (
-                  <p className="text-[9px] font-bold text-rose-200 mt-1 uppercase tracking-tighter animate-pulse text-right">
-                    Insufficient Stock
-                  </p>
-                )}
-              </div>
-            )}
-            {isDirectDelivery && (
-              <div className="text-right">
-                <div className="flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg inline-flex">
-                  <Truck size={14} />
-                  <span className="text-[10px] font-bold uppercase">Direct Delivery</span>
-                </div>
-              </div>
-            )}
+            <div className="text-right">
+              {stock !== null ? (
+                <>
+                  <p className="text-[10px] uppercase font-bold opacity-80 mb-1">Available stock</p>
+                  <p className="text-xl font-black">{formatNumber(stock)} kg</p>
+                </>
+              ) : isDirectDelivery ? (
+                <span className="inline-flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg text-[10px] font-bold uppercase"><Truck size={14} /> Direct delivery</span>
+              ) : null}
+            </div>
             <div className="col-span-2 pt-4 border-t border-white/20">
-              <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Total Amount (Final Figure)</p>
-              {calculationMethod === 'MANUAL' ? (
-                <DigitFormattedInput 
-                  value={manualTotalValue}
-                  onChange={setManualTotalValue}
-                  className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-4 py-3 text-2xl font-black outline-none placeholder:text-white/40 text-white"
-                  placeholder="0.00"
-                  prefix="₦"
-                />
+              <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Sale value</p>
+              {method === 'MANUAL' ? (
+                <DigitFormattedInput value={manualTotal} onChange={setManualTotal} className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-4 py-3 text-2xl font-black outline-none text-white" prefix="₦" />
               ) : (
-                <p className="text-3xl font-black">{formatCurrency(netWeight * Number(price))}</p>
+                <p className="text-3xl font-black">{formatCurrency(totalValue)}</p>
+              )}
+              {isDirectDelivery && toNumber(supplierPrice) > 0 && (
+                <p className="text-xs mt-2 opacity-90">Supplier credit: {formatCurrency(netWeight * toNumber(supplierPrice))}</p>
               )}
             </div>
           </div>
         </div>
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          {submitting ? 'Confirming...' : 'Confirm Sale'}
+        <button type="submit" disabled={submitting} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold shadow-xl disabled:opacity-50">
+          {submitting ? 'Saving…' : tx ? 'Save changes' : 'Confirm sale'}
         </button>
       </form>
     </div>

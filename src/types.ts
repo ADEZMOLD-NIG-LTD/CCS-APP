@@ -3,29 +3,82 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { CompanyRole } from './lib/permissions';
+
+export type { CompanyRole };
+
+/** Server-set timestamps come back as Firestore Timestamps; legacy/demo data stores ISO strings. */
+export type TimestampLike = string | { toDate: () => Date; toMillis: () => number } | null;
+
+export interface SoftDeletable {
+  isDeleted?: boolean;
+  deletedBy?: string;
+  deletedByUid?: string;
+  deletionReason?: string;
+  deletedAt?: string;
+}
+
+export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'DISMISSED';
+
 export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
-  role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR' | 'STORE_KEEPER';
+  /** Legacy data may contain 'SUPER_ADMIN'; it grants nothing. Platform admins live in `platform_admins`. */
+  role: CompanyRole | 'SUPER_ADMIN';
   companyId: string;
-  assignedWarehouseId?: string; // For staff assigned to specific warehouse
-  createdAt: string;
-  lastPasswordUpdate?: string; // ISO string for password expiration tracking
+  assignedWarehouseId?: string | null;
+  status?: UserStatus;
+  /** Legacy boolean suspension flag, still honoured. */
   suspended?: boolean;
+  createdAt: string;
+  updatedAt?: string;
+  lastPasswordUpdate?: string | null;
+  mustChangePassword?: boolean;
+  mustChangePasswordSetAt?: TimestampLike;
+  inviteId?: string;
 }
 
-export interface Company {
+export type CompanyStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'DELETED';
+
+export interface Company extends SoftDeletable {
   id: string;
   name: string;
+  ownerUid?: string;
   ownerEmail: string;
   createdAt: string;
-  isApproved?: boolean; // Super admin must approve new companies
+  updatedAt?: string;
+  /** Only a platform admin can set this to true. */
+  isApproved?: boolean;
+  status?: CompanyStatus;
   subscriptionPlan?: 'BASIC' | 'STANDARD' | 'ENTERPRISE' | 'CUSTOM';
-  enabledModules?: string[]; // Enabled module IDs e.g. ['suppliers', 'buyers', 'inventory', 'journal', ...]
+  requestedPlan?: 'BASIC' | 'STANDARD' | 'ENTERPRISE';
+  enabledModules?: string[];
+  approvedAt?: string;
+  approvedBy?: string;
+  deletionRequestedAt?: string;
 }
 
-export interface Supplier {
+export type InviteStatus = 'PENDING' | 'ACCEPTED' | 'REVOKED';
+
+export interface Invite {
+  /** `${companyId}__${email}` */
+  id: string;
+  companyId: string;
+  companyName: string;
+  email: string;
+  role: CompanyRole;
+  staffId: string;
+  assignedWarehouseId?: string | null;
+  status: InviteStatus;
+  invitedByUid: string;
+  invitedByEmail: string;
+  createdAt: string;
+  acceptedAt?: string;
+  acceptedByUid?: string;
+}
+
+export interface Supplier extends SoftDeletable {
   id: string;
   companyId: string;
   name: string;
@@ -34,108 +87,90 @@ export interface Supplier {
   bankName: string;
   accountNumber: string;
   accountName: string;
-  previousBalance: number; // Positive for credit, negative for debit
+  previousBalance: number; // Positive for credit (we owe), negative for debit (they owe)
   createdAt: string;
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
+  updatedAt?: string;
 }
 
 export type CommodityType = 'COCOA' | 'CASHEW' | 'PK' | string;
 export type PackagingType = 'JUTE_BAG' | 'NYLON_BAG';
 export type CalculationMethod = 'DIRECT' | 'MANUAL';
 
-export interface Warehouse {
+export interface Warehouse extends SoftDeletable {
   id: string;
   companyId: string;
   name: string;
   location: string;
-}
-
-export interface InventoryItem {
-  companyId: string;
-  commodity: CommodityType;
-  warehouseId: string;
-  quantity: number; // Net weight in kg
-  bags: number;
+  createdAt?: string;
 }
 
 export interface DeductionParams {
   moistureActual: number;
   moistureBenchmark: number;
-  tareWeight: number; // Manual deduction for bags
-  moldWeight: number; // Manual deduction for quality
+  tareWeight: number;
+  moldWeight: number;
   otherDeduction: number;
 }
 
-export interface Payment {
+export interface Payment extends SoftDeletable {
   id: string;
   companyId: string;
   warehouseId: string;
-  date: string; // The selected transaction date
-  postingDate?: string; // The actual software entry/posting timestamp
+  date: string;
+  postingDate?: string;
   supplierId: string;
   amount: number;
   method: 'CASH' | 'BANK_TRANSFER' | 'CHECK';
   reference: string;
   description: string;
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
+  createdByUid?: string;
 }
 
-export interface BagTransaction {
+export interface BagTransaction extends SoftDeletable {
   id: string;
   companyId: string;
   date: string;
-  supplierId?: string; // Optional: if issued to a specific supplier
+  supplierId?: string;
   type: 'STOCK_IN' | 'ISSUE' | 'RETURN' | 'TRANSFER';
   packagingType: PackagingType;
   quantity: number;
   reference: string;
-  warehouseId?: string; // For STOCK_IN, ISSUE, RETURN
-  sourceWarehouseId?: string; // For TRANSFER
-  destinationWarehouseId?: string; // For TRANSFER
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
+  warehouseId?: string;
+  sourceWarehouseId?: string;
+  destinationWarehouseId?: string;
+  createdByUid?: string;
 }
 
-export interface PackagingInventory {
-  companyId: string;
-  packagingType: PackagingType;
-  warehouseId: string;
-  quantity: number;
-}
+export type StaffStatus = 'ACTIVE' | 'SUSPENDED' | 'DISMISSED' | 'INACTIVE';
 
-export interface Staff {
+export interface Staff extends SoftDeletable {
   id: string;
-  uid?: string; // Add this to track if they've joined
+  uid?: string;
   companyId: string;
   name: string;
   email?: string;
-  role: 'ADMIN' | 'MANAGER' | 'ACCOUNT' | 'STAFF' | 'AUDITOR' | 'STORE_KEEPER';
+  role: CompanyRole;
   phone: string;
-  salary: number; // Basic Salary
+  salary: number;
   allowances?: number;
   joinedDate: string;
-  status: 'ACTIVE' | 'SUSPENDED' | 'DISMISSED' | 'INACTIVE';
+  status: StaffStatus;
   assignedWarehouseId?: string;
   bankName?: string;
   accountNumber?: string;
   accountName?: string;
   applyPAYE?: boolean;
   applyPension?: boolean;
+  /** Annual rent paid by the employee; used for the NTA 2025 rent relief. */
+  annualRent?: number;
+  updatedAt?: string;
 }
 
 export interface Attendance {
   id: string;
   companyId: string;
   staffId: string;
-  warehouseId: string; // Added for filtering
+  warehouseId: string;
   date: string;
   status: 'PRESENT' | 'ABSENT' | 'LATE';
 }
@@ -149,6 +184,8 @@ export interface Roster {
   date: string;
 }
 
+export type TaxRegime = 'PITA_2011' | 'NTA_2025';
+
 export interface Payroll {
   id: string;
   companyId: string;
@@ -157,40 +194,48 @@ export interface Payroll {
   basicSalary: number;
   allowances: number;
   grossIncome: number;
-  cra: number; // Consolidated Relief Allowance
+  cra: number;
+  rentRelief?: number;
   taxableIncome: number;
   paye: number;
-  pension: number; // Usually 8% of (Basic + Housing + Transport)
-  otherDeductions: number; // For loans, salary advances, etc.
-  deductionsNote?: string; // Note explaining the deductions
+  pension: number;
+  otherDeductions: number;
+  deductionsNote?: string;
   netPay: number;
+  taxRegime?: TaxRegime;
   status: 'PENDING' | 'PAID';
+  paidAt?: string;
+  paidJournalId?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
-export interface JournalEntry {
+export type JournalSource = 'MANUAL' | 'PETTY_CASH' | 'SUPPLIER' | 'BUYER' | 'PAYROLL';
+
+export interface JournalEntry extends SoftDeletable {
   id: string;
   companyId: string;
   warehouseId: string;
-  date: string; // The selected transaction date
-  postingDate?: string; // The actual software entry/posting timestamp
+  date: string;
+  postingDate?: string;
   type: 'INFLOW' | 'OUTFLOW';
   category: string;
   amount: number;
   description: string;
-  supplierId?: string; // Optional: if charged to a supplier (for outflows)
-  buyerId?: string; // Optional: if received from a buyer (for inflows)
-  paymentMethod?: 'CASH' | 'BANK_TRANSFER' | 'CHEQUE' | 'OTHER' | string;
+  supplierId?: string;
+  buyerId?: string;
+  paymentMethod?: 'CASH' | 'BANK_TRANSFER' | 'CHEQUE' | 'CHECK' | 'OTHER' | string;
   reference?: string;
   bankName?: string;
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
+  /** Legacy: hidden from the general journal list. See lib/finance isCashJournalEntry. */
   excludeFromJournal?: boolean;
+  /** Explicit override: false means the entry does not move cash/bank balances. */
+  cashEffect?: boolean;
+  source?: JournalSource;
+  createdByUid?: string;
 }
 
-export interface Buyer {
+export interface Buyer extends SoftDeletable {
   id: string;
   companyId: string;
   name: string;
@@ -198,18 +243,17 @@ export interface Buyer {
   location: string;
   previousBalance: number; // Positive for debit (they owe us), negative for credit (we owe them)
   createdAt: string;
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
+  updatedAt?: string;
 }
 
-export interface Transaction {
+export type TransactionType = 'PURCHASE' | 'SALE' | 'TRANSFER' | 'PURCHASE_RETURN' | 'SALES_RETURN';
+
+export interface Transaction extends SoftDeletable {
   id: string;
   companyId: string;
-  date: string; // The selected transaction date
-  postingDate?: string; // The actual software entry/posting timestamp
-  type: 'PURCHASE' | 'SALE' | 'TRANSFER' | 'PURCHASE_RETURN' | 'SALES_RETURN';
+  date: string;
+  postingDate?: string;
+  type: TransactionType;
   commodity: CommodityType;
   supplierId?: string;
   buyerId?: string;
@@ -229,18 +273,21 @@ export interface Transaction {
   referenceId: string;
   storeRecordId?: string;
   isDirectDelivery?: boolean;
+  /** Direct delivery: price per kg owed to the supplier. */
+  supplierPricePerKg?: number;
+  /** Direct delivery: amount credited to the supplier's ledger. */
+  supplierCreditValue?: number;
   truckNo?: string;
   driverName?: string;
   driverPhone?: string;
   staffName?: string;
   notes?: string;
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
+  createdByUid?: string;
+  updatedAt?: string;
+  updatedByUid?: string;
 }
 
-export interface StoreRecord {
+export interface StoreRecord extends SoftDeletable {
   id: string;
   companyId: string;
   date: string;
@@ -255,27 +302,25 @@ export interface StoreRecord {
   fieldOfficer: string;
   truckNo: string;
   commodity: CommodityType;
-  warehouseId: string; // For IN/OUT
-  sourceWarehouseId?: string; // For TRANSFER
-  destinationWarehouseId?: string; // For TRANSFER
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
+  warehouseId: string;
+  sourceWarehouseId?: string;
+  destinationWarehouseId?: string;
+  createdByUid?: string;
 }
 
 export interface AuditLog {
   id: string;
   companyId: string;
   timestamp: string;
+  createdAt?: TimestampLike;
   userId: string;
   userEmail: string;
   action: 'CREATE' | 'UPDATE' | 'DELETE';
   module: string;
   recordId: string;
   details: string;
-  previousData?: any;
-  newData?: any;
+  previousData?: unknown;
+  newData?: unknown;
 }
 
 export type AdjustmentTypeValue =
@@ -287,32 +332,28 @@ export type AdjustmentTypeValue =
   | 'QUALITY_TEST'
   | 'INTERNAL_USE';
 
-export interface InventoryAdjustment {
+export interface InventoryAdjustment extends SoftDeletable {
   id: string;
   companyId: string;
-  date: string; // ISO string for the selected day of the adjustment
-  postingDate: string; // ISO string when logged in the database
+  date: string;
+  postingDate: string;
   commodity: CommodityType;
   warehouseId: string;
   adjustmentType: AdjustmentTypeValue;
   adjustmentDirection: 'ADD' | 'REMOVE';
-  netWeight: number; // weight in kg
-  bags: number; // bags affected
+  netWeight: number;
+  bags: number;
   notes?: string;
   createdBy: string;
   creatorEmail: string;
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
 }
 
-export interface PettyCashTransaction {
+export interface PettyCashTransaction extends SoftDeletable {
   id: string;
   companyId: string;
   warehouseId: string;
-  date: string; // transaction selection date
-  postingDate: string; // ISO string
+  date: string;
+  postingDate: string;
   type: 'DISBURSEMENT' | 'EXPENSE';
   amount: number;
   category: string;
@@ -324,15 +365,13 @@ export interface PettyCashTransaction {
   reference?: string;
   createdBy: string;
   creatorEmail: string;
-  isDeleted?: boolean;
-  deletedBy?: string;
-  deletionReason?: string;
-  deletedAt?: string;
 }
 
+export const GLOBAL_NOTIFICATION_COMPANY_ID = '__ALL__';
 
 export interface SystemNotification {
   id: string;
+  /** A company id, or GLOBAL_NOTIFICATION_COMPANY_ID for platform-wide announcements. */
   companyId: string;
   title: string;
   message: string;
@@ -340,6 +379,17 @@ export interface SystemNotification {
   createdAt: string;
   createdBy: string;
   creatorName: string;
-  targetRole?: string; // 'ALL' or specific role
-  readBy: string[]; // array of user IDs
+  targetRole?: string;
+}
+
+export type StockLedger = 'COMMODITY' | 'BAG' | 'STORE' | 'PETTY_CASH';
+
+export interface StockBalance {
+  id: string;
+  companyId: string;
+  ledger: StockLedger;
+  warehouseId: string;
+  item: string;
+  quantity: number;
+  updatedAt?: TimestampLike;
 }

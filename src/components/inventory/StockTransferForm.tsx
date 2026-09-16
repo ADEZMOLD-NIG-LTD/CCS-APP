@@ -5,144 +5,100 @@
 
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { CommodityType, Warehouse } from '../../types';
-import { formatNumber } from '../../lib/utils';
+import type { Warehouse } from '../../types';
+import { todayLocal } from '../../lib/dates';
+import { formatNumber, roundTo, toNumber } from '../../lib/utils';
 import { DigitFormattedInput } from '../DigitFormattedInput';
+import CommodityPicker from './CommodityPicker';
 
-const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
-
-interface StockTransferFormProps {
-  onSubmit: (data: any) => Promise<void>;
-  onCancel: () => void;
-  warehouses: Warehouse[];
-  getWarehouseStock: (warehouseId: string, commodityType: CommodityType) => number;
-  submitting: boolean;
+export interface StockTransferInput {
+  commodity: string;
+  sourceWarehouseId: string;
+  destinationWarehouseId: string;
+  weight: number;
+  bags: number;
+  date: string;
 }
 
-export default function StockTransferForm({
-  onSubmit,
-  onCancel,
-  warehouses,
-  getWarehouseStock,
-  submitting
-}: StockTransferFormProps) {
-  const [transferCommodity, setTransferCommodity] = useState<CommodityType>('COCOA');
-  const [transferSourceId, setTransferSourceId] = useState<string>('');
-  const [isCustomCommodity, setIsCustomCommodity] = useState<boolean>(false);
-  const [customName, setCustomName] = useState<string>('');
+interface StockTransferFormProps {
+  warehouses: Warehouse[];
+  available: (warehouseId: string, commodity: string) => number;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (input: StockTransferInput) => void;
+}
 
-  const handleCustomNameChange = (val: string) => {
-    setCustomName(val);
-    setTransferCommodity(val.trim() || 'Custom Item');
-  };
+const fieldClass = 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500';
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+export default function StockTransferForm({ warehouses, available, submitting, onCancel, onSubmit }: StockTransferFormProps) {
+  const [commodity, setCommodity] = useState('COCOA');
+  const [source, setSource] = useState('');
+  const [destination, setDestination] = useState('');
+  const [weight, setWeight] = useState('');
+  const [bags, setBags] = useState('');
+  const [date, setDate] = useState(todayLocal());
+  const [error, setError] = useState<string | null>(null);
+  const availableKg = source ? available(source, commodity) : 0;
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    
-    const data = {
-      commodity: transferCommodity,
-      sourceWarehouseId: formData.get('sourceWarehouseId'),
-      destinationWarehouseId: formData.get('destinationWarehouseId'),
-      weight: Number(formData.get('weight')),
-      bags: Number(formData.get('bags'))
-    };
-    
-    onSubmit(data);
+    setError(null);
+    const kg = toNumber(weight);
+    if (!source || !destination) return setError('Select both warehouses.');
+    if (source === destination) return setError('Source and destination must be different.');
+    if (kg <= 0) return setError('Weight must be greater than zero.');
+    if (kg > availableKg) return setError(`Only ${formatNumber(availableKg)}kg is available at the source.`);
+    onSubmit({ commodity, sourceWarehouseId: source, destinationWarehouseId: destination, weight: roundTo(kg, 2), bags: Math.max(0, Math.round(toNumber(bags))), date });
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200"
-    >
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-bold">Stock Transfer</h2>
-        <button onClick={onCancel} className="text-slate-400">Cancel</button>
+        <h2 className="text-lg font-bold">Stock transfer</h2>
+        <button type="button" onClick={onCancel} className="text-slate-400">Cancel</button>
       </div>
-
+      {error && <p className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold rounded-xl p-3" role="alert">{error}</p>}
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</label>
-            <div className="flex flex-col gap-2">
-              <select 
-                name="commoditySelector" 
-                required 
-                value={isCustomCommodity ? "OTHER" : transferCommodity}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === "OTHER") {
-                    setIsCustomCommodity(true);
-                    setTransferCommodity(customName.trim() || 'Custom Item');
-                  } else {
-                    setIsCustomCommodity(false);
-                    setTransferCommodity(val);
-                  }
-                }}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                {COMMODITIES.map(c => <option key={c} value={c}>{c}</option>)}
-                <option value="OTHER">Other (Custom Stock Item)</option>
-              </select>
-              {isCustomCommodity && (
-                <input
-                  type="text"
-                  required
-                  placeholder="Enter custom item name"
-                  value={customName}
-                  onChange={(e) => handleCustomNameChange(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none text-sm font-medium focus:ring-2 focus:ring-indigo-500"
-                />
-              )}
-            </div>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Source Warehouse</label>
-            <select 
-              name="sourceWarehouseId" 
-              required 
-              value={transferSourceId}
-              onChange={(e) => setTransferSourceId(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-            >
+          <label className="col-span-2 block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</span>
+            <CommodityPicker value={commodity} onChange={setCommodity} className={fieldClass} />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">From</span>
+            <select required value={source} onChange={e => setSource(e.target.value)} className={fieldClass}>
               <option value="">Source</option>
               {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Destination Warehouse</label>
-            <select name="destinationWarehouseId" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500">
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">To</span>
+            <select required value={destination} onChange={e => setDestination(e.target.value)} className={fieldClass}>
               <option value="">Destination</option>
-              {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {warehouses.filter(w => w.id !== source).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
-          </div>
-          {transferSourceId && (
+          </label>
+          {source && (
             <div className="col-span-2 bg-indigo-50 p-3 rounded-xl border border-indigo-100">
-              <p className="text-[10px] font-bold text-indigo-600 uppercase mb-1">Available Stock in Source</p>
-              <p className="text-lg font-black text-indigo-700">
-                {formatNumber(getWarehouseStock(transferSourceId, transferCommodity) || 0)} kg
-              </p>
+              <p className="text-[10px] font-bold text-indigo-600 uppercase mb-1">Available at source</p>
+              <p className="text-lg font-black text-indigo-700">{formatNumber(availableKg)} kg</p>
             </div>
           )}
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Weight (kg)</label>
-            <DigitFormattedInput name="weight" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0.00" suffix="kg" />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags Count</label>
-            <DigitFormattedInput name="bags" required className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500" placeholder="0" suffix="bags" />
-          </div>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Weight</span>
+            <DigitFormattedInput required value={weight} onChange={setWeight} className={fieldClass} suffix="kg" />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags</span>
+            <DigitFormattedInput value={bags} onChange={setBags} decimals={0} className={fieldClass} suffix="bags" />
+          </label>
+          <label className="col-span-2 block">
+            <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Date</span>
+            <input type="date" required max={todayLocal()} value={date} onChange={e => setDate(e.target.value)} className={fieldClass} />
+          </label>
         </div>
-
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-xl active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          {submitting ? 'Transferring...' : 'Complete Transfer'}
+        <button type="submit" disabled={submitting} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold shadow-xl disabled:opacity-50">
+          {submitting ? 'Transferring…' : 'Complete transfer'}
         </button>
       </form>
     </motion.div>

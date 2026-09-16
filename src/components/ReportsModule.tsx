@@ -3,506 +3,213 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Download, 
-  Search,
-  ShieldCheck,
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Supplier, Transaction, Payment, JournalEntry, Warehouse, Buyer, BagTransaction, AuditLog, Staff, Attendance, Payroll } from '../types';
+import React, { useMemo, useState } from 'react';
+import { Download } from 'lucide-react';
+import { AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../firebase';
-import { collection, onSnapshot, query, orderBy, where } from 'firebase/firestore';
-import { reportFirestoreError, OperationType } from '../lib/firestore';
-import Toast from './Toast';
-
-// Sub-components
-import SupplierBalancesReport from './reports/SupplierBalancesReport';
+import { useActiveCollection, useCompanyCollection, useWarehouses } from '../contexts/CompanyDataContext';
+import { buildCashMovements, computeBuyerBalance, computeStockLevels, computeSupplierBalance, levelsByItem } from '../lib/finance';
+import { daysAgoLocal, isoToLocalDate, todayLocal } from '../lib/dates';
+import { attendanceSummary, generatePDF, payrollInPeriod, searchTransactions, type TransferRow } from '../services/reportService';
+import type { Buyer, Supplier } from '../types';
+import AttendanceReport from './reports/AttendanceReport';
+import AuditLogsReport from './reports/AuditLogsReport';
 import BuyerBalancesReport from './reports/BuyerBalancesReport';
+import JournalReport from './reports/JournalReport';
 import OperationalTransactionsReport from './reports/OperationalTransactionsReport';
 import PackagingReport from './reports/PackagingReport';
-import TransfersReport from './reports/TransfersReport';
-import AuditLogsReport from './reports/AuditLogsReport';
-import SearchReport from './reports/SearchReport';
-import JournalReport from './reports/JournalReport';
-import AttendanceReport from './reports/AttendanceReport';
 import PayrollReport from './reports/PayrollReport';
-import ReportTabs, { ReportType } from './reports/ReportTabs';
 import ReportFilters from './reports/ReportFilters';
+import ReportTabs, { REPORT_TABS, type ReportType } from './reports/ReportTabs';
+import SearchReport from './reports/SearchReport';
+import SupplierBalancesReport from './reports/SupplierBalancesReport';
+import TransfersReport from './reports/TransfersReport';
 
-// Services
-import { generatePDF } from '../services/reportService';
+const byDateDesc = (a: { date: string }, b: { date: string }) => new Date(b.date).getTime() - new Date(a.date).getTime();
+const absSum = (rows: { balance: number }[]) => rows.reduce((s, r) => s + Math.abs(r.balance), 0);
 
 export default function ReportsModule() {
-  const { profile, company } = useAuth();
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [buyers, setBuyers] = useState<Buyer[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [journal, setJournal] = useState<JournalEntry[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [bagTransactions, setBagTransactions] = useState<BagTransaction[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [staffList, setStaffList] = useState<Staff[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<Attendance[]>([]);
-  const [payrollRecords, setPayrollRecords] = useState<Payroll[]>([]);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  
-  const [activeReport, setActiveReport] = useState<ReportType>('supplier_balances');
-  const [startDate, setStartDate] = useState(new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
-  const [selectedCommodity, setSelectedCommodity] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const { company, profile, can, isModuleEnabled } = useAuth();
+  const tabs = useMemo(() => REPORT_TABS.filter(t => can(t.permission) && (!t.module || isModuleEnabled(t.module))), [can, isModuleEnabled]);
+  const available = useMemo(() => new Set(tabs.map(t => t.id)), [tabs]);
 
-  // Load Data from Firestore
-  useEffect(() => {
-    if (!profile?.companyId) return;
+  const [selected, setSelected] = useState<ReportType>('supplier_balances');
+  const report: ReportType | undefined = available.has(selected) ? selected : tabs[0]?.id;
+  const [startDate, setStartDate] = useState(daysAgoLocal(30));
+  const [endDate, setEndDate] = useState(todayLocal());
+  const [warehouseId, setWarehouseId] = useState('ALL');
+  const [commodity, setCommodity] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
 
-    const qSuppliers = query(
-      collection(db, 'suppliers'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeSuppliers = onSnapshot(qSuppliers, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Supplier));
-      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
-      setSuppliers(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'suppliers')));
+  const suppliers = useActiveCollection('suppliers').data;
+  const buyers = useActiveCollection('buyers').data;
+  const transactions = useActiveCollection('transactions').data;
+  const payments = useActiveCollection('payments').data;
+  const journal = useActiveCollection('journal').data;
+  const bagTransactions = useActiveCollection('bag_transactions').data;
+  const { data: warehouses } = useWarehouses();
+  const staff = useCompanyCollection('staff', available.has('attendance') || available.has('payroll')).data;
+  const attendance = useCompanyCollection('attendance', available.has('attendance')).data;
+  const payrolls = useCompanyCollection('payrolls', available.has('payroll')).data;
 
-    const qBuyers = query(
-      collection(db, 'buyers'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeBuyers = onSnapshot(qBuyers, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Buyer));
-      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
-      setBuyers(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'buyers')));
-
-    const qWarehouses = query(
-      collection(db, 'warehouses'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
-      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
-      setWarehouses(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
-
-    const qTx = query(
-      collection(db, 'transactions'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeTx = onSnapshot(qTx, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Transaction));
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setTransactions(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'transactions')));
-
-    const qPayments = query(
-      collection(db, 'payments'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribePayments = onSnapshot(qPayments, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Payment));
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setPayments(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'payments')));
-
-    let unsubscribeAuditLogs = () => {};
-    if (profile.role === 'ADMIN' || profile.role === 'MANAGER' || profile.role === 'AUDITOR') {
-      const qAuditLogs = query(
-        collection(db, 'audit_logs'),
-        where('companyId', '==', profile.companyId)
-      );
-      unsubscribeAuditLogs = onSnapshot(qAuditLogs, (snapshot) => {
-        const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as AuditLog));
-        const sorted = data.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
-        setAuditLogs(sorted);
-      }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'audit_logs')));
-    }
-
-    const qJournal = query(
-      collection(db, 'journal'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeJournal = onSnapshot(qJournal, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as JournalEntry));
-      const sorted = data.sort((a, b) => {
-        const dateA = new Date(a.date || 0).getTime();
-        const dateB = new Date(b.date || 0).getTime();
-        if (dateA !== dateB) return dateA - dateB;
-        const postA = new Date(a.postingDate || a.date || 0).getTime();
-        const postB = new Date(b.postingDate || b.date || 0).getTime();
-        return postA - postB;
-      });
-      setJournal(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'journal')));
-
-    const qBags = query(
-      collection(db, 'bag_transactions'), 
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeBags = onSnapshot(qBags, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as BagTransaction));
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setBagTransactions(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'bag_transactions')));
-
-    return () => {
-      unsubscribeSuppliers();
-      unsubscribeBuyers();
-      unsubscribeWarehouses();
-      unsubscribeTx();
-      unsubscribePayments();
-      unsubscribeAuditLogs();
-      unsubscribeJournal();
-      unsubscribeBags();
+  const period = useMemo(() => {
+    const test = (iso: string) => {
+      const day = isoToLocalDate(iso);
+      return !!day && day >= startDate && day <= endDate;
     };
-  }, [profile?.companyId]);
+    return { test };
+  }, [startDate, endDate]);
+  const inWarehouse = (id?: string) => warehouseId === 'ALL' || id === warehouseId;
 
-  // Supplier Balances Report Logic
-  const supplierBalances = useMemo(() => {
-    const activeTransactions = transactions.filter(t => !t.isDeleted);
-    const activePayments = payments.filter(p => !p.isDeleted);
-    const activeJournal = journal.filter(e => !e.isDeleted);
+  const supplierBalances = useMemo(
+    () => suppliers
+      .map((s): Supplier & { balance: number } => ({ ...s, balance: computeSupplierBalance(s, { transactions, payments, journal }, { asOf: endDate, warehouseId }) }))
+      .filter(s => Math.abs(s.balance) >= 0.01)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [suppliers, transactions, payments, journal, endDate, warehouseId]
+  );
+  const buyerBalances = useMemo(
+    () => buyers
+      .map((b): Buyer & { balance: number } => ({ ...b, balance: computeBuyerBalance(b, { transactions, journal }, { asOf: endDate, warehouseId }) }))
+      .filter(b => Math.abs(b.balance) >= 0.01)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [buyers, transactions, journal, endDate, warehouseId]
+  );
 
-    return suppliers.filter(s => !s.isDeleted).map(s => {
-      const sPurchases = activeTransactions.filter(t => 
-        t.supplierId === s.id && 
-        t.type === 'PURCHASE' && 
-        t.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
-      );
-      const sReturns = activeTransactions.filter(t => 
-        t.supplierId === s.id && 
-        (t.type as string) === 'PURCHASE_RETURN' && 
-        t.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
-      );
-      const sSales = activeTransactions.filter(t => 
-        t.supplierId === s.id && 
-        t.type === 'SALE' && 
-        t.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
-      );
-      const sPay = activePayments.filter(p => 
-        p.supplierId === s.id && 
-        p.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || p.warehouseId === selectedWarehouseId)
-      );
-      const sExp = activeJournal.filter(e => 
-        e.supplierId === s.id && 
-        e.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
-      );
-      
-      const totalPurchases = sPurchases.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
-      const totalReturns = sReturns.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
-      const totalSales = sSales.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
-      const totalPayments = sPay.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-      const totalCharges = sExp.reduce((sum, e) => {
-        const isOutflow = e.type === 'OUTFLOW' && e.category !== 'SUPPLIER_EXPENSE_DEDUCTION';
-        return sum + (isOutflow ? Number(e.amount) || 0 : -Number(e.amount) || 0);
-      }, 0);
-      
-      const baseBalance = Number(s.previousBalance) || 0;
-      const balance = baseBalance + totalPurchases - totalReturns - totalSales - totalPayments - totalCharges;
-      return { ...s, balance };
-    }).filter(s => s.balance !== 0);
-  }, [suppliers, transactions, payments, journal, endDate, selectedWarehouseId]);
+  const bagLevels = useMemo(() => {
+    const upToEnd = bagTransactions.filter(b => {
+      const day = isoToLocalDate(b.date);
+      return !!day && day <= endDate;
+    });
+    return levelsByItem(computeStockLevels({ bagTransactions: upToEnd }), 'BAG', warehouseId);
+  }, [bagTransactions, endDate, warehouseId]);
+
+  const periodBags = useMemo(
+    () => bagTransactions
+      .filter(b => period.test(b.date) && (warehouseId === 'ALL' || [b.warehouseId, b.sourceWarehouseId, b.destinationWarehouseId].includes(warehouseId)))
+      .sort(byDateDesc),
+    [bagTransactions, period, warehouseId]
+  );
+
+  const operational = useMemo(() => {
+    const types = report === 'operational_sales' ? ['SALE', 'SALES_RETURN'] : ['PURCHASE', 'PURCHASE_RETURN'];
+    return transactions
+      .filter(t => types.includes(t.type) && period.test(t.date) && inWarehouse(t.warehouseId) && (commodity === 'ALL' || t.commodity === commodity))
+      .sort(byDateDesc);
+  }, [transactions, report, period, warehouseId, commodity]);
+
+  const transfers = useMemo<TransferRow[]>(() => {
+    const touches = (t: { sourceWarehouseId?: string; destinationWarehouseId?: string }) =>
+      warehouseId === 'ALL' || t.sourceWarehouseId === warehouseId || t.destinationWarehouseId === warehouseId;
+    const commodityRows: TransferRow[] = transactions
+      .filter(t => t.type === 'TRANSFER' && period.test(t.date) && touches(t) && (commodity === 'ALL' || t.commodity === commodity))
+      .map(t => ({ ...t, transferType: 'COMMODITY' as const }));
+    const bagRows: TransferRow[] = commodity === 'ALL'
+      ? bagTransactions.filter(b => b.type === 'TRANSFER' && period.test(b.date) && touches(b)).map(b => ({ ...b, transferType: 'BAG' as const }))
+      : [];
+    return [...commodityRows, ...bagRows].sort(byDateDesc);
+  }, [transactions, bagTransactions, period, warehouseId, commodity]);
+
+  const movements = useMemo(
+    () => buildCashMovements(journal, payments)
+      .filter(m => period.test(m.date) && inWarehouse(m.warehouseId))
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || new Date(a.postingDate || a.date).getTime() - new Date(b.postingDate || b.date).getTime()),
+    [journal, payments, period, warehouseId]
+  );
+
+  const searchResults = useMemo(() => searchTransactions(transactions, searchQuery).sort(byDateDesc), [transactions, searchQuery]);
+  const attendanceRows = useMemo(() => attendanceSummary(attendance, staff, { start: startDate, end: endDate, warehouseId }), [attendance, staff, startDate, endDate, warehouseId]);
+  const payrollRows = useMemo(() => payrollInPeriod(payrolls, startDate, endDate), [payrolls, startDate, endDate]);
+  const commodities = useMemo(() => Array.from(new Set(['COCOA', 'CASHEW', 'PK', ...transactions.map(t => t.commodity).filter(Boolean)])).sort(), [transactions]);
+
+  if (!report || !profile?.companyId) {
+    return <div className="p-8 text-center text-slate-500">You do not have access to any reports.</div>;
+  }
 
   const creditSuppliers = supplierBalances.filter(s => s.balance > 0);
   const debitSuppliers = supplierBalances.filter(s => s.balance < 0);
-
-  const totalCreditBalance = useMemo(() => creditSuppliers.reduce((sum, s) => sum + s.balance, 0), [creditSuppliers]);
-  const totalDebitBalance = useMemo(() => debitSuppliers.reduce((sum, s) => sum + Math.abs(s.balance), 0), [debitSuppliers]);
-
-  // Buyer Balances Report Logic
-  const buyerBalances = useMemo(() => {
-    const activeTransactions = transactions.filter(t => !t.isDeleted);
-    const activeJournal = journal.filter(e => !e.isDeleted);
-
-    return buyers.filter(b => !b.isDeleted).map(b => {
-      const bSales = activeTransactions.filter(t => 
-        t.buyerId === b.id && 
-        t.type === 'SALE' && 
-        t.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
-      );
-      const bReturns = activeTransactions.filter(t => 
-        t.buyerId === b.id && 
-        (t.type as string) === 'SALES_RETURN' && 
-        t.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId)
-      );
-      const bPayments = activeJournal.filter(e => 
-        e.buyerId === b.id && 
-        e.type === 'INFLOW' && 
-        e.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
-      );
-      const bCharges = activeJournal.filter(e => 
-        e.buyerId === b.id && 
-        e.type === 'OUTFLOW' && 
-        e.date.split('T')[0] <= endDate &&
-        (selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId)
-      );
-      
-      const totalSales = bSales.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
-      const totalReturns = bReturns.reduce((sum, t) => sum + (Number(t.totalValue) || 0), 0);
-      const totalPayments = bPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-      const totalCharges = bCharges.reduce((sum, c) => sum + (Number(c.amount) || 0), 0);
-      
-      const baseBalance = Number(b.previousBalance) || 0;
-      const balance = baseBalance + totalSales - totalReturns + totalCharges - totalPayments;
-      return { ...b, balance };
-    }).filter(b => b.balance !== 0);
-  }, [buyers, transactions, journal, endDate, selectedWarehouseId]);
-
   const debitBuyers = buyerBalances.filter(b => b.balance > 0);
   const creditBuyers = buyerBalances.filter(b => b.balance < 0);
 
-  const totalBuyerDebit = useMemo(() => debitBuyers.reduce((sum, b) => sum + b.balance, 0), [debitBuyers]);
-  const totalBuyerCredit = useMemo(() => creditBuyers.reduce((sum, b) => sum + Math.abs(b.balance), 0), [creditBuyers]);
-
-  // Packaging Inventory Logic
-  const packagingInventory = useMemo(() => {
-    const summary: Record<string, number> = {
-      'JUTE_BAG': 0,
-      'NYLON_BAG': 0
-    };
-
-    bagTransactions.filter(tx => !tx.isDeleted).forEach(tx => {
-      const date = tx.date.split('T')[0];
-      if (date > endDate) return;
-
-      if (tx.type === 'TRANSFER') {
-        if (selectedWarehouseId === 'ALL') return;
-        if (tx.sourceWarehouseId === selectedWarehouseId) summary[tx.packagingType] -= Number(tx.quantity) || 0;
-        if (tx.destinationWarehouseId === selectedWarehouseId) summary[tx.packagingType] += Number(tx.quantity) || 0;
-      } else {
-        if (selectedWarehouseId !== 'ALL' && tx.warehouseId !== selectedWarehouseId) return;
-        if (tx.type === 'STOCK_IN' || tx.type === 'RETURN') summary[tx.packagingType] += Number(tx.quantity) || 0;
-        if (tx.type === 'ISSUE') summary[tx.packagingType] -= Number(tx.quantity) || 0;
-      }
-    });
-
-    return summary;
-  }, [bagTransactions, endDate, selectedWarehouseId]);
-
-  // Operational Reports Logic
-  const filteredOperationalTx = useMemo(() => {
-    return transactions.filter(t => {
-      if (t.isDeleted) return false;
-      const date = new Date(t.date).toISOString().split('T')[0];
-      const dateMatch = date >= startDate && date <= endDate;
-      const warehouseMatch = selectedWarehouseId === 'ALL' || t.warehouseId === selectedWarehouseId;
-      const commodityMatch = selectedCommodity === 'ALL' || t.commodity === selectedCommodity;
-      const typeMatch = activeReport === 'operational_purchases' ? t.type === 'PURCHASE' : t.type === 'SALE';
-      return dateMatch && warehouseMatch && commodityMatch && typeMatch;
-    });
-  }, [transactions, startDate, endDate, selectedWarehouseId, selectedCommodity, activeReport]);
-
-  const filteredTransfers = useMemo(() => {
-    const commodityTransfers = transactions.filter(t => {
-      if (t.type !== 'TRANSFER' || t.isDeleted) return false;
-      const date = new Date(t.date).toISOString().split('T')[0];
-      const dateMatch = date >= startDate && date <= endDate;
-      const commodityMatch = selectedCommodity === 'ALL' || t.commodity === selectedCommodity;
-      const warehouseMatch = selectedWarehouseId === 'ALL' || 
-                             t.sourceWarehouseId === selectedWarehouseId || 
-                             t.destinationWarehouseId === selectedWarehouseId;
-      return dateMatch && warehouseMatch && commodityMatch;
-    }).map(t => ({
-      ...t,
-      transferType: 'COMMODITY' as const
-    }));
-
-    const bagTransfers = bagTransactions.filter(t => {
-      if (t.type !== 'TRANSFER' || t.isDeleted) return false;
-      const date = t.date.split('T')[0];
-      const dateMatch = date >= startDate && date <= endDate;
-      const warehouseMatch = selectedWarehouseId === 'ALL' || 
-                             t.sourceWarehouseId === selectedWarehouseId || 
-                             t.destinationWarehouseId === selectedWarehouseId;
-      return dateMatch && warehouseMatch;
-    }).map(t => ({
-      ...t,
-      transferType: 'BAG' as const
-    }));
-
-    return [...commodityTransfers, ...bagTransfers].sort((a, b) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-  }, [transactions, bagTransactions, startDate, endDate, selectedWarehouseId]);
-
-  const filteredJournal = useMemo(() => {
-    return journal.filter(e => {
-      if (e.isDeleted) return false;
-      if ((e as any).excludeFromJournal) return false;
-      const date = e.date.split('T')[0];
-      const dateMatch = date >= startDate && date <= endDate;
-      const warehouseMatch = selectedWarehouseId === 'ALL' || e.warehouseId === selectedWarehouseId;
-      return dateMatch && warehouseMatch;
-    });
-  }, [journal, startDate, endDate, selectedWarehouseId]);
-
-  const handleExportPDF = () => {
+  const exportPdf = () => {
+    if (report === 'audit_logs') return;
     generatePDF({
-      activeReport,
+      report,
+      companyName: company?.name || '',
       startDate,
       endDate,
-      selectedWarehouseId,
-      searchQuery,
-      company,
+      warehouseLabel: warehouseId === 'ALL' ? 'All warehouses' : warehouses.find(w => w.id === warehouseId)?.name || 'Unknown',
+      commodityLabel: commodity === 'ALL' ? 'All commodities' : commodity,
       warehouses,
       suppliers,
       buyers,
-      transactions,
-      creditSuppliers,
-      debitSuppliers,
-      totalCreditBalance,
-      totalDebitBalance,
-      debitBuyers,
-      creditBuyers,
-      totalBuyerDebit,
-      totalBuyerCredit,
-      packagingInventory,
-      filteredOperationalTx,
-      filteredTransfers,
-      selectedCommodity,
-      filteredJournal
+      staff,
+      supplierBalances,
+      buyerBalances,
+      bagLevels,
+      bagTransactions: periodBags,
+      operational,
+      transfers,
+      movements,
+      searchQuery,
+      searchResults,
+      attendance: attendanceRows,
+      payrolls: payrollRows,
     });
   };
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      <AnimatePresence>
-        {errorMessage && (
-          <Toast 
-            message={errorMessage} 
-            type="error" 
-            onClose={() => setErrorMessage(null)} 
-          />
-        )}
-      </AnimatePresence>
       <header className="bg-white border-b border-slate-200 px-4 py-4 sticky top-0 z-10">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-xl font-bold text-slate-900">Reports Module</h1>
-          <button
-            onClick={handleExportPDF}
-            className="bg-indigo-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold active:scale-95 transition-all hover:bg-indigo-700"
-          >
-            <Download size={18} /> Export PDF
-          </button>
+        <div className="flex items-center justify-between mb-4 gap-3">
+          <h1 className="text-xl font-bold text-slate-900">Reports</h1>
+          {report !== 'audit_logs' && (
+            <button onClick={exportPdf} disabled={report === 'search' && searchResults.length === 0} className="bg-indigo-600 text-white px-4 py-2 rounded-xl shadow-lg flex items-center gap-2 text-sm font-bold hover:bg-indigo-700 disabled:opacity-50">
+              <Download size={18} /> Export PDF
+            </button>
+          )}
         </div>
-
-        <ReportTabs 
-          activeReport={activeReport} 
-          setActiveReport={setActiveReport} 
-          userRole={profile?.role} 
-        />
+        <ReportTabs tabs={tabs} activeReport={report} setActiveReport={setSelected} />
       </header>
 
       <main className="flex-1 overflow-y-auto p-4 space-y-6 pb-24">
-        {activeReport !== 'search' && (
+        {report !== 'search' && report !== 'audit_logs' && (
           <ReportFilters
             startDate={startDate}
             setStartDate={setStartDate}
             endDate={endDate}
             setEndDate={setEndDate}
-            selectedWarehouseId={selectedWarehouseId}
-            setSelectedWarehouseId={setSelectedWarehouseId}
-            selectedCommodity={selectedCommodity}
-            setSelectedCommodity={setSelectedCommodity}
+            selectedWarehouseId={warehouseId}
+            setSelectedWarehouseId={setWarehouseId}
+            selectedCommodity={commodity}
+            setSelectedCommodity={setCommodity}
             warehouses={warehouses}
-            activeReport={activeReport}
+            commodities={commodities}
+            activeReport={report}
           />
         )}
 
         <AnimatePresence mode="wait">
-          {activeReport === 'audit_logs' ? (
-            <AuditLogsReport key="audit-logs" auditLogs={auditLogs} />
-          ) : activeReport === 'search' ? (
-            <SearchReport
-              key="search-report"
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              transactions={transactions}
-              suppliers={suppliers}
-              buyers={buyers}
-              warehouses={warehouses}
-            />
-          ) : activeReport === 'supplier_balances' ? (
-            <SupplierBalancesReport
-              key="supplier-balances"
-              totalCreditBalance={totalCreditBalance}
-              totalDebitBalance={totalDebitBalance}
-              creditSuppliers={creditSuppliers}
-              debitSuppliers={debitSuppliers}
-            />
-          ) : activeReport === 'buyer_balances' ? (
-            <BuyerBalancesReport
-              key="buyer-balances"
-              totalBuyerDebit={totalBuyerDebit}
-              totalBuyerCredit={totalBuyerCredit}
-              debitBuyers={debitBuyers}
-              creditBuyers={creditBuyers}
-            />
-          ) : activeReport === 'packaging_inventory' ? (
-            <PackagingReport
-              key="packaging-report"
-              packagingInventory={packagingInventory}
-              bagTransactions={bagTransactions}
-              startDate={startDate}
-              endDate={endDate}
-              selectedWarehouseId={selectedWarehouseId}
-            />
-          ) : activeReport === 'transfers' ? (
-            <TransfersReport
-              key="transfers-report"
-              filteredTransfers={filteredTransfers}
-              warehouses={warehouses}
-              startDate={startDate}
-              endDate={endDate}
-            />
-          
-          ) : activeReport === 'attendance' ? (
-            <AttendanceReport
-              key="attendance-report"
-              attendanceRecords={attendanceRecords}
-              staffList={staffList}
-              warehouses={warehouses}
-              startDate={startDate}
-              endDate={endDate}
-              selectedWarehouseId={selectedWarehouseId}
-            />
-          ) : activeReport === 'payroll' ? (
-            <PayrollReport
-              key="payroll-report"
-              payrollRecords={payrollRecords}
-              staffList={staffList}
-              startDate={startDate}
-              endDate={endDate}
-            />
-
-          ) : activeReport === 'journal' ? (
-            <JournalReport
-              key="journal-report"
-              journal={filteredJournal}
-              warehouses={warehouses}
-              startDate={startDate}
-              endDate={endDate}
-            />
+          {report === 'audit_logs' ? (
+            <AuditLogsReport key="audit" companyId={profile.companyId} />
+          ) : report === 'search' ? (
+            <SearchReport key="search" searchQuery={searchQuery} onSearchChange={setSearchQuery} results={searchResults} suppliers={suppliers} buyers={buyers} warehouses={warehouses} />
+          ) : report === 'supplier_balances' ? (
+            <SupplierBalancesReport key="suppliers" totalCreditBalance={absSum(creditSuppliers)} totalDebitBalance={absSum(debitSuppliers)} creditSuppliers={creditSuppliers} debitSuppliers={debitSuppliers} />
+          ) : report === 'buyer_balances' ? (
+            <BuyerBalancesReport key="buyers" totalBuyerDebit={absSum(debitBuyers)} totalBuyerCredit={absSum(creditBuyers)} debitBuyers={debitBuyers} creditBuyers={creditBuyers} />
+          ) : report === 'packaging_inventory' ? (
+            <PackagingReport key="packaging" bagLevels={bagLevels} bagTransactions={periodBags} warehouses={warehouses} suppliers={suppliers} selectedWarehouseId={warehouseId} endDate={endDate} />
+          ) : report === 'transfers' ? (
+            <TransfersReport key="transfers" filteredTransfers={transfers} warehouses={warehouses} startDate={startDate} endDate={endDate} />
+          ) : report === 'attendance' ? (
+            <AttendanceReport key="attendance" rows={attendanceRows} startDate={startDate} endDate={endDate} />
+          ) : report === 'payroll' ? (
+            <PayrollReport key="payroll" payrolls={payrollRows} staffList={staff} startDate={startDate} endDate={endDate} />
+          ) : report === 'journal' ? (
+            <JournalReport key="journal" movements={movements} warehouses={warehouses} />
           ) : (
-            <OperationalTransactionsReport
-              key="operational-report"
-              type={activeReport === 'operational_purchases' ? 'PURCHASES' : 'SALES'}
-              filteredOperationalTx={filteredOperationalTx}
-              warehouses={warehouses}
-            />
+            <OperationalTransactionsReport key={report} type={report === 'operational_purchases' ? 'PURCHASES' : 'SALES'} transactions={operational} warehouses={warehouses} suppliers={suppliers} buyers={buyers} />
           )}
         </AnimatePresence>
       </main>

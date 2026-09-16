@@ -1,1732 +1,644 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
+ *
+ * Authentication and company membership.
+ *
+ * The client never decides who someone is: membership, role and company approval come from
+ * Firestore documents that only the security rules can grant (see firestore.rules). This
+ * context reads them and exposes the resulting access state to the UI.
  */
 
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  signInWithRedirect,
-  GoogleAuthProvider, 
-  signOut, 
-  signInAnonymously,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  sendPasswordResetEmail,
-  updatePassword,
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import {
   EmailAuthProvider,
+  GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
   reauthenticateWithCredential,
-  User 
+  reload,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  updatePassword,
+  updateProfile,
+  type User,
 } from 'firebase/auth';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  onSnapshot,
-  collection,
-  query,
-  where,
-  getDocs,
-  getDocFromServer
-} from 'firebase/firestore';
-import { auth, db, firebaseConfig, isMockFallback } from '../firebase';
-import { UserProfile, Company, Staff } from '../types';
-import { SubscriptionPlanType, SUBSCRIPTION_PRESETS, ALL_MODULE_IDS } from '../constants/modules';
-import { handleFirestoreError, reportFirestoreError, formatFirestoreError, OperationType } from '../lib/firestore';
+import { auth, db, initError, isFirebaseConfigured } from '../firebase';
+import { collection, doc, getDoc, onSnapshot, query, where } from '../lib/fs';
+import { commitWrites, type WriteOp } from '../lib/writes';
+import { AuditAction, auditOp, type AuditActor } from '../lib/audit';
+import { enterDemoMode, exitDemoMode, isDemoRuntime } from '../lib/runtimeMode';
+import { isCompanyRole, roleCan, type CompanyRole, type PermissionAction } from '../lib/permissions';
+import { formatFirestoreError } from '../lib/firestore';
+import { logger } from '../lib/logger';
+import { newId, normalizeEmail } from '../lib/utils';
+import { DEMO_COMPANY_ID, DEMO_USER_ID } from '../mockFirebase';
+import type { Company, Invite, UserProfile } from '../types';
+
+export type { PermissionAction };
+
+export type AccessState =
+  | 'LOADING'
+  | 'NOT_CONFIGURED'
+  | 'SIGNED_OUT'
+  | 'VERIFY_EMAIL'
+  | 'NO_COMPANY'
+  | 'ACCOUNT_SUSPENDED'
+  | 'COMPANY_UNAVAILABLE'
+  | 'PENDING_APPROVAL'
+  | 'COMPANY_SUSPENDED'
+  | 'SUPER_ADMIN_ONLY'
+  | 'READY';
+
+export const PASSWORD_MAX_AGE_DAYS = 90;
+export const MIN_PASSWORD_LENGTH = 10;
+
+export function passwordProblem(password: string): string | null {
+  if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+  if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) return 'Password must contain both letters and numbers.';
+  return null;
+}
 
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   company: Company | null;
+  ownedCompanies: Company[];
+  pendingInvites: Invite[];
+  accessState: AccessState;
   loading: boolean;
-  signIn: () => Promise<void>;
-  signInWithEmail: (email: string, pass: string) => Promise<void>;
-  signUpWithEmail: (email: string, pass: string, name: string) => Promise<void>;
-  resetPassword: (email: string) => Promise<void>;
-  sendResetEmailAdmin: (email: string) => Promise<void>;
-  manualResetPassword: (userId: string) => Promise<void>;
-  changePassword: (currentPass: string, newPass: string) => Promise<void>;
-  logout: () => Promise<void>;
-  registerCompany: (companyName: string, plan?: SubscriptionPlanType) => Promise<void>;
-  resetProfileCompany: () => Promise<void>;
-  connectExistingCompany: (companyId: string) => Promise<void>;
-  deleteCompanyByOwner: (companyId: string) => Promise<void>;
-  deleteUserAccount: () => Promise<void>;
-  userCompanies: Company[];
-  approveCompany: (companyId: string) => Promise<void>;
-  disapproveCompany: (companyId: string) => Promise<void>;
-  toggleUserSuspension: (userId: string, status: boolean) => Promise<void>;
-  deleteUser: (userId: string) => Promise<void>;
-  signInAsDemo: () => Promise<void>;
+  isDemoMode: boolean;
+  isSuperAdmin: boolean;
+  role: CompanyRole | null;
+  emailVerified: boolean;
+  usesPasswordSignIn: boolean;
+  mustChangePassword: boolean;
+  auditActor: AuditActor | null;
+  can: (action: PermissionAction) => boolean;
+  isModuleEnabled: (moduleId: string) => boolean;
   isAdmin: boolean;
   isManager: boolean;
-  isAccount: boolean;
-  isAuditor: boolean;
-  isStoreKeeper: boolean;
-  isStaff: boolean;
-  isSuperAdmin: boolean;
-  isDemoMode: boolean;
-  mustChangePassword: boolean;
-  isFirestoreConnected: boolean;
   isOnline: boolean;
-  connectionError: string | null;
+  configError: string | null;
   errorMessage: string | null;
   setErrorMessage: (msg: string | null) => void;
   successMessage: string | null;
   setSuccessMessage: (msg: string | null) => void;
-  can: (action: PermissionAction) => boolean;
-  isModuleEnabled: (moduleId: string) => boolean;
-  canPostTransactions: boolean;
-  canManageStaff: boolean;
-  canTransferStock: boolean;
+  signInWithGoogle: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUpWithEmail: (email: string, password: string, name: string) => Promise<void>;
+  resendVerificationEmail: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  logout: () => Promise<void>;
+  registerCompany: (companyName: string, requestedPlan: 'BASIC' | 'STANDARD' | 'ENTERPRISE') => Promise<void>;
+  acceptInvite: (invite: Invite) => Promise<void>;
+  switchCompany: (companyId: string) => Promise<void>;
+  requestCompanyDeletion: () => Promise<void>;
+  enterDemoMode: () => void;
+  exitDemoMode: () => void;
 }
-
-export type PermissionAction = 
-  | 'manage_users' 
-  | 'manage_companies' 
-  | 'manage_suppliers' 
-  | 'manage_buyers' 
-  | 'manage_inventory' 
-  | 'manage_staff' 
-  | 'manage_payroll' 
-  | 'view_reports' 
-  | 'view_analytics' 
-  | 'manage_warehouses' 
-  | 'manage_journal'
-  | 'manage_store_records'
-  | 'manage_petty_cash';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const shouldDefaultToDemo = () => {
-  const isDemo = localStorage.getItem('ccs_demo_mode');
-  const isLoggedOut = localStorage.getItem('ccs_logged_out');
-  if (isLoggedOut === 'true') return false;
-  if (isDemo === 'false') return false;
-  // If not explicitly logged out or disabled, default to true in development/preview to showcase the active app immediately
-  return true;
-};
+const DEMO_USER = {
+  uid: DEMO_USER_ID,
+  email: 'demo@training.local',
+  displayName: 'Training User',
+  emailVerified: true,
+  providerData: [],
+} as unknown as User;
+
+function authErrorMessage(error: unknown): string {
+  const code = (error as { code?: string })?.code || '';
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+    case 'auth/invalid-email':
+      return 'Invalid email or password.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Please wait a few minutes and try again.';
+    case 'auth/email-already-in-use':
+      return 'An account with this email already exists. Sign in instead, or reset your password.';
+    case 'auth/weak-password':
+      return 'That password is too weak.';
+    case 'auth/popup-blocked':
+      return 'The sign-in popup was blocked. Allow popups for this site and try again.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/cancelled-popup-request':
+      return '';
+    case 'auth/unauthorized-domain':
+      return `This domain (${window.location.hostname}) is not authorised for sign-in. Add it in Firebase Console → Authentication → Settings → Authorized domains.`;
+    case 'auth/operation-not-allowed':
+      return 'This sign-in method is not enabled for the project.';
+    case 'auth/network-request-failed':
+      return 'Network error. Check your connection and try again.';
+    case 'auth/requires-recent-login':
+      return 'For security, please sign in again and retry.';
+    case 'auth/not-configured':
+      return (error as Error).message;
+    default:
+      return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isDemoMode, setIsDemoMode] = useState(() => {
-    const active = shouldDefaultToDemo();
-    if (active) localStorage.setItem('ccs_demo_mode', 'true');
-    return active;
-  });
-  const [user, setUser] = useState<User | null>(() => {
-    if (shouldDefaultToDemo()) {
-      return {
-        uid: 'demo_user_local',
-        email: 'demo@ccs.com',
-        displayName: 'Training User (Local Offline)',
-        isAnonymous: true,
-        emailVerified: true,
-        providerData: []
-      } as any;
-    }
-    return null;
-  });
-  const [profile, setProfile] = useState<UserProfile | null>(() => {
-    if (shouldDefaultToDemo()) {
-      return {
-        uid: 'demo_admin_profile_local',
-        email: 'demo@ccs.com',
-        displayName: 'Training User (Local Offline)',
-        role: 'ADMIN',
-        companyId: 'demo_company_local',
-        createdAt: new Date().toISOString()
-      };
-    }
-    return null;
-  });
-  const [company, setCompany] = useState<Company | null>(() => {
-    if (shouldDefaultToDemo()) {
-      return {
-        id: 'demo_company_local',
-        name: 'CCS Training Demo (Local Offline)',
-        ownerEmail: 'demo@ccs.com',
-        createdAt: new Date().toISOString(),
-        isApproved: true
-      };
-    }
-    return null;
-  });
-  const [userCompanies, setUserCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(() => {
-    return !shouldDefaultToDemo();
-  });
-  const [mustChangePassword, setMustChangePassword] = useState(false);
-  const [isFirestoreConnected, setIsFirestoreConnected] = useState(true);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(isDemoRuntime ? DEMO_USER : null);
+  const [userVersion, setUserVersion] = useState(0);
+  const [authReady, setAuthReady] = useState(isDemoRuntime || !auth);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [company, setCompany] = useState<Company | null>(null);
+  const [companyLoaded, setCompanyLoaded] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [superAdminLoaded, setSuperAdminLoaded] = useState(false);
+  const [ownedByUid, setOwnedByUid] = useState<Company[]>([]);
+  const [ownedByEmail, setOwnedByEmail] = useState<Company[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<Invite[]>([]);
+  const [isOnline, setIsOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const autoConnectAttempted = useRef<string | null>(null);
+  const passwordStampAttempted = useRef<string | null>(null);
 
-  // Permission Engine Logic
-  const can = (action: PermissionAction): boolean => {
-    const adminEmails = ['wasiuadebisi89@gmail.com', 'adezmoldent@gmail.com', 'abdullahiwasiu07@gmail.com'];
-    const currentEmail = (user?.email || profile?.email || '').toLowerCase().trim();
-    if (currentEmail && adminEmails.includes(currentEmail)) return true; // Super Admin bypass
-    if (isSuperAdmin) return true;
-    if (isDemoMode) return true; // Demo mode has all permissions
-    if (!profile) return false;
+  const emailVerified = isDemoRuntime || !!user?.emailVerified;
+  const email = normalizeEmail(user?.email);
+  const usesPasswordSignIn = !isDemoRuntime && !!user?.providerData?.some(p => p.providerId === 'password');
 
-    switch (action) {
-      case 'manage_users':
-        return isAdmin;
-      case 'manage_companies':
-        return false; // Only super admin
-      case 'manage_suppliers':
-      case 'manage_buyers':
-      case 'manage_inventory':
-        return isStaff; // Staff, Account, Manager, Admin all have this
-      case 'manage_staff':
-        return isAdmin || isManager;
-      case 'manage_payroll':
-      case 'manage_journal':
-        return isAdmin || isAccount; // Account, Manager, Admin all have this
-      case 'view_reports':
-      case 'view_analytics':
-        return isAdmin || isManager || isAccount || isAuditor;
-      case 'manage_warehouses':
-        return isAdmin || isManager;
-      case 'manage_store_records':
-        return isAdmin || isManager || isStoreKeeper;
-      case 'manage_petty_cash':
-        return isStaff; // Any company staff can access Petty Cash
-      default:
-        return false;
-    }
-  };
-
-  console.log('AuthProvider: State', { loading, user: user?.uid, isDemoMode, isFirestoreConnected });
-
-  React.useEffect(() => {
-    async function testConnection() {
-      if (isMockFallback) {
-        console.log("AuthContext: Operating in Local / Offline Mock Mode. Bypassing connection test.");
-        setIsFirestoreConnected(true);
-        setConnectionError(null);
-        return;
-      }
-
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Connection test timeout')), 4000) // 4 seconds
-      );
-      
-      try {
-        console.log("Testing Firestore connection...");
-        
-        // Configuration integrity check
-        const domain = window.location.hostname;
-        const configAuthDomain = firebaseConfig.authDomain || '';
-        const isRunApp = domain.includes('.run.app');
-        const isMismatchedAuthDomain = configAuthDomain && !configAuthDomain.includes('.firebaseapp.com') && !configAuthDomain.includes('.firebase.google.com');
-
-        if (isRunApp && isMismatchedAuthDomain) {
-          console.warn(`Auth Domain Warning: Your authDomain is set to "${configAuthDomain}". This may cause issues in production. It usually should be your "*.firebaseapp.com" domain.`);
-        }
-
-        // Ping the publicly accessible path '_health_check_/ping' instead of authenticated 'test/connection'
-        await Promise.race([
-          getDocFromServer(doc(db, '_health_check_', 'ping')),
-          timeoutPromise
-        ]);
-        console.log("Firestore connection successful.");
-        setIsFirestoreConnected(true);
-        setConnectionError(null);
-      } catch (error: any) {
-        if (error.message === 'Connection test timeout') {
-          console.warn("Firestore connection test timed out. Proceeding optimistically.");
-          setIsFirestoreConnected(true);
-          setConnectionError(null);
-          return;
-        }
-
-        if (error.message?.includes('the client is offline')) {
-          // If offline, we don't treat it as a critical connection error since we have persistence
-          setIsFirestoreConnected(true);
-          setConnectionError(null);
-          return;
-        }
-
-        if (
-          error.code === 'permission-denied' ||
-          error.code === 'not-found' ||
-          error.code === 'unauthenticated' ||
-          error.code === 'already-exists'
-        ) {
-          // These server responses indicate the server is reached and responding!
-          console.log(`Firestore connection test successful (server responded with ${error.code}).`);
-          setIsFirestoreConnected(true);
-          setConnectionError(null);
-          return;
-        }
-
-        console.error("Firestore connection test failed:", error.message);
-        
-        setIsFirestoreConnected(false);
-        setConnectionError(
-          `Firestore connection issue for project "${firebaseConfig.projectId}". ` +
-          `Error: ${error.code || 'unknown'}. ` +
-          `Please ensure the Firestore API is enabled and the database configuration is correct.`
-        );
-      }
-    }
-
-    testConnection();
-
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
+  // ------------------------------------------------------------ connectivity
+  useEffect(() => {
+    const online = () => setIsOnline(true);
+    const offline = () => setIsOnline(false);
+    window.addEventListener('online', online);
+    window.addEventListener('offline', offline);
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', online);
+      window.removeEventListener('offline', offline);
     };
   }, []);
 
-  const isSuperAdmin = useMemo(() => {
-    const userEmail = (user?.email || '').toLowerCase().trim();
-    const profileEmail = (profile?.email || '').toLowerCase().trim();
-    const superAdminEmails = [
-      'wasiuadebisi89@gmail.com',
-      'adezmoldent@gmail.com',
-      'abdullahiwasiu07@gmail.com'
-    ];
-    return superAdminEmails.includes(userEmail) || 
-           superAdminEmails.includes(profileEmail) ||
-           profile?.role === 'SUPER_ADMIN';
-  }, [user?.email, profile?.email, profile?.role]);
+  // ------------------------------------------------------------ auth state
+  useEffect(() => {
+    if (isDemoRuntime || !auth) return;
+    return onAuthStateChanged(auth, firebaseUser => {
+      setUser(firebaseUser);
+      setAuthReady(true);
+    });
+  }, []);
 
-  const isAdmin = useMemo(() => profile?.role === 'ADMIN' || isSuperAdmin, [profile?.role, isSuperAdmin]);
-  const isManager = useMemo(() => profile?.role === 'MANAGER' || isAdmin, [profile?.role, isAdmin]);
-  const isAccount = useMemo(() => profile?.role === 'ACCOUNT' || isManager, [profile?.role, isManager]);
-  const isAuditor = useMemo(() => profile?.role === 'AUDITOR' || isManager, [profile?.role, isManager]);
-  const isStoreKeeper = useMemo(() => profile?.role === 'STORE_KEEPER' || isAdmin, [profile?.role, isAdmin]);
-  const isStaff = useMemo(() => profile?.role === 'STAFF' || isAccount || isAuditor || isStoreKeeper, [profile?.role, isAccount, isAuditor, isStoreKeeper]);
+  const uid = user?.uid ?? null;
 
-  const isModuleEnabled = React.useCallback((moduleId: string): boolean => {
-    if (isSuperAdmin || isDemoMode) return true;
-    if (!company) return true;
-    if (!company.enabledModules || company.enabledModules.length === 0) return true;
-    return company.enabledModules.includes(moduleId);
-  }, [isSuperAdmin, isDemoMode, company]);
+  // ------------------------------------------------------------ profile + platform admin
+  useEffect(() => {
+    setProfile(null);
+    setProfileLoaded(false);
+    setIsSuperAdmin(false);
+    setSuperAdminLoaded(false);
+    if (!uid) return;
 
-  React.useEffect(() => {
-    let unsubscribeProfile: (() => void) | null = null;
-    let unsubscribeCompany: (() => void) | null = null;
-    let unsubscribeUserCompanies: (() => void) | null = null;
-
-    // Safety timeout to ensure the app doesn't get stuck on the loading screen
-    const loadingTimeout = setTimeout(() => {
-      if (loading) {
-        console.warn('AuthContext: Loading state timed out after 10s. Forcing initialization.');
-        setLoading(false);
+    const unsubscribe = onSnapshot(
+      doc(db, 'users', uid),
+      snapshot => {
+        setProfile(snapshot.exists() ? ({ ...(snapshot.data() as UserProfile), uid: snapshot.id }) : null);
+        setProfileLoaded(true);
+      },
+      error => {
+        logger.error('Profile subscription failed', error);
+        setProfile(null);
+        setProfileLoaded(true);
+        setErrorMessage(formatFirestoreError(error));
       }
-    }, 10000);
+    );
 
-    if (!auth || !db) {
-      console.error('AuthContext: Firebase services not available. Skipping initialization.');
-      setLoading(false);
-      return;
+    if (isDemoRuntime) {
+      setSuperAdminLoaded(true);
+    } else {
+      getDoc(doc(db, 'platform_admins', uid))
+        .then(snapshot => setIsSuperAdmin(snapshot.exists()))
+        .catch(() => setIsSuperAdmin(false))
+        .finally(() => setSuperAdminLoaded(true));
     }
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      console.log('AuthContext: onAuthStateChanged trigger:', user?.uid || 'no user');
-      
-      if (localStorage.getItem('ccs_demo_mode') === 'true' && !user) {
-        setLoading(false);
-        clearTimeout(loadingTimeout);
-        return;
+    return unsubscribe;
+  }, [uid]);
+
+  // ------------------------------------------------------------ owned companies & invites
+  useEffect(() => {
+    setOwnedByUid([]);
+    setOwnedByEmail([]);
+    setPendingInvites([]);
+    if (!uid || isDemoRuntime) return;
+
+    const unsubscribers: Array<() => void> = [];
+    const toCompanies = (docs: { id: string; data: () => unknown }[]) =>
+      docs.map(d => ({ ...(d.data() as Company), id: d.id })).filter(c => !c.isDeleted && c.status !== 'DELETED');
+
+    unsubscribers.push(onSnapshot(
+      query(collection(db, 'companies'), where('ownerUid', '==', uid)),
+      snapshot => setOwnedByUid(toCompanies(snapshot.docs)),
+      error => logger.warn('Owned companies query failed', error)
+    ));
+
+    if (emailVerified && email) {
+      unsubscribers.push(onSnapshot(
+        query(collection(db, 'companies'), where('ownerEmail', '==', email)),
+        snapshot => setOwnedByEmail(toCompanies(snapshot.docs)),
+        error => logger.warn('Legacy owned companies query failed', error)
+      ));
+      unsubscribers.push(onSnapshot(
+        query(collection(db, 'invites'), where('email', '==', email), where('status', '==', 'PENDING')),
+        snapshot => setPendingInvites(snapshot.docs.map(d => ({ ...(d.data() as Invite), id: d.id }))),
+        error => logger.warn('Invites query failed', error)
+      ));
+    }
+
+    return () => unsubscribers.forEach(fn => fn());
+  }, [uid, email, emailVerified, userVersion]);
+
+  const ownedCompanies = useMemo(() => {
+    const byId = new Map<string, Company>();
+    [...ownedByUid, ...ownedByEmail].forEach(c => byId.set(c.id, c));
+    return [...byId.values()].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [ownedByUid, ownedByEmail]);
+
+  // ------------------------------------------------------------ active company
+  const companyId = profile?.companyId || '';
+  useEffect(() => {
+    setCompany(null);
+    setCompanyLoaded(false);
+    if (!companyId) return;
+    return onSnapshot(
+      doc(db, 'companies', companyId),
+      snapshot => {
+        setCompany(snapshot.exists() ? ({ ...(snapshot.data() as Company), id: snapshot.id }) : null);
+        setCompanyLoaded(true);
+      },
+      error => {
+        logger.warn('Company subscription failed', error);
+        setCompany(null);
+        setCompanyLoaded(true);
       }
-      
-      setUser(user);
-      
-      try {
-        if (user) {
-          if (user.isAnonymous || localStorage.getItem('ccs_demo_mode') === 'true') {
-            setIsDemoMode(true);
-            setProfile({
-              uid: 'demo_admin_profile_local',
-              email: 'demo@ccs.com',
-              displayName: 'Training User (Local Offline)',
-              role: 'ADMIN',
-              companyId: 'demo_company_local',
-              createdAt: new Date().toISOString()
-            });
-            setCompany({
-              id: 'demo_company_local',
-              name: 'CCS Training Demo (Local Offline)',
-              ownerEmail: 'demo@ccs.com',
-              createdAt: new Date().toISOString(),
-              isApproved: true
-            });
-            setLoading(false);
-            clearTimeout(loadingTimeout);
-          } else {
-            if (unsubscribeProfile) unsubscribeProfile();
-            if (unsubscribeCompany) unsubscribeCompany();
-            if (unsubscribeUserCompanies) unsubscribeUserCompanies();
+    );
+  }, [companyId]);
 
-            // Subscribe to companies owned by this user
-            if (user.email) {
-              const cleanUserEmail = user.email.toLowerCase().trim();
-              const compQuery = query(
-                collection(db, 'companies'),
-                where('ownerEmail', '==', cleanUserEmail)
-              );
-              unsubscribeUserCompanies = onSnapshot(compQuery, async (compSnapshot) => {
-                let comps: Company[] = [];
-                compSnapshot.forEach((doc) => {
-                  comps.push(doc.data() as Company);
-                });
-                if (comps.length === 0) {
-                  try {
-                    const allCompsSnap = await getDocs(collection(db, 'companies'));
-                    comps = allCompsSnap.docs
-                      .map(d => d.data() as Company)
-                      .filter(c => c.ownerEmail && c.ownerEmail.toLowerCase().trim() === cleanUserEmail);
-                  } catch (err) {
-                    console.warn('Fallback companies fetch error:', err);
-                  }
-                }
-                setUserCompanies(comps);
+  // ------------------------------------------------------------ derived access state
+  const profileIsActive = !!profile && (profile.status ?? 'ACTIVE') === 'ACTIVE' && profile.suspended !== true;
+  const role: CompanyRole | null = profile && isCompanyRole(profile.role) ? profile.role : null;
 
-                if (comps.length > 0) {
-                  const storedCompId = localStorage.getItem(`ccs_active_company_${user.uid}`);
-                  const matchedComp = comps.find(c => c.id === storedCompId) || comps[0];
-                  
-                  setProfile(prev => {
-                    if (!prev || !prev.companyId) {
-                      console.log('AuthContext: Auto-connecting user from userCompanies listener:', matchedComp.name);
-                      setDoc(doc(db, 'users', user.uid), {
-                        companyId: matchedComp.id,
-                        role: 'ADMIN'
-                      }, { merge: true }).catch(() => {});
-                      return prev ? { ...prev, companyId: matchedComp.id, role: 'ADMIN' } : {
-                        uid: user.uid,
-                        email: cleanUserEmail,
-                        displayName: user.displayName || cleanUserEmail.split('@')[0] || 'Admin',
-                        role: 'ADMIN',
-                        companyId: matchedComp.id,
-                        createdAt: new Date().toISOString()
-                      };
-                    }
-                    return prev;
-                  });
+  const accessState: AccessState = useMemo(() => {
+    if (!isDemoRuntime && !isFirebaseConfigured) return 'NOT_CONFIGURED';
+    if (!authReady) return 'LOADING';
+    if (!user) return 'SIGNED_OUT';
+    if (!profileLoaded || !superAdminLoaded) return 'LOADING';
+    if (!profile && usesPasswordSignIn && !emailVerified) return 'VERIFY_EMAIL';
+    if (profile && profile.suspended === true) return 'ACCOUNT_SUSPENDED';
+    if (!profile || !profile.companyId) return isSuperAdmin ? 'SUPER_ADMIN_ONLY' : 'NO_COMPANY';
+    if (!profileIsActive) return isSuperAdmin ? 'SUPER_ADMIN_ONLY' : 'ACCOUNT_SUSPENDED';
+    if (!companyLoaded) return 'LOADING';
+    if (!company || company.isDeleted || company.status === 'DELETED') return isSuperAdmin ? 'SUPER_ADMIN_ONLY' : 'COMPANY_UNAVAILABLE';
+    if (company.status === 'SUSPENDED') return isSuperAdmin ? 'SUPER_ADMIN_ONLY' : 'COMPANY_SUSPENDED';
+    if (company.isApproved !== true || company.status === 'PENDING') return isSuperAdmin ? 'SUPER_ADMIN_ONLY' : 'PENDING_APPROVAL';
+    return 'READY';
+  }, [authReady, user, profileLoaded, superAdminLoaded, profile, usesPasswordSignIn, emailVerified, isSuperAdmin, profileIsActive, companyLoaded, company]);
 
-                  setCompany(prev => prev ? prev : matchedComp);
-                }
-              }, (err) => {
-                console.error("Failed to fetch user companies:", err);
-              });
-            }
+  const mustChangePassword = useMemo(() => {
+    if (accessState !== 'READY' || !usesPasswordSignIn || !profile) return false;
+    if (profile.mustChangePassword) return true;
+    if (!profile.lastPasswordUpdate) return false;
+    const ageDays = (Date.now() - new Date(profile.lastPasswordUpdate).getTime()) / 86_400_000;
+    return ageDays >= PASSWORD_MAX_AGE_DAYS;
+  }, [accessState, usesPasswordSignIn, profile]);
 
-            const profileId = user.uid;
-            const userRef = doc(db, 'users', profileId);
-            let activeCompanySubId: string | null = null;
-            
-            console.log('AuthContext: Setting up profile listener for:', profileId);
-            unsubscribeProfile = onSnapshot(userRef, async (userDoc) => {
-              if (userDoc.exists()) {
-                const data = userDoc.data() as UserProfile;
-                console.log('AuthContext: Profile update received:', { role: data.role, companyId: data.companyId });
-                
-                const isUserSuperAdmin = [
-                  'wasiuadebisi89@gmail.com',
-                  'adezmoldent@gmail.com',
-                  'abdullahiwasiu07@gmail.com'
-                ].includes((user.email || data.email || '').toLowerCase().trim()) || data.role === 'SUPER_ADMIN';
+  const auditActor: AuditActor | null = useMemo(
+    () => (accessState === 'READY' && profile && user ? { companyId: profile.companyId, uid: user.uid, email: normalizeEmail(user.email) || profile.email } : null),
+    [accessState, profile, user]
+  );
 
-                // Check for suspension
-                if (data.suspended && !isUserSuperAdmin) {
-                  console.warn('AuthContext: User is suspended. Signing out.');
-                  setErrorMessage('Your account has been suspended. Please contact the Super Admin.');
-                  signOut(auth);
-                  return;
-                }
+  const can = useCallback(
+    (action: PermissionAction) => accessState === 'READY' && roleCan(role, action),
+    [accessState, role]
+  );
 
-                setProfile(prev => {
-                  if (prev &&
-                      prev.uid === data.uid &&
-                      prev.role === data.role &&
-                      prev.companyId === data.companyId &&
-                      prev.suspended === data.suspended &&
-                      prev.lastPasswordUpdate === data.lastPasswordUpdate &&
-                      prev.displayName === data.displayName) {
-                    return prev;
-                  }
-                  return data;
-                });
-                setLoading(false);
-                clearTimeout(loadingTimeout);
+  const isModuleEnabled = useCallback(
+    (moduleId: string) => {
+      if (!company) return false;
+      if (!company.enabledModules || company.enabledModules.length === 0) return true;
+      return company.enabledModules.includes(moduleId);
+    },
+    [company]
+  );
 
-                // Password Policy Engine
-                const providers = user.providerData.map(p => p.providerId);
-                const isEmailUser = providers.includes('password');
-                
-                if (isEmailUser) {
-                  if (data.lastPasswordUpdate) {
-                    const lastUpdate = new Date(data.lastPasswordUpdate).getTime();
-                    const now = new Date().getTime();
-                    const diffDays = (now - lastUpdate) / (1000 * 60 * 60 * 24);
-                    const expired = diffDays >= 90;
-                    console.log('AuthContext: Password policy check:', { lastPasswordUpdate: data.lastPasswordUpdate, diffDays, expired });
-                    setMustChangePassword(expired);
-                  } else {
-                    console.log('AuthContext: Setting default lastPasswordUpdate to now');
-                    const nowStr = new Date().toISOString();
-                    setDoc(userRef, { lastPasswordUpdate: nowStr }, { merge: true }).catch(() => {});
-                    setMustChangePassword(false);
-                  }
-                } else {
-                  setMustChangePassword(false);
-                }
-                
-                const cleanUserEmail = (user.email || data.email || '').toLowerCase().trim();
+  // Start the password-age clock for email/password users who have never had it recorded.
+  useEffect(() => {
+    if (isDemoRuntime || accessState !== 'READY' || !usesPasswordSignIn || !profile || profile.lastPasswordUpdate) return;
+    if (passwordStampAttempted.current === profile.uid) return;
+    passwordStampAttempted.current = profile.uid;
+    commitWrites([{ kind: 'update', collection: 'users', id: profile.uid, data: { lastPasswordUpdate: new Date().toISOString(), updatedAt: new Date().toISOString() } }])
+      .catch(error => logger.warn('Could not record password date', error));
+  }, [accessState, usesPasswordSignIn, profile]);
 
-                if (data.companyId) {
-                  if (activeCompanySubId !== data.companyId) {
-                    activeCompanySubId = data.companyId;
-                    if (unsubscribeCompany) unsubscribeCompany();
-                    const companyRef = doc(db, 'companies', data.companyId);
-                    
-                    unsubscribeCompany = onSnapshot(companyRef, async (companyDoc) => {
-                      if (companyDoc.exists()) {
-                        const compData = companyDoc.data() as Company;
-                        if (!compData.isApproved) {
-                          try {
-                            compData.isApproved = true;
-                            await setDoc(companyRef, { isApproved: true }, { merge: true });
-                          } catch (e) {
-                            console.warn('AuthContext: Auto company approval write failed:', e);
-                          }
-                        }
-                        setCompany(prev => {
-                          if (prev &&
-                              prev.id === compData.id &&
-                              prev.name === compData.name &&
-                              prev.isApproved === compData.isApproved &&
-                              prev.subscriptionPlan === compData.subscriptionPlan &&
-                              JSON.stringify(prev.enabledModules) === JSON.stringify(compData.enabledModules)) {
-                            return prev;
-                          }
-                          return compData;
-                        });
-                      } else {
-                        console.warn('AuthContext: Company doc does not exist for ID:', data.companyId);
-                        try {
-                          if (cleanUserEmail) {
-                            const compQuery = query(collection(db, 'companies'), where('ownerEmail', '==', cleanUserEmail));
-                            const compSnap = await getDocs(compQuery);
-                            if (!compSnap.empty) {
-                              const foundComp = compSnap.docs[0].data() as Company;
-                              if (!foundComp.isApproved) {
-                                await setDoc(doc(db, 'companies', foundComp.id), { isApproved: true }, { merge: true });
-                                foundComp.isApproved = true;
-                              }
-                              setCompany(foundComp);
-                              await setDoc(userRef, { companyId: foundComp.id, role: 'ADMIN' }, { merge: true });
-                              return;
-                            }
-                          }
-                        } catch (err) {
-                          console.warn('AuthContext: Fallback company lookup failed:', err);
-                        }
-
-                        setCompany({
-                          id: data.companyId,
-                          name: 'My Company',
-                          isApproved: true,
-                          createdAt: new Date().toISOString()
-                        } as Company);
-                      }
-                    }, (error) => {
-                      console.warn('AuthContext: Company snapshot failed:', error);
-                      setCompany({
-                        id: data.companyId,
-                        name: 'My Company',
-                        isApproved: true,
-                        createdAt: new Date().toISOString()
-                      } as Company);
-                    });
-                  }
-                } else if (!isUserSuperAdmin && cleanUserEmail) {
-                  // User profile exists BUT companyId is missing/empty. Auto-repair for Admin/Owner or Staff.
-                  console.log('AuthContext: User profile missing companyId. Auto-repairing for:', cleanUserEmail);
-                  try {
-                    let compDocs = await getDocs(query(
-                      collection(db, 'companies'),
-                      where('ownerEmail', '==', cleanUserEmail)
-                    ));
-
-                    if (compDocs.empty) {
-                      const allCompsSnap = await getDocs(collection(db, 'companies'));
-                      const matchedDoc = allCompsSnap.docs.find(d => {
-                        const cData = d.data() as any;
-                        if (cData.isDeleted || cData.status === 'DELETED' || (cData.name || '').startsWith('[DELETED]')) return false;
-                        const oe = cData.ownerEmail;
-                        return oe && oe.toLowerCase().trim() === cleanUserEmail;
-                      });
-                      if (matchedDoc) {
-                        compDocs = { empty: false, docs: [matchedDoc] } as any;
-                      }
-                    }
-
-                    const activeCompDocs = compDocs.docs.filter(d => {
-                      const cData = d.data() as any;
-                      return !cData.isDeleted && cData.status !== 'DELETED' && !(cData.name || '').startsWith('[DELETED]');
-                    });
-
-                    if (activeCompDocs.length > 0) {
-                      const ownedCompany = activeCompDocs[0].data() as Company;
-                      console.log('AuthContext: Auto-repair linked owner to company:', ownedCompany.name);
-                      
-                      if (!ownedCompany.isApproved) {
-                        try {
-                          await setDoc(doc(db, 'companies', ownedCompany.id), { isApproved: true }, { merge: true });
-                          ownedCompany.isApproved = true;
-                        } catch (e) {
-                          console.warn('AuthContext: Auto approval write failed:', e);
-                        }
-                      }
-
-                      await setDoc(userRef, { companyId: ownedCompany.id, role: 'ADMIN' }, { merge: true });
-                      setCompany(ownedCompany);
-                      setProfile(prev => prev ? { ...prev, companyId: ownedCompany.id, role: 'ADMIN' } : null);
-                    } else {
-                      // Check staff records
-                      const staffDocs = await getDocs(query(
-                        collection(db, 'staff'),
-                        where('email', '==', cleanUserEmail)
-                      ));
-                      if (!staffDocs.empty) {
-                        const staffData = staffDocs.docs[0].data() as Staff;
-                        console.log('AuthContext: Auto-repair linked user to staff company:', staffData.companyId);
-                        await setDoc(userRef, {
-                          companyId: staffData.companyId,
-                          role: staffData.role,
-                          assignedWarehouseId: staffData.assignedWarehouseId
-                        }, { merge: true });
-
-                        setProfile(prev => prev ? {
-                          ...prev,
-                          companyId: staffData.companyId,
-                          role: staffData.role,
-                          assignedWarehouseId: staffData.assignedWarehouseId
-                        } : null);
-
-                        const companyRef = doc(db, 'companies', staffData.companyId);
-                        if (unsubscribeCompany) unsubscribeCompany();
-                        unsubscribeCompany = onSnapshot(companyRef, (companyDoc) => {
-                          if (companyDoc.exists()) {
-                            setCompany(companyDoc.data() as Company);
-                          }
-                        });
-                      } else {
-                        // Check if user already owns an existing company doc before auto-creating
-                        const ownedCompQuery = query(collection(db, 'companies'), where('ownerEmail', '==', cleanUserEmail));
-                        const ownedCompSnap = await getDocs(ownedCompQuery);
-                        const validOwnedDoc = ownedCompSnap.docs.find(d => {
-                          const cData = d.data() as any;
-                          return !cData.isDeleted && cData.status !== 'DELETED' && !(cData.name || '').startsWith('[DELETED]');
-                        });
-                        
-                        if (validOwnedDoc) {
-                          const existingCompany = { id: validOwnedDoc.id, ...validOwnedDoc.data() } as Company;
-                          await setDoc(userRef, { companyId: existingCompany.id, role: 'ADMIN' }, { merge: true });
-                          localStorage.setItem(`ccs_active_company_${user.uid}`, existingCompany.id);
-                          setCompany(existingCompany);
-                          setProfile(prev => prev ? { ...prev, companyId: existingCompany.id, role: 'ADMIN' } : {
-                            uid: user.uid,
-                            email: cleanUserEmail,
-                            displayName: user.displayName || cleanUserEmail.split('@')[0] || 'Admin',
-                            role: 'ADMIN',
-                            companyId: existingCompany.id,
-                            createdAt: new Date().toISOString()
-                          });
-                        } else {
-                          // Do NOT create an unwanted company document in Firestore automatically
-                          console.log('AuthContext: No company found for:', cleanUserEmail);
-                          setCompany(null);
-                          setProfile(prev => prev ? { ...prev, role: prev.role || 'ADMIN' } : {
-                            uid: user.uid,
-                            email: cleanUserEmail,
-                            displayName: user.displayName || cleanUserEmail.split('@')[0] || 'Admin',
-                            role: 'ADMIN',
-                            companyId: '',
-                            createdAt: new Date().toISOString()
-                          });
-                        }
-                      }
-                    }
-                  } catch (autoRepairError) {
-                    console.warn('AuthContext: Auto-repair failed:', autoRepairError);
-                  }
-                }
-              } else {
-                // New User / Pre-registered Staff Logic
-                if (user.email && !isDemoMode) {
-                  const cleanEmail = user.email.toLowerCase().trim();
-
-                  // 1. Check if user document exists in 'users' collection by email under different ID
-                  setLoading(true);
-                  try {
-                    const existingUsersQuery = query(
-                      collection(db, 'users'),
-                      where('email', '==', cleanEmail)
-                    );
-                    const existingUsersDocs = await getDocs(existingUsersQuery);
-
-                    if (!existingUsersDocs.empty) {
-                      const existingProfile = existingUsersDocs.docs[0].data() as UserProfile;
-                      console.log('AuthContext: Profile found in users collection by email. Syncing to user.uid:', user.uid);
-                      const updatedProfile: UserProfile = {
-                        ...existingProfile,
-                        uid: user.uid,
-                        email: cleanEmail,
-                        lastPasswordUpdate: existingProfile.lastPasswordUpdate || new Date().toISOString()
-                      };
-                      await setDoc(userRef, updatedProfile, { merge: true });
-                      setProfile(updatedProfile);
-                      setLoading(false);
-                      return;
-                    }
-
-                    const isSuperAdminEmail = [
-                      'wasiuadebisi89@gmail.com',
-                      'adezmoldent@gmail.com',
-                      'abdullahiwasiu07@gmail.com'
-                    ].includes(cleanEmail);
-
-                    if (isSuperAdminEmail) {
-                      console.log('AuthContext: Super Admin logged in. Ensuring profile and HQ company exist...');
-                      const superCompanyId = 'super_admin_hq';
-                      const superCompany: Company = {
-                        id: superCompanyId,
-                        name: 'Adezmold Consulting HQ',
-                        ownerEmail: cleanEmail,
-                        createdAt: new Date().toISOString(),
-                        isApproved: true
-                      };
-                      
-                      const superProfile: UserProfile = {
-                        uid: user.uid,
-                        email: cleanEmail,
-                        displayName: user.displayName || 'Super Admin',
-                        role: 'ADMIN',
-                        companyId: superCompanyId,
-                        createdAt: new Date().toISOString(),
-                        lastPasswordUpdate: new Date().toISOString()
-                      };
-
-                      await setDoc(doc(db, 'companies', superCompanyId), superCompany, { merge: true });
-                      await setDoc(userRef, superProfile, { merge: true });
-                      
-                      setProfile(superProfile);
-                      setCompany(superCompany);
-                      console.log('AuthContext: Super Admin profile and HQ company initialized successfully.');
-                    } else {
-                      console.log('AuthContext: User profile missing, checking staff records for:', cleanEmail);
-                      const staffQuery = query(
-                        collection(db, 'staff'),
-                        where('email', '==', cleanEmail)
-                      );
-                      const staffDocs = await getDocs(staffQuery);
-                      
-                      if (!staffDocs.empty) {
-                        const staffData = staffDocs.docs[0].data() as Staff;
-                        console.log('AuthContext: Staff record found. Creating profile for new user...');
-                        const newProfile: any = {
-                          uid: user.uid,
-                          email: cleanEmail,
-                          displayName: user.displayName || staffData.name,
-                          role: staffData.role,
-                          companyId: staffData.companyId,
-                          assignedWarehouseId: staffData.assignedWarehouseId,
-                          createdAt: new Date().toISOString(),
-                          lastPasswordUpdate: new Date().toISOString()
-                        };
-                        
-                        Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
-                        
-                        try {
-                          await setDoc(userRef, newProfile);
-                          setProfile(newProfile);
-                        } catch (rulesError: any) {
-                          console.error('AuthContext: Profile creation REJECTED by rules:', rulesError);
-                          setErrorMessage(`Permission Denied: Could not create your login profile. Please contact administrator.`);
-                        }
-                        
-                        try {
-                          await setDoc(doc(db, 'staff', staffDocs.docs[0].id), { uid: user.uid }, { merge: true });
-                        } catch (linkError) {
-                          console.warn('AuthContext: Failed to link staff record to UID.', linkError);
-                        }
-                      } else {
-                        console.log('AuthContext: No staff record found for:', cleanEmail, '. Checking companies collection...');
-                        
-                        // Check if user is owner of a company (case-insensitive & trimmed)
-                        let compDocs = await getDocs(query(
-                          collection(db, 'companies'),
-                          where('ownerEmail', '==', cleanEmail)
-                        ));
-
-                        if (compDocs.empty) {
-                          // Search all companies for email match
-                          const allCompsSnap = await getDocs(collection(db, 'companies'));
-                          const matchedDoc = allCompsSnap.docs.find(d => {
-                            const oe = (d.data() as Company).ownerEmail;
-                            return oe && oe.toLowerCase().trim() === cleanEmail;
-                          });
-                          if (matchedDoc) {
-                            compDocs = { empty: false, docs: [matchedDoc] } as any;
-                          }
-                        }
-
-                        if (!compDocs.empty) {
-                          const ownedCompany = compDocs.docs[0].data() as Company;
-                          console.log('AuthContext: Company owner record found. Restoring admin profile for:', ownedCompany.name);
-                          
-                          if (!ownedCompany.isApproved) {
-                            try {
-                              await setDoc(doc(db, 'companies', ownedCompany.id), { isApproved: true }, { merge: true });
-                              ownedCompany.isApproved = true;
-                            } catch (e) {
-                              console.warn('AuthContext: Auto approval write failed:', e);
-                            }
-                          }
-
-                          const restoredProfile: UserProfile = {
-                            uid: user.uid,
-                            email: cleanEmail,
-                            displayName: user.displayName || cleanEmail.split('@')[0] || 'Company Owner',
-                            role: 'ADMIN',
-                            companyId: ownedCompany.id,
-                            createdAt: ownedCompany.createdAt || new Date().toISOString(),
-                            lastPasswordUpdate: new Date().toISOString()
-                          };
-                          await setDoc(userRef, restoredProfile, { merge: true });
-                          setProfile(restoredProfile);
-                          setCompany(ownedCompany);
-                        } else {
-                          console.log('AuthContext: Creating user profile for:', cleanEmail);
-                          const defaultProfile: UserProfile = {
-                            uid: user.uid,
-                            email: cleanEmail,
-                            displayName: user.displayName || cleanEmail.split('@')[0] || 'User',
-                            role: 'ADMIN',
-                            companyId: '',
-                            createdAt: new Date().toISOString(),
-                            lastPasswordUpdate: new Date().toISOString()
-                          };
-                          
-                          await setDoc(userRef, defaultProfile, { merge: true });
-                          setProfile(defaultProfile);
-                          setCompany(null);
-                        }
-                      }
-                    }
-                  } catch (lookupError: any) {
-                    console.error('AuthContext: Lookup error during user init:', lookupError);
-                  } finally {
-                    setLoading(false);
-                  }
-                } else {
-                  setProfile(null);
-                  setCompany(null);
-                  setLoading(false);
-                }
-              }
-            }, (error) => {
-              setErrorMessage(reportFirestoreError(error, OperationType.GET, `users/${user.uid}`));
-              setLoading(false);
-            });
-          }
-        } else {
-          setIsDemoMode(false);
-          setProfile(null);
-          setCompany(null);
-          setUserCompanies([]);
-          if (unsubscribeProfile) unsubscribeProfile();
-          if (unsubscribeCompany) unsubscribeCompany();
-          if (unsubscribeUserCompanies) unsubscribeUserCompanies();
-          setLoading(false);
-          clearTimeout(loadingTimeout);
-        }
-      } catch (err) {
-        console.error('AuthContext: onAuthStateChanged error:', err);
-        setLoading(false);
-        clearTimeout(loadingTimeout);
-      }
-    });
-
-    return () => {
-      unsubscribeAuth();
-      if (unsubscribeProfile) unsubscribeProfile();
-      if (unsubscribeCompany) unsubscribeCompany();
-      if (unsubscribeUserCompanies) unsubscribeUserCompanies();
-    };
-  }, [isDemoMode]);
-
-  const signIn = async () => {
+  // ------------------------------------------------------------ actions
+  const signInWithGoogle = useCallback(async () => {
+    if (!auth) return;
+    setErrorMessage(null);
     try {
-      setErrorMessage(null);
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
-      
-      const domain = window.location.hostname;
-      console.log(`AuthContext: Attempting Google Sign-In on domain: ${domain}`);
-      
-      // Use Popup for best compatibility in shared and iframe environments
       await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      console.error('Sign in failed:', error);
-      const domain = window.location.hostname;
-      
-      if (error.code === 'auth/unauthorized-domain' || error.message?.includes('403')) {
-        setErrorMessage(
-          `Unauthorized Domain: "${domain}" is not authorized. ` +
-          `Please go to Firebase Console > Authentication > Settings > Authorized domains and add "${domain}".`
-        );
-      } else if (error.code === 'auth/operation-not-allowed') {
-        setErrorMessage(
-          'Google Sign-In is not enabled in your Firebase Console. ' +
-          'Please go to Authentication > Sign-in method, click "Add new provider", and enable "Google".'
-        );
-      } else if (error.code === 'auth/popup-blocked') {
-        setErrorMessage('The sign-in popup was blocked by your browser. Please allow popups for this site and try again.');
-      } else if (
-        error.code === 'auth/cancelled-popup-request' || 
-        error.code === 'auth/popup-closed-by-user' ||
-        error.message?.includes('popup-closed-by-user') ||
-        error.message?.includes('cancelled-popup-request')
-      ) {
-        // User closed the popup, no need to alert
-      } else if (error.code === 'auth/network-request-failed') {
-        setErrorMessage('Network error during sign-in. Please check your internet connection.');
-      } else {
-        setErrorMessage(`Sign in failed: ${error.message || 'Unknown error'}. Please try again or use Demo Mode.`);
-      }
+    } catch (error) {
+      const message = authErrorMessage(error);
+      if (message) setErrorMessage(message);
     }
-  };
+  }, []);
 
-  const signInWithEmail = async (email: string, pass: string) => {
+  const signInWithEmail = useCallback(async (rawEmail: string, password: string) => {
+    if (!auth) return;
+    setErrorMessage(null);
     try {
-      setErrorMessage(null);
-      await signInWithEmailAndPassword(auth, email, pass);
-    } catch (error: any) {
-      console.error('Email sign in failed:', error);
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        setErrorMessage('Invalid email or password.');
-      } else if (error.code === 'auth/too-many-requests') {
-        setErrorMessage('Too many failed attempts. Please try again later.');
-      } else {
-        setErrorMessage(`Login failed: ${error.message}`);
-      }
+      await signInWithEmailAndPassword(auth, normalizeEmail(rawEmail), password);
+    } catch (error) {
+      setErrorMessage(authErrorMessage(error));
     }
-  };
+  }, []);
 
-  const signUpWithEmail = async (email: string, pass: string, name: string) => {
-    try {
-      setErrorMessage(null);
-      const { user } = await createUserWithEmailAndPassword(auth, email, pass);
-      
-      // Check if this email belongs to a pre-registered staff member
-      const staffQuery = query(collection(db, 'staff'), where('email', '==', email.toLowerCase()));
-      const staffSnapshot = await getDocs(staffQuery);
-      
-      let companyId = '';
-      let role: UserProfile['role'] = 'STAFF';
-      let assignedWarehouseId = undefined;
-
-      if (!staffSnapshot.empty) {
-        const staffDoc = staffSnapshot.docs[0];
-        const staffData = staffDoc.data();
-        companyId = staffData.companyId;
-        role = staffData.role;
-        assignedWarehouseId = staffData.assignedWarehouseId;
-        
-        // Link the staff record to the new UID
-        await setDoc(doc(db, 'staff', staffDoc.id), { uid: user.uid }, { merge: true });
-      }
-
-      // Create profile
-      const newProfile: any = {
-        uid: user.uid,
-        email: email.toLowerCase(),
-        displayName: name,
-        role,
-        companyId,
-        assignedWarehouseId,
-        createdAt: new Date().toISOString(),
-        lastPasswordUpdate: new Date().toISOString()
-      };
-      
-      Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
-      await setDoc(doc(db, 'users', user.uid), newProfile);
-      setProfile(newProfile);
-    } catch (error: any) {
-      console.error('Signup failed:', error);
-      if (error.code === 'auth/operation-not-allowed') {
-        setErrorMessage('Email/Password sign-up is not enabled in the Firebase Console. Please enable it in Authentication > Sign-in method.');
-      } else if (error.code === 'auth/email-already-in-use') {
-        setErrorMessage('This email is already registered.');
-      } else if (error.code === 'auth/weak-password') {
-        setErrorMessage('Password is too weak. Please use at least 6 characters.');
-      } else {
-        setErrorMessage(`Signup failed: ${error.message}`);
-      }
+  const signUpWithEmail = useCallback(async (rawEmail: string, password: string, name: string) => {
+    if (!auth) return;
+    setErrorMessage(null);
+    const problem = passwordProblem(password);
+    if (problem) {
+      setErrorMessage(problem);
+      return;
     }
-  };
-
-  const resetPassword = async (email: string) => {
     try {
-      setErrorMessage(null);
-      setSuccessMessage(null);
+      const credential = await createUserWithEmailAndPassword(auth, normalizeEmail(rawEmail), password);
+      if (name.trim()) await updateProfile(credential.user, { displayName: name.trim() });
+      await sendEmailVerification(credential.user, { url: window.location.origin });
+      setSuccessMessage('Account created. We sent a verification link to your email — open it, then come back and continue.');
+    } catch (error) {
+      setErrorMessage(authErrorMessage(error));
+    }
+  }, []);
 
-      if (isDemoMode) {
-        setErrorMessage('Password reset is not available in Training Demo Mode. Use standard login for real accounts.');
+  const resendVerificationEmail = useCallback(async () => {
+    if (!auth?.currentUser) return;
+    try {
+      await sendEmailVerification(auth.currentUser, { url: window.location.origin });
+      setSuccessMessage('Verification email sent. Check your inbox and spam folder.');
+    } catch (error) {
+      setErrorMessage(authErrorMessage(error));
+    }
+  }, []);
+
+  const refreshUser = useCallback(async () => {
+    if (!auth?.currentUser) return;
+    try {
+      await reload(auth.currentUser);
+      // Force a fresh ID token so the security rules see the updated email_verified claim.
+      await auth.currentUser.getIdToken(true);
+      setUser(auth.currentUser);
+      setUserVersion(v => v + 1);
+      if (!auth.currentUser.emailVerified) setErrorMessage('Your email is not verified yet. Open the link in the verification email first.');
+    } catch (error) {
+      setErrorMessage(authErrorMessage(error));
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (rawEmail: string) => {
+    if (!auth) return;
+    setErrorMessage(null);
+    const target = normalizeEmail(rawEmail);
+    if (!target.includes('@')) {
+      setErrorMessage('Enter a valid email address.');
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, target, { url: window.location.origin });
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      if (code !== 'auth/user-not-found' && code !== 'auth/invalid-email') {
+        setErrorMessage(authErrorMessage(error));
         return;
       }
-
-      if (!email || !email.includes('@')) {
-        setErrorMessage('Please enter a valid email address.');
-        return;
-      }
-
-      // Simplified reset call without action settings to avoid redirect pre-fetch issues
-      await sendPasswordResetEmail(auth, email);
-      
-      setSuccessMessage('Password reset link sent! Please check your inbox (and spam folder). IMPORTANT: Only the LATEST link sent will work. If you requested multiple links, the older ones will show as "expired".');
-    } catch (error: any) {
-      console.error('Password reset failed:', error);
-      
-      let msg = `Failed to send reset email: ${error.message}`;
-      
-      if (error.code === 'auth/user-not-found') {
-        msg = 'No account found with this email address.';
-      } else if (error.code === 'auth/invalid-email') {
-        msg = 'The email address is invalid.';
-      } else if (error.code === 'auth/too-many-requests') {
-        msg = 'Too many requests. Please wait a few minutes before trying again.';
-      } else if (error.code === 'auth/network-request-failed') {
-        msg = 'Network error. Please check your connection.';
-      }
-      
-      setErrorMessage(msg);
     }
-  };
+    // Same message whether or not the account exists, to avoid revealing registered emails.
+    setSuccessMessage('If an account exists for that email, a password reset link has been sent. Use the most recent email you receive.');
+  }, []);
 
-  const sendResetEmailAdmin = async (email: string) => {
-    if (!isAdmin) {
-      setErrorMessage('Permission Denied: Only company admins can trigger password resets.');
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const current = auth?.currentUser;
+    if (!current || !current.email || !profile) throw new Error('Not signed in.');
+    const problem = passwordProblem(newPassword);
+    if (problem) throw new Error(problem);
+    try {
+      await reauthenticateWithCredential(current, EmailAuthProvider.credential(current.email, currentPassword));
+      await updatePassword(current, newPassword);
+      await current.getIdToken(true);
+      await commitWrites([{
+        kind: 'update',
+        collection: 'users',
+        id: current.uid,
+        data: { lastPasswordUpdate: new Date().toISOString(), mustChangePassword: false, updatedAt: new Date().toISOString() },
+      }]);
+      setSuccessMessage('Password updated.');
+    } catch (error) {
+      const code = (error as { code?: string })?.code;
+      const message = code === 'auth/wrong-password' || code === 'auth/invalid-credential' ? 'Your current password is incorrect.' : code?.startsWith('auth/') ? authErrorMessage(error) : formatFirestoreError(error);
+      throw new Error(message);
+    }
+  }, [profile]);
+
+  const logout = useCallback(async () => {
+    if (isDemoRuntime) {
+      exitDemoMode();
       return;
     }
-    if (!email || !email.includes('@')) {
-      setErrorMessage('Please provide a valid email address.');
-      return;
-    }
+    if (!auth) return;
     try {
-      setErrorMessage(null);
-      setSuccessMessage(null);
-      
-      const cleanEmail = email.toLowerCase().trim();
-      
-      // Auto-ensure user profile exists in 'users' collection
-      const usersCol = collection(db, 'users');
-      const qEmail = query(usersCol, where('email', '==', cleanEmail));
-      const snap = await getDocs(qEmail);
-
-      if (snap.empty) {
-        // Check staff collection to auto-create user profile
-        const staffCol = collection(db, 'staff');
-        const qStaff = query(staffCol, where('email', '==', cleanEmail));
-        const staffSnap = await getDocs(qStaff);
-
-        if (!staffSnap.empty) {
-          const sData = staffSnap.docs[0].data() as Staff;
-          const uId = sData.uid || sData.id || `staff_user_${staffSnap.docs[0].id}`;
-          const newProfile: UserProfile = {
-            uid: uId,
-            email: cleanEmail,
-            displayName: sData.name || cleanEmail.split('@')[0],
-            role: sData.role || 'STAFF',
-            companyId: sData.companyId || profile?.companyId || '',
-            assignedWarehouseId: sData.assignedWarehouseId || undefined,
-            createdAt: new Date().toISOString(),
-            lastPasswordUpdate: new Date().toISOString()
-          };
-          await setDoc(doc(db, 'users', uId), newProfile, { merge: true });
-        }
-      }
-
-      await sendPasswordResetEmail(auth, cleanEmail);
-      setSuccessMessage(`Password reset instruction sent to ${cleanEmail}. They must use the link in the MOST RECENT email they receive.`);
-    } catch (error: any) {
-      console.error('Admin triggered reset failed:', error);
-      setErrorMessage(`Failed to send reset email: ${error.message}`);
-    }
-  };
-
-  const manualResetPassword = async (identifier: string) => {
-    if (!isAdmin) {
-      setErrorMessage('Permission Denied: Only company admins can manage password policies.');
-      return;
-    }
-    try {
-      setErrorMessage(null);
-      setSuccessMessage(null);
-      console.log(`AuthContext: Manually resetting password state for identifier: ${identifier}`);
-      
-      let targetUserDocId = identifier;
-      let targetEmail = identifier.includes('@') ? identifier.toLowerCase().trim() : '';
-
-      // 1. Check if identifier is an existing user doc ID in 'users'
-      let userRef = doc(db, 'users', targetUserDocId);
-      let userSnap = await getDoc(userRef);
-
-      // 2. If not found by doc ID, search 'users' collection by email
-      if (!userSnap.exists() && targetEmail) {
-        const usersCol = collection(db, 'users');
-        const qEmail = query(usersCol, where('email', '==', targetEmail));
-        const snapEmail = await getDocs(qEmail);
-        if (!snapEmail.empty) {
-          userRef = doc(db, 'users', snapEmail.docs[0].id);
-          userSnap = snapEmail.docs[0];
-          targetUserDocId = snapEmail.docs[0].id;
-        }
-      }
-
-      // 3. If still not found, search 'staff' collection by id, uid, or email
-      if (!userSnap.exists()) {
-        const staffCol = collection(db, 'staff');
-        let staffSnap = null;
-
-        const staffDocRef = doc(db, 'staff', identifier);
-        const staffDoc = await getDoc(staffDocRef);
-        if (staffDoc.exists()) {
-          staffSnap = staffDoc;
-        } else if (targetEmail) {
-          const qStaffEmail = query(staffCol, where('email', '==', targetEmail));
-          const res = await getDocs(qStaffEmail);
-          if (!res.empty) staffSnap = res.docs[0];
-        }
-
-        if (staffSnap && staffSnap.exists()) {
-          const staffData = staffSnap.data() as Staff;
-          targetEmail = (staffData.email || targetEmail).toLowerCase().trim();
-          targetUserDocId = staffData.uid || staffData.id || `staff_user_${staffSnap.id}`;
-
-          // Auto-create missing user profile in 'users' collection
-          const restoredProfile: UserProfile = {
-            uid: targetUserDocId,
-            email: targetEmail || '',
-            displayName: staffData.name || 'Staff Member',
-            role: staffData.role || 'STAFF',
-            companyId: staffData.companyId || profile?.companyId || '',
-            assignedWarehouseId: staffData.assignedWarehouseId || undefined,
-            createdAt: new Date().toISOString(),
-            lastPasswordUpdate: null
-          };
-
-          await setDoc(doc(db, 'users', targetUserDocId), restoredProfile, { merge: true });
-          userRef = doc(db, 'users', targetUserDocId);
-          userSnap = await getDoc(userRef);
-        }
-      }
-
-      // 4. Update user doc to set lastPasswordUpdate: null (forces password reset on next login)
-      if (userSnap.exists()) {
-        await setDoc(userRef, { lastPasswordUpdate: null }, { merge: true });
-        const userEmail = targetEmail || userSnap.data()?.email;
-
-        if (userEmail && userEmail.includes('@')) {
-          try {
-            await sendPasswordResetEmail(auth, userEmail);
-            setSuccessMessage(`Password policy reset and reset email sent to ${userEmail}! User can reset via email link or will be prompted on next login.`);
-          } catch (e: any) {
-            setSuccessMessage(`Password policy reset for ${userEmail}. They will be prompted to change their password on next login.`);
-          }
-        } else {
-          setSuccessMessage('Password policy reset for user. They will be forced to change their password on next login.');
-        }
-      } else if (targetEmail && targetEmail.includes('@')) {
-        // Auto-create user doc if profile was completely missing
-        const newDocId = `user_${Date.now()}`;
-        const newProfile: UserProfile = {
-          uid: newDocId,
-          email: targetEmail,
-          displayName: targetEmail.split('@')[0],
-          role: 'STAFF',
-          companyId: profile?.companyId || '',
-          createdAt: new Date().toISOString(),
-          lastPasswordUpdate: null
-        };
-        await setDoc(doc(db, 'users', newDocId), newProfile, { merge: true });
-        await sendPasswordResetEmail(auth, targetEmail);
-        setSuccessMessage(`User profile created and password reset link sent to ${targetEmail}.`);
-      } else {
-        setErrorMessage('Could not locate or create a user profile for password reset. Please check the staff email.');
-      }
-    } catch (error: any) {
-      console.error('Manual reset failed:', error);
-      setErrorMessage(`Failed to reset password state: ${error.message}`);
-    }
-  };
-
-  const changePassword = async (currentPass: string, newPass: string) => {
-    if (!user || !user.email) {
-      console.error('AuthContext: Cannot change password - no user');
-      return;
-    }
-    try {
-      console.log('AuthContext: Starting password change process for:', user.email);
-      setErrorMessage(null);
-      const credential = EmailAuthProvider.credential(user.email, currentPass);
-      
-      console.log('AuthContext: Re-authenticating...');
-      await reauthenticateWithCredential(user, credential);
-      
-      console.log('AuthContext: Updating auth password...');
-      await updatePassword(user, newPass);
-      
-      console.log('AuthContext: Password updated in Auth. Updating Firestore profile...');
-      
-      // Update lastPasswordUpdate in Firestore
-      const now = new Date().toISOString();
-      const updateData = { 
-        lastPasswordUpdate: now 
-      };
-      
-      await setDoc(doc(db, 'users', user.uid), updateData, { merge: true });
-      console.log('AuthContext: Firestore profile updated with lastPasswordUpdate:', now);
-      
-      // Local update to avoid waiting for snapshot if possible
-      setProfile(prev => prev ? { ...prev, lastPasswordUpdate: now } : null);
-      setMustChangePassword(false);
-      setSuccessMessage('Password updated successfully. Accessing your dashboard...');
-      
-      // Force a slight delay to ensure onSnapshot can pick it up if needed, 
-      // though local state update should be enough.
-    } catch (error: any) {
-      console.error('AuthContext: Password change failed:', error);
-      if (error.code === 'auth/wrong-password') {
-        setErrorMessage('Incorrect current password.');
-      } else if (error.code === 'auth/weak-password') {
-        setErrorMessage('New password is too weak.');
-      } else if (error.code === 'auth/network-request-failed') {
-        setErrorMessage('Network error during password update. This often points to an API key restriction or an unauthorized domain. Please check your internet connection and ensure your domain is authorized in the Firebase Console.');
-      } else {
-        setErrorMessage(`Failed to update password: ${error.message}`);
-      }
-      throw error; // Rethrow to let the component handle UI state
-    }
-  };
-
-  const signInAsDemo = async () => {
-    try {
-      setErrorMessage(null);
-      setLoading(true);
-      
-      let demoUser: any = null;
-      try {
-        const { user } = await signInAnonymously(auth);
-        demoUser = user;
-      } catch (authError) {
-        console.warn("AuthContext: Could not connect to Firebase Auth for anonymous sign-in, using local offline mock auth instead:", authError);
-        demoUser = {
-          uid: 'demo_user_local',
-          email: 'demo@ccs.com',
-          displayName: 'Training User (Local Offline)',
-          isAnonymous: true,
-          emailVerified: true,
-          providerData: []
-        };
-      }
-
-      setUser(demoUser);
-      setIsDemoMode(true);
-      localStorage.setItem('ccs_demo_mode', 'true');
-      localStorage.removeItem('ccs_logged_out');
-      
-      const demoCompanyId = 'demo_company_local';
-      const demoProfile: any = {
-        uid: 'demo_admin_profile_local',
-        email: 'demo@ccs.com',
-        displayName: 'Training User (Local Offline)',
-        role: 'ADMIN',
-        companyId: demoCompanyId,
-        createdAt: new Date().toISOString()
-      };
-      
-      const demoCompany: any = {
-        id: demoCompanyId,
-        name: 'CCS Training Demo (Local Offline)',
-        ownerEmail: 'demo@ccs.com',
-        createdAt: new Date().toISOString(),
-        isApproved: true
-      };
-
-      setProfile(demoProfile);
-      setCompany(demoCompany);
-      setLoading(false);
-
-      // Background writes (merge) - if they fail, no problem
-      const demoWarehouseId = 'demo_warehouse_1';
-      const demoWarehouse: any = {
-        id: demoWarehouseId,
-        companyId: demoCompanyId,
-        name: 'Main Demo Warehouse',
-        location: 'Lagos, Nigeria',
-        capacity: 5000,
-        createdAt: new Date().toISOString()
-      };
-
-      const demoSupplierId = 'demo_supplier_1';
-      const demoSupplier: any = {
-        id: demoSupplierId,
-        companyId: demoCompanyId,
-        name: 'John Doe Farms',
-        location: 'Ondo State',
-        phone: '08012345678',
-        email: 'john@farms.com',
-        previousBalance: 0,
-        createdAt: new Date().toISOString()
-      };
-
-      Object.keys(demoCompany).forEach(key => demoCompany[key] === undefined && delete demoCompany[key]);
-      setDoc(doc(db, 'companies', demoCompanyId), demoCompany, { merge: true }).catch(err => console.log('Silent write fail:', err));
-      
-      Object.keys(demoProfile).forEach(key => demoProfile[key] === undefined && delete demoProfile[key]);
-      setDoc(doc(db, 'users', 'demo_admin_profile_local'), demoProfile, { merge: true }).catch(err => console.log('Silent write fail:', err));
-      
-      Object.keys(demoWarehouse).forEach(key => demoWarehouse[key] === undefined && delete demoWarehouse[key]);
-      setDoc(doc(db, 'warehouses', demoWarehouseId), demoWarehouse, { merge: true }).catch(err => console.log('Silent write fail:', err));
-      
-      Object.keys(demoSupplier).forEach(key => demoSupplier[key] === undefined && delete demoSupplier[key]);
-      setDoc(doc(db, 'suppliers', demoSupplierId), demoSupplier, { merge: true }).catch(err => console.log('Silent write fail:', err));
-    } catch (error: any) {
-      console.warn('Demo sign in failed, calling local offline mock fallback:', error);
-      setIsDemoMode(true);
-      localStorage.setItem('ccs_demo_mode', 'true');
-      localStorage.removeItem('ccs_logged_out');
-      const demoCompanyId = 'demo_company_local';
-      const demoProfile: any = {
-        uid: 'demo_admin_profile_local',
-        email: 'demo@ccs.com',
-        displayName: 'Training User (Local Offline)',
-        role: 'ADMIN',
-        companyId: demoCompanyId,
-        createdAt: new Date().toISOString()
-      };
-      const demoCompany: any = {
-        id: demoCompanyId,
-        name: 'CCS Training Demo (Local Offline)',
-        ownerEmail: 'demo@ccs.com',
-        createdAt: new Date().toISOString(),
-        isApproved: true
-      };
-      
-      setProfile(demoProfile);
-      setCompany(demoCompany);
-      setUser({
-        uid: 'demo_user_local',
-        email: 'demo@ccs.com',
-        displayName: 'Training User (Local Offline)',
-        isAnonymous: true,
-        emailVerified: true,
-        providerData: []
-      } as any);
-
-      setSuccessMessage('Launched Local Offline Training Mode successfully!');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const logout = async () => {
-    try {
-      console.log('AuthContext: Logging out...');
       await signOut(auth);
-      setIsDemoMode(false);
-      localStorage.removeItem('ccs_demo_mode');
-      localStorage.setItem('ccs_logged_out', 'true');
-      setProfile(null);
-      setCompany(null);
-      setUser(null);
-      setSuccessMessage('Signed out successfully');
-    } catch (error: any) {
-      console.error('Logout failed:', error);
-      setErrorMessage(`Logout failed: ${error.message}`);
+      setSuccessMessage(null);
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(authErrorMessage(error));
     }
-  };
+  }, []);
 
-  const registerCompany = async (companyName: string, plan: SubscriptionPlanType = 'ENTERPRISE') => {
-    if (!user) return;
-    setLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const userEmailLower = (user.email || '').toLowerCase().trim();
-      const isSuperAdminUser = [
-        'wasiuadebisi89@gmail.com',
-        'adezmoldent@gmail.com',
-        'abdullahiwasiu07@gmail.com'
-      ].includes(userEmailLower) || isSuperAdmin;
-
-      const selectedPlan = plan || 'ENTERPRISE';
-      const defaultModules = (selectedPlan !== 'CUSTOM' && SUBSCRIPTION_PRESETS[selectedPlan as keyof typeof SUBSCRIPTION_PRESETS])
-        ? SUBSCRIPTION_PRESETS[selectedPlan as keyof typeof SUBSCRIPTION_PRESETS].modules
-        : ALL_MODULE_IDS;
-
-      // Check if user already owns an existing company doc
-      const existingCompSnap = await getDocs(query(
-        collection(db, 'companies'),
-        where('ownerEmail', '==', userEmailLower)
-      ));
-
-      let targetCompany: Company;
-      let targetCompanyId: string;
-
-      if (!existingCompSnap.empty) {
-        // Reuse existing company to prevent duplicate company creation
-        const existingDoc = existingCompSnap.docs[0];
-        const existingCompData = existingDoc.data() as Company;
-        targetCompanyId = existingDoc.id;
-        targetCompany = {
-          ...existingCompData,
-          id: targetCompanyId,
-          name: companyName.trim() || existingCompData.name,
-          isApproved: true,
-          subscriptionPlan: existingCompData.subscriptionPlan || selectedPlan,
-          enabledModules: (existingCompData.enabledModules && existingCompData.enabledModules.length > 0) ? existingCompData.enabledModules : defaultModules
+  const profileWrite = useCallback(
+    (fields: { companyId: string; role: CompanyRole; assignedWarehouseId?: string | null; inviteId?: string }, mode: 'owner' | 'invite'): WriteOp => {
+      const nowIso = new Date().toISOString();
+      if (!user) throw new Error('Not signed in.');
+      if (!profile) {
+        return {
+          kind: 'set',
+          collection: 'users',
+          id: user.uid,
+          data: {
+            uid: user.uid,
+            email,
+            displayName: user.displayName || email.split('@')[0] || 'User',
+            role: fields.role,
+            companyId: fields.companyId,
+            assignedWarehouseId: fields.assignedWarehouseId ?? null,
+            status: 'ACTIVE',
+            createdAt: nowIso,
+            lastPasswordUpdate: nowIso,
+            ...(fields.inviteId ? { inviteId: fields.inviteId } : {}),
+          },
         };
-        await setDoc(doc(db, 'companies', targetCompanyId), {
-          name: targetCompany.name,
-          isApproved: true,
-          subscriptionPlan: targetCompany.subscriptionPlan,
-          enabledModules: targetCompany.enabledModules
-        }, { merge: true });
-      } else {
-        targetCompanyId = `comp_${Date.now()}`;
-        targetCompany = {
-          id: targetCompanyId,
-          name: companyName.trim(),
-          ownerEmail: userEmailLower,
-          createdAt: new Date().toISOString(),
-          isApproved: true,
-          subscriptionPlan: selectedPlan,
-          enabledModules: defaultModules
-        };
-        Object.keys(targetCompany).forEach(key => (targetCompany as any)[key] === undefined && delete (targetCompany as any)[key]);
-        await setDoc(doc(db, 'companies', targetCompanyId), targetCompany);
       }
-
-      const newProfile: any = {
-        uid: user.uid,
-        email: userEmailLower,
-        displayName: profile?.displayName || user.displayName || 'Admin',
-        role: 'ADMIN',
-        companyId: targetCompanyId,
-        createdAt: profile?.createdAt || new Date().toISOString(),
-        lastPasswordUpdate: profile?.lastPasswordUpdate || new Date().toISOString()
+      const data: Record<string, unknown> = {
+        companyId: fields.companyId,
+        role: fields.role,
+        assignedWarehouseId: fields.assignedWarehouseId ?? null,
+        status: 'ACTIVE',
+        updatedAt: nowIso,
       };
+      if (mode === 'invite') data.inviteId = fields.inviteId;
+      return { kind: 'update', collection: 'users', id: user.uid, data };
+    },
+    [user, profile, email]
+  );
 
-      Object.keys(newProfile).forEach(key => newProfile[key] === undefined && delete newProfile[key]);
-      await setDoc(doc(db, 'users', user.uid), newProfile, { merge: true });
-
-      setCompany(targetCompany);
-      setProfile(newProfile);
-      setSuccessMessage('Company registered and connected successfully!');
-    } catch (error: any) {
-      console.error('Company registration failed:', error);
-      setErrorMessage(`Registration failed: ${error.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resetProfileCompany = async () => {
+  const registerCompany = useCallback(async (companyName: string, requestedPlan: 'BASIC' | 'STANDARD' | 'ENTERPRISE') => {
     if (!user) return;
-    setLoading(true);
+    setErrorMessage(null);
+    const name = companyName.trim();
+    if (name.length < 2) {
+      setErrorMessage('Enter your company name.');
+      return;
+    }
+    if (!emailVerified) {
+      setErrorMessage('Verify your email address before registering a company.');
+      return;
+    }
+    const id = `comp_${newId()}`;
+    try {
+      await commitWrites([
+        {
+          kind: 'set',
+          collection: 'companies',
+          id,
+          data: { id, name, ownerUid: user.uid, ownerEmail: email, createdAt: new Date().toISOString(), isApproved: false, status: 'PENDING', requestedPlan },
+        },
+        profileWrite({ companyId: id, role: 'ADMIN' }, 'owner'),
+      ]);
+      setSuccessMessage('Company registered. A platform administrator will review and activate it.');
+    } catch (error) {
+      setErrorMessage(formatFirestoreError(error));
+    }
+  }, [user, emailVerified, email, profileWrite]);
+
+  const acceptInvite = useCallback(async (invite: Invite) => {
+    if (!user) return;
     setErrorMessage(null);
     try {
-      const userRef = doc(db, 'users', user.uid);
-      await setDoc(userRef, {
-        companyId: "",
-        role: "ADMIN"
-      }, { merge: true });
-      
-      setCompany(null);
-      if (profile) {
-        setProfile({
-          ...profile,
-          companyId: ""
-        });
+      const nowIso = new Date().toISOString();
+      await commitWrites([
+        { kind: 'update', collection: 'invites', id: invite.id, data: { status: 'ACCEPTED', acceptedAt: nowIso, acceptedByUid: user.uid } },
+        profileWrite({ companyId: invite.companyId, role: invite.role, assignedWarehouseId: invite.assignedWarehouseId ?? null, inviteId: invite.id }, 'invite'),
+      ]);
+      // Linking the staff record is best-effort: the membership above is what grants access.
+      if (invite.staffId) {
+        commitWrites([{ kind: 'update', collection: 'staff', id: invite.staffId, data: { uid: user.uid } }])
+          .catch(error => logger.warn('Could not link staff record', error));
       }
-      setSuccessMessage('Company profile reset successfully.');
-    } catch (error: any) {
-      console.error('Resetting company profile failed:', error);
-      setErrorMessage(`Failed to reset company: ${error.message}`);
-    } finally {
-      setLoading(false);
+      setSuccessMessage(`You have joined ${invite.companyName}.`);
+    } catch (error) {
+      setErrorMessage(formatFirestoreError(error));
     }
-  };
+  }, [user, profileWrite]);
 
-  const connectExistingCompany = async (companyId: string) => {
+  const switchCompany = useCallback(async (targetCompanyId: string) => {
     if (!user) return;
-    setLoading(true);
     setErrorMessage(null);
-    try {
-      const userRef = doc(db, 'users', user.uid);
-      await setDoc(userRef, {
-        companyId: companyId,
-        role: "ADMIN"
-      }, { merge: true });
-      
-      if (profile) {
-        setProfile({
-          ...profile,
-          companyId: companyId,
-          role: "ADMIN"
-        });
-      }
-      setSuccessMessage('Successfully connected to company!');
-    } catch (error: any) {
-      console.error('Failed to connect to company:', error);
-      setErrorMessage(`Failed to connect: ${error.message}`);
-    } finally {
-      setLoading(false);
+    const target = ownedCompanies.find(c => c.id === targetCompanyId);
+    if (!target) {
+      setErrorMessage('You can only connect to companies you own.');
+      return;
     }
-  };
-
-  const deleteCompanyByOwner = async (companyId: string) => {
-    if (!user) return;
-    setLoading(true);
-    setErrorMessage(null);
     try {
-      const { deleteDoc, collection, query, where, getDocs, writeBatch } = await import('firebase/firestore');
-
-      // 1. Delete company document
-      await deleteDoc(doc(db, 'companies', companyId));
-
-      // 2. Clear companyId & reset role for associated users
-      try {
-        const uQ = query(collection(db, 'users'), where('companyId', '==', companyId));
-        const uSnap = await getDocs(uQ);
-        if (!uSnap.empty) {
-          const batch = writeBatch(db);
-          uSnap.docs.forEach((uDoc) => {
-            batch.update(uDoc.ref, { companyId: '', role: 'ADMIN' });
-          });
-          await batch.commit();
-        }
-      } catch (uErr) {
-        console.warn('Non-fatal cleanup warning for company users:', uErr);
+      const ops: WriteOp[] = [];
+      if (!target.ownerUid) {
+        ops.push({ kind: 'update', collection: 'companies', id: target.id, data: { ownerUid: user.uid } });
       }
-
-      // 3. Delete staff records for this company
-      try {
-        const sQ = query(collection(db, 'staff'), where('companyId', '==', companyId));
-        const sSnap = await getDocs(sQ);
-        if (!sSnap.empty) {
-          const batch = writeBatch(db);
-          sSnap.docs.forEach((sDoc) => batch.delete(sDoc.ref));
-          await batch.commit();
-        }
-      } catch (sErr) {
-        console.warn('Non-fatal cleanup warning for company staff:', sErr);
-      }
-
-      if (company?.id === companyId || profile?.companyId === companyId) {
-        setCompany(null);
-        if (profile) {
-          setProfile({
-            ...profile,
-            companyId: '',
-            role: 'ADMIN'
-          });
-        }
-      }
-      setSuccessMessage('Company deleted successfully.');
-    } catch (error: any) {
-      console.error('Failed to delete company:', error);
-      setErrorMessage(`Failed to delete company: ${error.message}`);
-    } finally {
-      setLoading(false);
+      ops.push(profileWrite({ companyId: target.id, role: 'ADMIN' }, 'owner'));
+      await commitWrites(ops);
+      setSuccessMessage(`Connected to ${target.name}.`);
+    } catch (error) {
+      setErrorMessage(formatFirestoreError(error));
     }
-  };
+  }, [user, ownedCompanies, profileWrite]);
 
-  const deleteUserAccount = async () => {
-    if (!user) return;
-    setLoading(true);
-    setErrorMessage(null);
+  const requestCompanyDeletion = useCallback(async () => {
+    if (!company || !auditActor || role !== 'ADMIN') return;
     try {
-      const { deleteDoc, collection, query, where, getDocs } = await import('firebase/firestore');
-      const userEmail = (user.email || profile?.email || '').toLowerCase().trim();
-
-      if (userEmail) {
-        // 1. Delete companies owned by this email
-        try {
-          const compQ = query(collection(db, 'companies'), where('ownerEmail', '==', userEmail));
-          const compSnap = await getDocs(compQ);
-          for (const cDoc of compSnap.docs) {
-            await deleteDoc(cDoc.ref);
-
-            // Delete staff associated with this company
-            const sQ = query(collection(db, 'staff'), where('companyId', '==', cDoc.id));
-            const sSnap = await getDocs(sQ);
-            for (const sDoc of sSnap.docs) {
-              await deleteDoc(sDoc.ref);
-            }
-          }
-        } catch (compErr) {
-          console.warn('Non-fatal company cleanup error during account deletion:', compErr);
-        }
-
-        // 2. Delete staff records matching email
-        try {
-          const staffQ = query(collection(db, 'staff'), where('email', '==', userEmail));
-          const staffSnap = await getDocs(staffQ);
-          for (const sDoc of staffSnap.docs) {
-            await deleteDoc(sDoc.ref);
-          }
-        } catch (staffErr) {
-          console.warn('Non-fatal staff cleanup error during account deletion:', staffErr);
-        }
-
-        // 3. Delete user profiles matching email
-        try {
-          const uQ = query(collection(db, 'users'), where('email', '==', userEmail));
-          const uSnap = await getDocs(uQ);
-          for (const uDoc of uSnap.docs) {
-            await deleteDoc(uDoc.ref);
-          }
-        } catch (uErr) {
-          console.warn('Non-fatal user email cleanup error during account deletion:', uErr);
-        }
-      }
-
-      // 4. Ensure user profile document by UID is deleted
-      try {
-        await deleteDoc(doc(db, 'users', user.uid));
-      } catch (uidErr) {
-        console.warn('User UID profile cleanup error:', uidErr);
-      }
-
-      setProfile(null);
-      setCompany(null);
-      setUserCompanies([]);
-      setSuccessMessage('Account profile deleted successfully. You can now register again.');
-      await logout();
-    } catch (error: any) {
-      console.error('Failed to delete user account:', error);
-      setErrorMessage(`Failed to delete account: ${error.message}`);
-    } finally {
-      setLoading(false);
+      const nowIso = new Date().toISOString();
+      await commitWrites([
+        { kind: 'update', collection: 'companies', id: company.id, data: { deletionRequestedAt: nowIso, updatedAt: nowIso } },
+        auditOp(auditActor, { action: AuditAction.UPDATE, module: 'Company', recordId: company.id, details: `Requested deletion of company ${company.name}` }),
+      ]);
+      setSuccessMessage('Deletion request sent to the platform administrator.');
+    } catch (error) {
+      setErrorMessage(formatFirestoreError(error));
     }
-  };
+  }, [company, auditActor, role]);
 
-   const approveCompany = async (companyId: string) => {
-    try {
-      await setDoc(doc(db, 'companies', companyId), { isApproved: true }, { merge: true });
-      setSuccessMessage('Company activated successfully.');
-    } catch (error: any) {
-      console.error('Company approval failed:', error);
-      setErrorMessage(`Approval failed: ${error.message}`);
-    }
-  };
+  // Legacy owners and single-company owners are connected automatically after sign-in.
+  useEffect(() => {
+    if (isDemoRuntime || !user || !profileLoaded || !emailVerified) return;
+    if (profile && profile.companyId) return;
+    if (ownedCompanies.length !== 1 || pendingInvites.length > 0) return;
+    if (autoConnectAttempted.current === user.uid) return;
+    autoConnectAttempted.current = user.uid;
+    switchCompany(ownedCompanies[0].id);
+  }, [user, profileLoaded, emailVerified, profile, ownedCompanies, pendingInvites, switchCompany]);
 
-  const disapproveCompany = async (companyId: string) => {
-    if (!isSuperAdmin) return;
-    await setDoc(doc(db, 'companies', companyId), { isApproved: false }, { merge: true });
-  };
-
-  const toggleUserSuspension = async (userId: string, status: boolean) => {
-    if (!isSuperAdmin) return;
-    try {
-      await setDoc(doc(db, 'users', userId), { suspended: status }, { merge: true });
-      setSuccessMessage(`User ${status ? 'suspended' : 'unsuspended'} successfully.`);
-    } catch (error: any) {
-      console.error('User suspension toggle failed:', error);
-      setErrorMessage(`Failed to update user status: ${error.message}`);
-    }
-  };
-
-  const deleteUser = async (userId: string) => {
-    if (!isSuperAdmin) return;
-    try {
-      const { deleteDoc } = await import('firebase/firestore');
-      await deleteDoc(doc(db, 'users', userId));
-      setSuccessMessage('User profile deleted successfully.');
-    } catch (error: any) {
-      console.error('User deletion failed:', error);
-      setErrorMessage(`Failed to delete user: ${error.message}`);
-    }
-  };
-
-  // Refined permissions
-  const canPostTransactions = isManager || isAccount || profile?.role === 'STAFF';
-  const canManageStaff = isAdmin || isManager;
-  const canTransferStock = isAdmin || isManager;
-
-  const value = {
+  const value: AuthContextType = {
     user,
     profile,
     company,
-    loading,
-    signIn,
-    signInWithEmail,
-    signUpWithEmail,
-    resetPassword,
-    sendResetEmailAdmin,
-    manualResetPassword,
-    changePassword,
-    logout,
-    registerCompany,
-    resetProfileCompany,
-    connectExistingCompany,
-    deleteCompanyByOwner,
-    deleteUserAccount,
-    userCompanies,
-    approveCompany,
-    disapproveCompany,
-    toggleUserSuspension,
-    deleteUser,
-    signInAsDemo,
-    isAdmin,
-    isManager,
-    isAccount,
-    isAuditor,
-    isStoreKeeper,
-    isStaff,
+    ownedCompanies,
+    pendingInvites,
+    accessState,
+    loading: accessState === 'LOADING',
+    isDemoMode: isDemoRuntime,
     isSuperAdmin,
-    isDemoMode,
+    role,
+    emailVerified,
+    usesPasswordSignIn,
     mustChangePassword,
-    isFirestoreConnected,
+    auditActor,
+    can,
+    isModuleEnabled,
+    isAdmin: accessState === 'READY' && role === 'ADMIN',
+    isManager: accessState === 'READY' && (role === 'ADMIN' || role === 'MANAGER'),
     isOnline,
-    connectionError,
+    configError: initError,
     errorMessage,
     setErrorMessage,
     successMessage,
     setSuccessMessage,
-    can,
-    isModuleEnabled,
-    canPostTransactions,
-    canManageStaff,
-    canTransferStock
+    signInWithGoogle,
+    signInWithEmail,
+    signUpWithEmail,
+    resendVerificationEmail,
+    refreshUser,
+    resetPassword,
+    changePassword,
+    logout,
+    registerCompany,
+    acceptInvite,
+    switchCompany,
+    requestCompanyDeletion,
+    enterDemoMode,
+    exitDemoMode,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
@@ -1736,3 +648,5 @@ export function useAuth() {
   }
   return context;
 }
+
+export { DEMO_COMPANY_ID };

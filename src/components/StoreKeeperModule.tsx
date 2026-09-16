@@ -3,482 +3,182 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Package, ArrowRightLeft, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ArrowRightLeft, Package, Plus } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
-import { CommodityType, StoreRecord, Warehouse } from '../types';
-import { db } from '../firebase';
-import { collection, onSnapshot, doc, setDoc, query, orderBy, where, updateDoc } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-import { reportFirestoreError, OperationType } from '../lib/firestore';
-import { recordAuditLog, AuditAction } from '../lib/audit';
-import Toast from './Toast';
+import { useCompanyCollection, useDerivedLevels, useWarehouses } from '../contexts/CompanyDataContext';
+import { useBalanceGuard, useCommit } from '../hooks/useCommit';
+import { AuditAction, auditOp } from '../lib/audit';
+import { diffEffects, levelFor, parseStockKey, storeRecordStockEffects } from '../lib/finance';
+import { daysAgoLocal, isWithinLocalRange, localDateToIso, todayLocal } from '../lib/dates';
+import { newId } from '../lib/utils';
+import type { StoreRecord } from '../types';
 import ConfirmModal from './ConfirmModal';
-import { formatNumber } from '../lib/utils';
-
-// Sub-components
-import StoreRecordForm from './store/StoreRecordForm';
+import StoreRecordForm, { type StoreRecordInput } from './store/StoreRecordForm';
 import StoreRecordList from './store/StoreRecordList';
 import StoreKeeperSummary from './store/StoreKeeperSummary';
 
-const COMMODITIES: CommodityType[] = ['COCOA', 'CASHEW', 'PK'];
-
 export default function StoreKeeperModule() {
-  const { profile, isStoreKeeper, isAdmin, isManager, isOnline } = useAuth();
-  const [records, setRecords] = useState<StoreRecord[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [isAdding, setIsAdding] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<StoreRecord | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('ALL');
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [dateFilter, setDateFilter] = useState({
-    start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().split('T')[0],
-    end: new Date().toISOString().split('T')[0]
-  });
+  const { profile, can, auditActor } = useAuth();
+  const { commit, busy } = useCommit();
+  const recordsState = useCompanyCollection('store_records');
+  const { data: warehouses } = useWarehouses();
+  const { levels } = useDerivedLevels({ store: true });
+  const guardFor = useBalanceGuard(levels);
 
-  // Default selected warehouse for staff
-  React.useEffect(() => {
-    if (profile?.assignedWarehouseId && !isAdmin && !isManager) {
-      setSelectedWarehouseId(profile.assignedWarehouseId);
-    }
-  }, [profile, isAdmin, isManager]);
+  const [warehouseId, setWarehouseId] = useState<string>(profile?.assignedWarehouseId || 'ALL');
+  const [range, setRange] = useState({ start: daysAgoLocal(30), end: todayLocal() });
+  const [form, setForm] = useState<null | { mode: 'IN' | 'TRANSFER'; record: StoreRecord | null }>(null);
+  const [deleting, setDeleting] = useState<StoreRecord | null>(null);
 
-  // Load Data
-  React.useEffect(() => {
-    if (!profile?.companyId) return;
+  const records = useMemo(() => recordsState.data.filter(r => !r.isDeleted).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [recordsState.data]);
+  const matchesWarehouse = (r: StoreRecord) => warehouseId === 'ALL' || (r.type === 'TRANSFER' ? r.sourceWarehouseId === warehouseId || r.destinationWarehouseId === warehouseId : r.warehouseId === warehouseId);
+  const filtered = useMemo(() => records.filter(r => isWithinLocalRange(r.date, range.start, range.end) && matchesWarehouse(r)), [records, range, warehouseId]);
 
-    const qRecords = query(
-      collection(db, 'store_records'),
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeRecords = onSnapshot(qRecords, (snapshot) => {
-      const data = snapshot.docs
-        .map(doc => ({ ...doc.data(), id: doc.id } as StoreRecord))
-        .filter(r => !r.isDeleted);
-      const sorted = data.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-      setRecords(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'store_records')));
-
-    const qWarehouses = query(
-      collection(db, 'warehouses'),
-      where('companyId', '==', profile.companyId)
-    );
-    const unsubscribeWarehouses = onSnapshot(qWarehouses, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as Warehouse));
-      const sorted = data.sort((a, b) => a.name.localeCompare(b.name));
-      setWarehouses(sorted);
-    }, (error) => setErrorMessage(reportFirestoreError(error, OperationType.LIST, 'warehouses')));
-
-    return () => {
-      unsubscribeRecords();
-      unsubscribeWarehouses();
+  const totals = useMemo(() => {
+    const acc = { totalInWeight: 0, totalInBags: 0, totalOutWeight: 0, totalOutBags: 0, inByCommodity: {} as Record<string, { weight: number; bags: number }>, outByCommodity: {} as Record<string, { weight: number; bags: number }> };
+    const add = (bucket: 'in' | 'out', r: StoreRecord) => {
+      const target = bucket === 'in' ? acc.inByCommodity : acc.outByCommodity;
+      target[r.commodity] = target[r.commodity] || { weight: 0, bags: 0 };
+      target[r.commodity].weight += r.actualWeight;
+      target[r.commodity].bags += r.noOfBags;
+      if (bucket === 'in') { acc.totalInWeight += r.actualWeight; acc.totalInBags += r.noOfBags; } else { acc.totalOutWeight += r.actualWeight; acc.totalOutBags += r.noOfBags; }
     };
-  }, [profile?.companyId]);
-
-  // Form State
-  const [formData, setFormData] = useState<Partial<StoreRecord>>({
-    type: 'IN',
-    commodity: 'COCOA',
-    date: new Date().toISOString().split('T')[0],
-    customerName: '',
-    location: '',
-    nominalWeight: 0,
-    actualWeight: 0,
-    noOfBags: 0,
-    moisture: 0,
-    tare: 0,
-    fieldOfficer: '',
-    truckNo: '',
-    warehouseId: profile?.assignedWarehouseId || ''
-  });
-
-  React.useEffect(() => {
-    if (editingRecord) {
-      setFormData(editingRecord);
-    }
-  }, [editingRecord]);
-
-  const getWarehouseStock = (warehouseId: string, commodity: string, excludeId?: string) => {
-    return records.reduce((total, r) => {
-      if (r.id === excludeId || r.commodity !== commodity) return total;
-      
+    for (const r of filtered) {
       if (r.type === 'TRANSFER') {
-        if (r.sourceWarehouseId === warehouseId) return total - r.actualWeight;
-        if (r.destinationWarehouseId === warehouseId) return total + r.actualWeight;
-      } else {
-        if (r.warehouseId === warehouseId) {
-          return r.type === 'IN' ? total + r.actualWeight : total - r.actualWeight;
-        }
-      }
-      return total;
-    }, 0);
-  };
-
-  const resetForm = () => {
-    setFormData({
-      type: 'IN',
-      commodity: 'COCOA',
-      date: new Date().toISOString().split('T')[0],
-      customerName: '',
-      location: '',
-      nominalWeight: 0,
-      actualWeight: 0,
-      noOfBags: 0,
-      moisture: 0,
-      tare: 0,
-      fieldOfficer: '',
-      truckNo: '',
-      warehouseId: profile?.assignedWarehouseId || ''
-    });
-    setEditingRecord(null);
-    setIsAdding(false);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!profile?.companyId) return;
-
-    // Validation for Stock Availability
-    if (formData.type === 'OUT' || formData.type === 'TRANSFER') {
-      const sourceId = formData.type === 'TRANSFER' ? formData.sourceWarehouseId : formData.warehouseId;
-      if (sourceId) {
-        const currentStock = getWarehouseStock(sourceId, formData.commodity!, editingRecord?.id);
-        
-        if (formData.actualWeight! > currentStock) {
-          setErrorMessage(`Insufficient stock in ${warehouses.find(w => w.id === sourceId)?.name}. Available: ${formatNumber(currentStock)} kg`);
-          return;
-        }
-      }
+        if (warehouseId === 'ALL' || r.sourceWarehouseId === warehouseId) add('out', r);
+        if (warehouseId === 'ALL' || r.destinationWarehouseId === warehouseId) add('in', r);
+      } else add(r.type === 'IN' ? 'in' : 'out', r);
     }
+    return acc;
+  }, [filtered, warehouseId]);
 
-    setSubmitting(true);
-
-    try {
-      const recordId = editingRecord?.id || `store_${Date.now()}`;
-      const recordData = {
-        ...formData,
-        id: recordId,
-        companyId: profile.companyId,
-        date: new Date(formData.date!).toISOString()
-      } as StoreRecord;
-
-      const writePromise = setDoc(doc(db, 'store_records', recordId), recordData);
-      
-      if (!isOnline) {
-        console.log('Working offline, proceeding optimistically');
-      } else {
-        await writePromise;
-      }
-      
-      // Record Audit Log (non-blocking for UI)
-      recordAuditLog({
-        companyId: profile.companyId,
-        userId: profile.uid,
-        userEmail: profile.email,
-        action: editingRecord ? AuditAction.UPDATE : AuditAction.CREATE,
-        module: 'Store Keeper',
-        recordId: recordId,
-        details: `${editingRecord ? 'Updated' : 'Created'} store record (${recordData.type}) for ${recordData.commodity} - ${recordData.customerName}`,
-        newData: recordData,
-        previousData: editingRecord || undefined
-      }).catch(err => console.error('Audit log failed:', err));
-
-      setSuccessMessage(editingRecord ? 'Record updated successfully' : 'Record added successfully');
-      resetForm();
-    } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.WRITE, 'store_records'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!isAdmin && !isManager) return;
-    setDeleteConfirmId(id);
-  };
-
-  const confirmDeleteRecord = async (reason?: string) => {
-    if (!deleteConfirmId || !profile) return;
-    try {
-      const updateData = {
-        isDeleted: true,
-        deletionReason: reason || 'No reason provided',
-        deletedBy: profile?.email || profile?.uid || 'Unknown',
-        deletedAt: new Date().toISOString()
-      };
-      await updateDoc(doc(db, 'store_records', deleteConfirmId), updateData);
-      
-      recordAuditLog({
-        companyId: profile.companyId,
-        userId: profile.uid,
-        userEmail: profile.email,
-        action: AuditAction.DELETE,
-        module: 'Store Keeper',
-        recordId: deleteConfirmId,
-        details: `Deleted (Soft) store record. Reason: ${reason}`
-      }).catch(err => console.error('Audit log failed:', err));
-
-      setSuccessMessage('Record deleted successfully');
-    } catch (error) {
-      setErrorMessage(reportFirestoreError(error, OperationType.UPDATE, 'store_records'));
-    } finally {
-      setDeleteConfirmId(null);
-    }
-  };
-
-  // Filtered Records
-  const filteredRecords = React.useMemo(() => {
-    return records.filter(r => {
-      const rDate = new Date(r.date).toISOString().split('T')[0];
-      const matchesDate = rDate >= dateFilter.start && rDate <= dateFilter.end;
-      
-      let matchesWarehouse = false;
-      if (selectedWarehouseId === 'ALL') {
-        matchesWarehouse = true;
-      } else if (r.type === 'TRANSFER') {
-        matchesWarehouse = r.sourceWarehouseId === selectedWarehouseId || r.destinationWarehouseId === selectedWarehouseId;
-      } else {
-        matchesWarehouse = r.warehouseId === selectedWarehouseId;
-      }
-      
-      return matchesDate && matchesWarehouse;
-    });
-  }, [records, dateFilter, selectedWarehouseId]);
-
-  // Inventory Calculation
-  const inventoryByCommodity = React.useMemo(() => {
+  const inventoryByCommodity = useMemo(() => {
     const inv: Record<string, { quantity: number; bags: number }> = {};
-    records.forEach(r => {
-      if (r.type === 'TRANSFER') {
-        // Handle source warehouse (OUT)
-        if (selectedWarehouseId === 'ALL' || r.sourceWarehouseId === selectedWarehouseId) {
-          const key = r.commodity;
-          if (!inv[key]) inv[key] = { quantity: 0, bags: 0 };
-          inv[key].quantity -= r.actualWeight;
-          inv[key].bags -= r.noOfBags;
-        }
-        // Handle destination warehouse (IN)
-        if (selectedWarehouseId === 'ALL' || r.destinationWarehouseId === selectedWarehouseId) {
-          const key = r.commodity;
-          if (!inv[key]) inv[key] = { quantity: 0, bags: 0 };
-          inv[key].quantity += r.actualWeight;
-          inv[key].bags += r.noOfBags;
-        }
-      } else {
-        // Handle IN/OUT
-        if (selectedWarehouseId !== 'ALL' && r.warehouseId !== selectedWarehouseId) return;
-        
-        const key = r.commodity;
-        if (!inv[key]) inv[key] = { quantity: 0, bags: 0 };
-        if (r.type === 'IN') {
-          inv[key].quantity += r.actualWeight;
-          inv[key].bags += r.noOfBags;
-        } else {
-          inv[key].quantity -= r.actualWeight;
-          inv[key].bags -= r.noOfBags;
-        }
-      }
-    });
+    for (const [key, qty] of Object.entries(levels)) {
+      const { ledger, warehouseId: wh, item } = parseStockKey(key);
+      if (ledger !== 'STORE' || (warehouseId !== 'ALL' && wh !== warehouseId)) continue;
+      inv[item] = inv[item] || { quantity: 0, bags: 0 };
+      inv[item].quantity += qty;
+    }
+    for (const r of records) {
+      const sign = (wh?: string) => (warehouseId === 'ALL' || wh === warehouseId ? 1 : 0);
+      inv[r.commodity] = inv[r.commodity] || { quantity: 0, bags: 0 };
+      if (r.type === 'TRANSFER') inv[r.commodity].bags += r.noOfBags * (sign(r.destinationWarehouseId) - sign(r.sourceWarehouseId));
+      else inv[r.commodity].bags += (r.type === 'IN' ? 1 : -1) * r.noOfBags * sign(r.warehouseId);
+    }
     return inv;
-  }, [records, selectedWarehouseId]);
+  }, [levels, records, warehouseId]);
 
-  // Totals for filtered view
-  const totals = React.useMemo(() => {
-    return filteredRecords.reduce((acc, r) => {
-      const commodity = r.commodity;
-      
-      if (r.type === 'TRANSFER') {
-        // For transfers, we count them as IN for destination and OUT for source
-        // if they match the current warehouse filter
-        
-        // Transfer OUT from source
-        if (selectedWarehouseId === 'ALL' || r.sourceWarehouseId === selectedWarehouseId) {
-          acc.totalOutWeight += r.actualWeight;
-          acc.totalOutBags += r.noOfBags;
-          if (!acc.outByCommodity[commodity]) acc.outByCommodity[commodity] = { weight: 0, bags: 0 };
-          acc.outByCommodity[commodity].weight += r.actualWeight;
-          acc.outByCommodity[commodity].bags += r.noOfBags;
-        }
-        
-        // Transfer IN to destination
-        if (selectedWarehouseId === 'ALL' || r.destinationWarehouseId === selectedWarehouseId) {
-          acc.totalInWeight += r.actualWeight;
-          acc.totalInBags += r.noOfBags;
-          if (!acc.inByCommodity[commodity]) acc.inByCommodity[commodity] = { weight: 0, bags: 0 };
-          acc.inByCommodity[commodity].weight += r.actualWeight;
-          acc.inByCommodity[commodity].bags += r.noOfBags;
-        }
-      } else {
-        // Standard IN/OUT
-        if (r.type === 'IN') {
-          acc.totalInWeight += r.actualWeight;
-          acc.totalInBags += r.noOfBags;
-          if (!acc.inByCommodity[commodity]) acc.inByCommodity[commodity] = { weight: 0, bags: 0 };
-          acc.inByCommodity[commodity].weight += r.actualWeight;
-          acc.inByCommodity[commodity].bags += r.noOfBags;
-        } else {
-          acc.totalOutWeight += r.actualWeight;
-          acc.totalOutBags += r.noOfBags;
-          if (!acc.outByCommodity[commodity]) acc.outByCommodity[commodity] = { weight: 0, bags: 0 };
-          acc.outByCommodity[commodity].weight += r.actualWeight;
-          acc.outByCommodity[commodity].bags += r.noOfBags;
-        }
-      }
-      return acc;
-    }, { 
-      totalInWeight: 0, 
-      totalInBags: 0, 
-      totalOutWeight: 0, 
-      totalOutBags: 0,
-      inByCommodity: {} as Record<string, { weight: number; bags: number }>,
-      outByCommodity: {} as Record<string, { weight: number; bags: number }>
-    });
-  }, [filteredRecords, selectedWarehouseId]);
+  if (!auditActor) return null;
+  const actor = auditActor;
+  const nowIso = () => new Date().toISOString();
+
+  const save = async (input: StoreRecordInput) => {
+    const before = form?.record ?? null;
+    const id = before?.id ?? newId();
+    const record: StoreRecord = {
+      ...(before ?? {}),
+      id,
+      companyId: actor.companyId,
+      date: localDateToIso(input.date, before?.date),
+      type: input.type,
+      commodity: input.commodity,
+      customerName: input.customerName,
+      location: input.location,
+      nominalWeight: input.nominalWeight,
+      actualWeight: input.actualWeight,
+      noOfBags: input.noOfBags,
+      moisture: input.moisture,
+      tare: input.tare,
+      fieldOfficer: input.fieldOfficer,
+      truckNo: input.truckNo,
+      warehouseId: input.type === 'TRANSFER' ? '' : input.warehouseId,
+      sourceWarehouseId: input.type === 'TRANSFER' ? input.sourceWarehouseId : undefined,
+      destinationWarehouseId: input.type === 'TRANSFER' ? input.destinationWarehouseId : undefined,
+      createdByUid: before?.createdByUid ?? actor.uid,
+    };
+    const ok = await commit(
+      [
+        { kind: 'set', collection: 'store_records', id, data: { ...record, ...(before ? { updatedAt: nowIso(), updatedByUid: actor.uid } : {}) } },
+        auditOp(actor, { action: before ? AuditAction.UPDATE : AuditAction.CREATE, module: 'Store Keeper', recordId: id, details: `${before ? 'Updated' : 'Added'} store record ${record.type} ${record.actualWeight}kg ${record.commodity}`, previousData: before, newData: record }),
+      ],
+      { guard: guardFor(diffEffects(storeRecordStockEffects(before), storeRecordStockEffects(record))), success: before ? 'Record updated.' : 'Record added.', context: 'store_records' }
+    );
+    if (ok) setForm(null);
+  };
+
+  const remove = async (reason?: string) => {
+    const record = deleting;
+    if (!record || !reason?.trim()) return;
+    const ok = await commit(
+      [
+        { kind: 'update', collection: 'store_records', id: record.id, data: { isDeleted: true, deletionReason: reason.trim(), deletedBy: actor.email, deletedByUid: actor.uid, deletedAt: nowIso() } },
+        auditOp(actor, { action: AuditAction.DELETE, module: 'Store Keeper', recordId: record.id, details: `Deleted store record. Reason: ${reason.trim()}`, previousData: record }),
+      ],
+      { guard: guardFor(diffEffects(storeRecordStockEffects(record), [])), success: 'Record deleted.', context: 'store_records' }
+    );
+    if (ok) setDeleting(null);
+  };
+
+  const canManage = can('manage_store_records');
 
   return (
-    <div className="space-y-6">
-      <AnimatePresence>
-        {successMessage && (
-          <Toast 
-            message={successMessage} 
-            type="success" 
-            onClose={() => setSuccessMessage(null)} 
-          />
-        )}
-        {errorMessage && (
-          <Toast 
-            message={errorMessage} 
-            type="error" 
-            onClose={() => setErrorMessage(null)} 
-          />
-        )}
-      </AnimatePresence>
+    <div className="space-y-6 p-4">
+      <ConfirmModal isOpen={!!deleting} title="Delete store record" message="The record is removed from the store register and stock totals." confirmText="Delete" requireReason onConfirm={remove} onCancel={() => setDeleting(null)} />
 
-      <ConfirmModal
-        isOpen={!!deleteConfirmId}
-        title="Delete Store Record"
-        message="Are you sure you want to delete this store record? This will be hidden from daily logs but preserved in audit history."
-        onConfirm={confirmDeleteRecord}
-        onCancel={() => setDeleteConfirmId(null)}
-        confirmText="Delete"
-        type="danger"
-        requireReason={true}
-      />
-
-      {/* Header & Stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Package className="w-8 h-8 text-indigo-600" />
-            Store Keeper Inventory
-          </h2>
-          <p className="text-gray-500">Dual control warehouse records</p>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Package className="w-8 h-8 text-indigo-600" /> Store records</h2>
+          <p className="text-gray-500">Independent warehouse register for dual control</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              setFormData({
-                ...formData,
-                type: 'TRANSFER',
-                sourceWarehouseId: selectedWarehouseId !== 'ALL' ? selectedWarehouseId : '',
-                destinationWarehouseId: '',
-                nominalWeight: 0,
-                actualWeight: 0,
-                noOfBags: 0
-              });
-              setIsAdding(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors border border-blue-200"
-          >
-            <ArrowRightLeft className="w-5 h-5" />
-            Transfer Stock
-          </button>
-          <button
-            onClick={() => {
-              setFormData({
-                ...formData,
-                type: 'IN',
-                warehouseId: selectedWarehouseId !== 'ALL' ? selectedWarehouseId : (profile?.assignedWarehouseId || '')
-              });
-              setIsAdding(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            Add Record
-          </button>
-        </div>
+        {canManage && (
+          <div className="flex items-center gap-3">
+            <button onClick={() => setForm({ mode: 'TRANSFER', record: null })} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg border border-blue-200"><ArrowRightLeft className="w-5 h-5" /> Transfer</button>
+            <button onClick={() => setForm({ mode: 'IN', record: null })} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg"><Plus className="w-5 h-5" /> Add record</button>
+          </div>
+        )}
       </div>
 
-      {/* Filters */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Warehouse</label>
-          <select
-            value={selectedWarehouseId}
-            onChange={(e) => setSelectedWarehouseId(e.target.value)}
-            className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-          >
-            <option value="ALL">All Warehouses</option>
-            {warehouses.map(w => (
-              <option key={w.id} value={w.id}>{w.name}</option>
-            ))}
+        <label className="block text-sm font-medium text-gray-700">Warehouse
+          <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="mt-1 w-full rounded-lg border-gray-300">
+            <option value="ALL">All warehouses</option>
+            {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-          <input
-            type="date"
-            value={dateFilter.start}
-            onChange={(e) => setDateFilter(prev => ({ ...prev, start: e.target.value }))}
-            className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-          <input
-            type="date"
-            value={dateFilter.end}
-            onChange={(e) => setDateFilter(prev => ({ ...prev, end: e.target.value }))}
-            className="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500"
-          />
-        </div>
+        </label>
+        <label className="block text-sm font-medium text-gray-700">From
+          <input type="date" value={range.start} onChange={e => setRange(r => ({ ...r, start: e.target.value }))} className="mt-1 w-full rounded-lg border-gray-300" />
+        </label>
+        <label className="block text-sm font-medium text-gray-700">To
+          <input type="date" value={range.end} onChange={e => setRange(r => ({ ...r, end: e.target.value }))} className="mt-1 w-full rounded-lg border-gray-300" />
+        </label>
       </div>
 
-      {/* Summary Cards */}
-      <StoreKeeperSummary
-        totals={totals}
-        inventoryByCommodity={inventoryByCommodity}
-        recordCount={filteredRecords.length}
-      />
+      <StoreKeeperSummary totals={totals} inventoryByCommodity={inventoryByCommodity} recordCount={filtered.length} />
 
-      {/* Records Table */}
       <StoreRecordList
-        records={filteredRecords}
+        records={filtered}
         warehouses={warehouses}
-        onEdit={(record) => {
-          setEditingRecord(record);
-          setIsAdding(true);
-        }}
-        onDelete={handleDelete}
+        canEdit={canManage}
+        canDelete={can('delete_store_records')}
+        onEdit={record => setForm({ mode: record.type === 'TRANSFER' ? 'TRANSFER' : 'IN', record })}
+        onDelete={setDeleting}
       />
 
-      {/* Modal Form */}
       <AnimatePresence>
-        {isAdding && (
+        {form && (
           <StoreRecordForm
-            formData={formData}
-            setFormData={setFormData}
-            editingRecord={editingRecord}
+            key={form.record?.id ?? form.mode}
+            initialType={form.mode}
+            editingRecord={form.record}
             warehouses={warehouses}
-            submitting={submitting}
-            onCancel={resetForm}
-            onSubmit={handleSubmit}
-            getWarehouseStock={getWarehouseStock}
-            commodities={COMMODITIES}
+            defaultWarehouseId={warehouseId !== 'ALL' ? warehouseId : profile?.assignedWarehouseId || ''}
+            available={(wh, commodity) => levelFor(levels, 'STORE', wh, commodity)}
+            submitting={busy}
+            onCancel={() => setForm(null)}
+            onSubmit={save}
           />
         )}
       </AnimatePresence>
