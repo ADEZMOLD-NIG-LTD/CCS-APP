@@ -187,36 +187,36 @@ export function OnboardingScreen() {
           />
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5">Requested plan</p>
-            <div className="space-y-2">
+            <div className="grid grid-cols-3 gap-2">
               {(['BASIC', 'STANDARD', 'ENTERPRISE'] as const).map(tier => {
-                const preset = SUBSCRIPTION_PRESETS[tier];
-                const selected = plan === tier;
                 const price = billingConfig.plans[tier];
                 return (
                   <button
                     key={tier}
                     type="button"
                     onClick={() => setPlan(tier)}
-                    aria-pressed={selected}
-                    className={`w-full text-left p-3 rounded-2xl border transition-colors ${selected ? 'bg-indigo-50 border-indigo-400 ring-1 ring-indigo-300' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}
+                    aria-pressed={plan === tier}
+                    className={`p-2.5 rounded-2xl border text-[11px] font-bold ${plan === tier ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
                   >
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className={`text-xs font-black uppercase tracking-wide ${selected ? 'text-indigo-700' : 'text-slate-700'}`}>{preset.label}</span>
-                      {price.amountKobo > 0 && (
-                        <span className="text-[11px] font-bold text-slate-600 shrink-0">
-                          {formatCurrency(koboToNaira(price.amountKobo))}/{price.months === 1 ? 'month' : `${price.months} months`}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5">{preset.description}</p>
-                    <p className="text-[10px] text-slate-400 mt-1.5">
-                      {preset.modules.length === ALL_MODULE_IDS.length
-                        ? 'Every module included'
-                        : `Includes: ${preset.modules.map(id => ALL_SYSTEM_MODULES.find(m => m.id === id)?.name ?? id).join(', ')}`}
-                    </p>
+                    {tier}
+                    {price.amountKobo > 0 && (
+                      <span className={`block text-[9px] font-bold mt-0.5 ${plan === tier ? 'text-indigo-100' : 'text-slate-500'}`}>
+                        {formatCurrency(koboToNaira(price.amountKobo))}
+                      </span>
+                    )}
                   </button>
                 );
               })}
+            </div>
+            {/* Details for the selected tier, so the choice is informed without crowding the row. */}
+            <div className="mt-2 rounded-2xl bg-slate-50 border border-slate-200 p-3">
+              <p className="text-[11px] font-bold text-slate-700">{SUBSCRIPTION_PRESETS[plan].label}</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">{SUBSCRIPTION_PRESETS[plan].description}</p>
+              <p className="text-[10px] text-slate-400 mt-1.5">
+                {SUBSCRIPTION_PRESETS[plan].modules.length === ALL_MODULE_IDS.length
+                  ? 'Every module included'
+                  : `Includes: ${SUBSCRIPTION_PRESETS[plan].modules.map(id => ALL_SYSTEM_MODULES.find(m => m.id === id)?.name ?? id).join(', ')}`}
+              </p>
             </div>
             <p className="text-[10px] text-slate-400 mt-2">Your plan is confirmed by the platform administrator when the company is approved.</p>
           </div>
@@ -267,7 +267,13 @@ export function CompanyStatusScreen() {
     },
   };
   const item = content[accessState] ?? content.COMPANY_UNAVAILABLE;
-  const otherOwned = ownedCompanies.filter(c => c.id !== company?.id);
+
+  const companyState = (c: typeof ownedCompanies[number]) => {
+    if (c.isDeleted || c.status === 'DELETED') return { label: 'Closed', usable: false };
+    if (c.status === 'SUSPENDED') return { label: 'Suspended', usable: false };
+    if (c.isApproved !== true || c.status === 'PENDING') return { label: 'Awaiting approval', usable: false };
+    return { label: 'Active', usable: true };
+  };
 
   return (
     <Card icon={item.icon} tone={item.tone} title={item.title}>
@@ -278,11 +284,29 @@ export function CompanyStatusScreen() {
           Join {invite.companyName}
         </button>
       ))}
-      {!profile?.suspended && otherOwned.map(c => (
-        <button key={c.id} onClick={() => switchCompany(c.id)} className="w-full mb-2 bg-slate-100 text-slate-700 py-3 rounded-2xl font-bold text-sm">
-          Open {c.name}
-        </button>
-      ))}
+      {/* Each company shows why it can or cannot be opened: an "Open" button that silently does
+          nothing is worse than one that explains itself. */}
+      {!profile?.suspended && ownedCompanies.map(c => {
+        const state = companyState(c);
+        const isCurrent = c.id === profile?.companyId;
+        return (
+          <div key={c.id} className="w-full mb-2 flex items-center justify-between gap-3 p-3 rounded-2xl border border-slate-200">
+            <div className="min-w-0 text-left">
+              <p className="text-sm font-bold text-slate-900 truncate">{c.name}</p>
+              <p className="text-[10px] text-slate-500">
+                {state.label}{isCurrent ? ' · currently selected' : ''}
+              </p>
+            </div>
+            <button
+              onClick={() => switchCompany(c.id)}
+              disabled={!state.usable || isCurrent}
+              className="shrink-0 text-xs font-black px-3 py-2 rounded-xl bg-slate-100 text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isCurrent ? 'Selected' : 'Open'}
+            </button>
+          </div>
+        );
+      })}
       <SignOutButton />
     </Card>
   );

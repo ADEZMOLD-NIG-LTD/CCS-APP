@@ -649,7 +649,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       ops.push(profileWrite({ companyId: target.id, role: 'ADMIN' }, 'owner'));
       await commitWrites(ops);
-      setSuccessMessage(`Connected to ${target.name}.`);
+      // Saying "connected" when the company still cannot be opened is what made this look broken.
+      setSuccessMessage(
+        target.isApproved === true && target.status !== 'PENDING'
+          ? `Connected to ${target.name}.`
+          : `${target.name} is registered and waiting for a platform administrator to approve it. You will get access as soon as it is approved.`
+      );
     } catch (error) {
       setErrorMessage(formatFirestoreError(error));
     }
