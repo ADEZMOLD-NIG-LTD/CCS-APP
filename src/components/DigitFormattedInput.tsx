@@ -15,7 +15,7 @@ interface DigitFormattedInputProps extends Omit<React.InputHTMLAttributes<HTMLIn
   name?: string;
   /** Negative values are rejected unless explicitly allowed (e.g. opening balances). */
   allowNegative?: boolean;
-  /** Maximum decimal places accepted (default 2). */
+  /** Maximum decimal places accepted. Defaults to 2 for money; weights pass WEIGHT_DECIMALS. */
   decimals?: number;
 }
 
@@ -75,7 +75,7 @@ export function DigitFormattedInput({
   };
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full min-w-0">
       {prefix && (
         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm select-none z-10">{prefix}</span>
       )}

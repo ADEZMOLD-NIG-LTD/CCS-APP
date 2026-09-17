@@ -8,7 +8,7 @@ import { Calculator, Truck, Users } from 'lucide-react';
 import type { Buyer, CalculationMethod, DeductionParams, Supplier, Transaction, Warehouse } from '../../types';
 import { benchmarkFor, computeNetWeight } from '../../lib/finance';
 import { isoToLocalDate, todayLocal } from '../../lib/dates';
-import { cn, formatCurrency, formatNumber, roundTo, toNumber } from '../../lib/utils';
+import { cn, formatCurrency, formatWeight, roundTo, roundWeight, toNumber, WEIGHT_DECIMALS } from '../../lib/utils';
 import { DigitFormattedInput } from '../DigitFormattedInput';
 import CommodityPicker from '../inventory/CommodityPicker';
 
@@ -109,13 +109,13 @@ export default function SaleForm({ editingTransaction: tx, warehouses, buyers, s
     if (isDirectDelivery || !warehouseId) return null;
     let kg = available(warehouseId, commodity);
     if (tx && !tx.isDirectDelivery && tx.warehouseId === warehouseId && tx.commodity === commodity) kg += tx.netWeight;
-    return roundTo(kg, 2);
+    return roundWeight(kg);
   }, [isDirectDelivery, warehouseId, commodity, available, tx]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const grossWeight = roundTo(toNumber(gross), 2);
+    const grossWeight = roundWeight(toNumber(gross));
     if (!isDirectDelivery && !warehouseId) return setError('Select the warehouse the goods leave from.');
     if (supplierAsBuyer ? !supplierId : !buyerId) return setError(supplierAsBuyer ? 'Select the supplier who is buying.' : 'Select the buyer.');
     if (isDirectDelivery && !supplierId) return setError('Select the supplier delivering the goods.');
@@ -123,7 +123,7 @@ export default function SaleForm({ editingTransaction: tx, warehouses, buyers, s
     if (netWeight <= 0) return setError('Net weight must be greater than zero.');
     if (netWeight > grossWeight) return setError('Net weight cannot exceed gross weight.');
     if (totalValue <= 0) return setError('Sale value must be greater than zero.');
-    if (stock !== null && netWeight > stock) return setError(`Insufficient stock: only ${formatNumber(stock)}kg of ${commodity} at this warehouse.`);
+    if (stock !== null && netWeight > stock) return setError(`Insufficient stock: only ${formatWeight(stock)}kg of ${commodity} at this warehouse.`);
     const supplierPricePerKg = isDirectDelivery ? roundTo(toNumber(supplierPrice), 2) : undefined;
     if (isDirectDelivery && (!supplierPricePerKg || supplierPricePerKg <= 0)) return setError('Enter the price per kg owed to the supplier.');
 
@@ -139,7 +139,7 @@ export default function SaleForm({ editingTransaction: tx, warehouses, buyers, s
       supplierCreditValue: supplierPricePerKg ? roundTo(netWeight * supplierPricePerKg, 2) : undefined,
       storeRecordId: storeRecordId.trim(),
       grossWeight,
-      netWeight: roundTo(netWeight, 2),
+      netWeight: roundWeight(netWeight),
       bags: Math.max(0, Math.round(toNumber(bags))),
       pricePerKg: method === 'MANUAL' && toNumber(price) <= 0 ? roundTo(totalValue / netWeight, 2) : roundTo(toNumber(price), 2),
       totalValue: roundTo(totalValue, 2),
@@ -227,7 +227,7 @@ export default function SaleForm({ editingTransaction: tx, warehouses, buyers, s
           </label>
           <label className="block">
             <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross weight</span>
-            <DigitFormattedInput required value={gross} onChange={setGross} className={cn(field, 'font-bold')} suffix="kg" />
+            <DigitFormattedInput required value={gross} onChange={setGross} decimals={WEIGHT_DECIMALS} className={cn(field, 'font-bold')} suffix="kg" />
           </label>
           <label className="block">
             <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Selling price per kg</span>
@@ -262,7 +262,8 @@ export default function SaleForm({ editingTransaction: tx, warehouses, buyers, s
               ] as const).map(([label, value, setter]) => (
                 <label key={label} className="block">
                   <span className="block text-[9px] font-bold text-blue-700 uppercase mb-1">{label}</span>
-                  <input type="number" min="0" step="0.1" value={value} onChange={e => setter(e.target.value)} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm" />
+                  {/* step="any": a fixed step makes the browser reject valid readings like 0.2222. */}
+                  <input type="number" min="0" step="any" value={value} onChange={e => setter(e.target.value)} className="w-full px-3 py-2 bg-white border border-blue-200 rounded-lg text-sm" />
                 </label>
               ))}
             </div>
@@ -270,31 +271,32 @@ export default function SaleForm({ editingTransaction: tx, warehouses, buyers, s
         )}
 
         <div className={cn('rounded-2xl p-6 text-white shadow-xl', stock !== null && netWeight > stock ? 'bg-rose-600' : method === 'MANUAL' ? 'bg-indigo-600' : 'bg-blue-600')}>
+          {/* min-w-0 and wrapping sizes stop long figures being clipped at the right edge. */}
           <div className="grid grid-cols-2 gap-6">
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Net weight</p>
               {method === 'MANUAL' ? (
-                <DigitFormattedInput value={manualNet} onChange={setManualNet} className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xl font-black outline-none text-white" suffix="kg" />
+                <DigitFormattedInput value={manualNet} onChange={setManualNet} decimals={WEIGHT_DECIMALS} className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-lg font-black outline-none text-white" suffix="kg" />
               ) : (
-                <p className="text-3xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal">kg</span></p>
+                <p className="text-2xl sm:text-3xl font-black tabular-nums break-words">{formatWeight(netWeight)} <span className="text-sm font-normal">kg</span></p>
               )}
             </div>
-            <div className="text-right">
+            <div className="text-right min-w-0">
               {stock !== null ? (
                 <>
                   <p className="text-[10px] uppercase font-bold opacity-80 mb-1">Available stock</p>
-                  <p className="text-xl font-black">{formatNumber(stock)} kg</p>
+                  <p className="text-lg sm:text-xl font-black tabular-nums break-words">{formatWeight(stock)} kg</p>
                 </>
               ) : isDirectDelivery ? (
                 <span className="inline-flex items-center gap-1 bg-white/20 px-2 py-1 rounded-lg text-[10px] font-bold uppercase"><Truck size={14} /> Direct delivery</span>
               ) : null}
             </div>
-            <div className="col-span-2 pt-4 border-t border-white/20">
+            <div className="col-span-2 pt-4 border-t border-white/20 min-w-0">
               <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Sale value</p>
               {method === 'MANUAL' ? (
-                <DigitFormattedInput value={manualTotal} onChange={setManualTotal} className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-4 py-3 text-2xl font-black outline-none text-white" prefix="₦" />
+                <DigitFormattedInput value={manualTotal} onChange={setManualTotal} className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-4 py-3 text-xl font-black outline-none text-white" prefix="₦" />
               ) : (
-                <p className="text-3xl font-black">{formatCurrency(totalValue)}</p>
+                <p className="text-2xl sm:text-3xl font-black tabular-nums break-words">{formatCurrency(totalValue)}</p>
               )}
               {isDirectDelivery && toNumber(supplierPrice) > 0 && (
                 <p className="text-xs mt-2 opacity-90">Supplier credit: {formatCurrency(netWeight * toNumber(supplierPrice))}</p>

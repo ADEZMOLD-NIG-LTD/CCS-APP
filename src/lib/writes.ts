@@ -13,7 +13,7 @@ import { doc, runTransaction, serverTimestamp, writeBatch } from './fs';
 import type { FirestoreTransaction, WriteBatch } from './fs';
 import { InsufficientBalanceError, OfflineError, ValidationError } from './firestore';
 import { parseStockKey } from './finance';
-import { roundTo, stripUndefined } from './utils';
+import { formatWeight, roundWeight, stripUndefined } from './utils';
 
 export type WriteOp =
   | { kind: 'set'; collection: string; id: string; data: Record<string, unknown>; merge?: boolean }
@@ -39,7 +39,8 @@ export interface Precondition {
   message: string;
 }
 
-const EPSILON = 0.005;
+/** Floating-point tolerance only. Must stay far below the smallest real movement (see WEIGHT_DECIMALS). */
+const EPSILON = 5e-6;
 
 export function stockBalanceDocId(companyId: string, key: string): string {
   const { ledger, warehouseId, item } = parseStockKey(key);
@@ -101,11 +102,11 @@ export async function commitWrites(ops: WriteOp[], guard?: BalanceGuard, precond
         const stored = snap.exists() ? Number((snap.data() as { quantity?: unknown }).quantity) : NaN;
         const base = Number.isFinite(stored) ? stored : guard.derivedLevels[key] || 0;
         const delta = guard.deltas[key];
-        const next = roundTo(base + delta, 2);
+        const next = roundWeight(base + delta);
         if (delta < 0 && next < -EPSILON) {
           const label = guard.describeKey ? guard.describeKey(key) : key;
           throw new InsufficientBalanceError(
-            `Insufficient balance for ${label}. Available: ${roundTo(Math.max(0, base), 2).toLocaleString()}, required: ${roundTo(-delta, 2).toLocaleString()}.`
+            `Insufficient balance for ${label}. Available: ${formatWeight(Math.max(0, base))}, required: ${formatWeight(-delta)}.`
           );
         }
         const { ledger, warehouseId, item } = parseStockKey(key);
@@ -134,7 +135,7 @@ export async function rebuildBalanceCounters(companyId: string, levels: Record<s
     const id = stockBalanceDocId(companyId, key);
     keep.add(id);
     const { ledger, warehouseId, item } = parseStockKey(key);
-    ops.push({ kind: 'set', collection: 'stock_balances', id, data: { id, companyId, ledger, warehouseId, item, quantity: roundTo(quantity, 2), updatedAt: serverTimestamp() } });
+    ops.push({ kind: 'set', collection: 'stock_balances', id, data: { id, companyId, ledger, warehouseId, item, quantity: roundWeight(quantity), updatedAt: serverTimestamp() } });
   }
   for (const id of existingIds) {
     if (!keep.has(id)) {

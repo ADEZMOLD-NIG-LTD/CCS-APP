@@ -40,6 +40,24 @@ export function formatNumber(value: number, decimals: number = 2): string {
 }
 
 /**
+ * Weights are entered, calculated and stored to this many decimal places. Trade happens in
+ * fractions of a kilogram, so rounding to 2 dp would silently turn 0.2222kg into 0.22kg on entry,
+ * again in the net-weight calculation, and again in the stock ledger. Money stays at 2 dp.
+ */
+export const WEIGHT_DECIMALS = 5;
+
+/** Rounds a weight, keeping the precision a scale actually produces. */
+export const roundWeight = (value: number): number => roundTo(toNumber(value), WEIGHT_DECIMALS);
+
+/** Shows a weight at whatever precision it has, up to WEIGHT_DECIMALS, with no padded zeros. */
+export function formatWeight(value: number): string {
+  return new Intl.NumberFormat('en-NG', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: WEIGHT_DECIMALS,
+  }).format(roundWeight(value));
+}
+
+/**
  * Formats a number as currency (Naira).
  */
 export function formatCurrency(value: number): string {

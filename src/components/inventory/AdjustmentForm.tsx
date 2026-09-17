@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowDownRight, ArrowUpRight } from 'lucide-react';
 import type { AdjustmentTypeValue, InventoryAdjustment, Warehouse } from '../../types';
 import { isoToLocalDate, todayLocal } from '../../lib/dates';
-import { formatNumber, roundTo, toNumber } from '../../lib/utils';
+import { formatWeight, roundWeight, toNumber, WEIGHT_DECIMALS } from '../../lib/utils';
 import { DigitFormattedInput } from '../DigitFormattedInput';
 import CommodityPicker from './CommodityPicker';
 
@@ -60,15 +60,15 @@ export default function AdjustmentForm({ warehouses, available, defaultWarehouse
   // When editing, the adjustment's own effect is already in the current stock figure.
   const currentStock = warehouseId ? available(warehouseId, commodity) : 0;
   const ownEffect = adj && adj.warehouseId === warehouseId && adj.commodity === commodity ? (adj.adjustmentDirection === 'REMOVE' ? adj.netWeight : -adj.netWeight) : 0;
-  const removable = roundTo(currentStock + ownEffect, 2);
+  const removable = roundWeight(currentStock + ownEffect);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const kg = roundTo(toNumber(netWeight), 2);
+    const kg = roundWeight(toNumber(netWeight));
     if (!warehouseId) return setError('Select a warehouse.');
     if (kg <= 0) return setError('Weight must be greater than zero.');
-    if (direction === 'REMOVE' && kg > removable) return setError(`Only ${formatNumber(removable)}kg is in stock.`);
+    if (direction === 'REMOVE' && kg > removable) return setError(`Only ${formatWeight(removable)}kg is in stock.`);
     if (!notes.trim()) return setError('Explain the reason for this adjustment.');
     onSubmit({ date, commodity, warehouseId, adjustmentType, adjustmentDirection: direction, netWeight: kg, bags: Math.max(0, Math.round(toNumber(bags))), notes: notes.trim() });
   };
@@ -120,13 +120,13 @@ export default function AdjustmentForm({ warehouses, available, defaultWarehouse
             ))}
           </div>
           {adjustmentType !== 'STOCK_COUNT' && <p className="text-[10px] text-slate-400 mt-1">Only stock count corrections can add stock.</p>}
-          {warehouseId && <p className="text-[10px] text-slate-500 mt-1">In stock: {formatNumber(removable)}kg</p>}
+          {warehouseId && <p className="text-[10px] text-slate-500 mt-1">In stock: {formatWeight(removable)}kg</p>}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="block">
             <span className="google-label">Weight (kg)</span>
-            <DigitFormattedInput required value={netWeight} onChange={setNetWeight} className="google-input text-sm" suffix="kg" />
+            <DigitFormattedInput required value={netWeight} onChange={setNetWeight} decimals={WEIGHT_DECIMALS} className="google-input text-sm" suffix="kg" />
           </label>
           <label className="block">
             <span className="google-label">Bags</span>

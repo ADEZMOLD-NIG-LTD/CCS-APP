@@ -258,3 +258,41 @@ describe('profit estimate', () => {
     expect(p.netProfit).toBe(250_000);
   });
 });
+
+describe('sub-kilogram precision', () => {
+  it('keeps small fractional weights through the net-weight calculation', () => {
+    const result = computeNetWeight({
+      grossWeight: 0.2222, moistureActual: 8, moistureBenchmark: 8, tareWeight: 0, moldWeight: 0, otherDeduction: 0,
+    });
+    expect(result.netWeight).toBe(0.2222);
+  });
+
+  it('keeps fractional deductions instead of rounding them away', () => {
+    const result = computeNetWeight({
+      grossWeight: 1, moistureActual: 8, moistureBenchmark: 8, tareWeight: 0.0004, moldWeight: 0, otherDeduction: 0,
+    });
+    expect(result.totalDeductions).toBe(0.0004);
+    expect(result.netWeight).toBe(0.9996);
+  });
+
+  it('carries a fractional moisture loss', () => {
+    // 0.01% of 2.5kg = 0.00025kg, which 2dp rounding would have erased.
+    expect(moistureLossKg(8.01, 8, 2.5)).toBe(0.00025);
+  });
+
+  it('does not discard a small stock movement as rounding noise', () => {
+    const delta = diffEffects([], [{ key: stockKey('COMMODITY', 'w1', 'COCOA'), quantity: 0.0002 }]);
+    expect(delta[stockKey('COMMODITY', 'w1', 'COCOA')]).toBe(0.0002);
+  });
+
+  it('sums fractional movements without drift', () => {
+    const key = stockKey('COMMODITY', 'w1', 'COCOA');
+    const levels = computeStockLevels({
+      transactions: [
+        { id: 'a', companyId: 'c', date: '2026-01-01', type: 'PURCHASE', commodity: 'COCOA', warehouseId: 'w1', grossWeight: 0.2222, netWeight: 0.2222, bags: 0, referenceId: 'r', deductions: { moistureActual: 0, moistureBenchmark: 0, tareWeight: 0, moldWeight: 0, otherDeduction: 0 } },
+        { id: 'b', companyId: 'c', date: '2026-01-02', type: 'SALE', commodity: 'COCOA', warehouseId: 'w1', grossWeight: 0.1111, netWeight: 0.1111, bags: 0, referenceId: 'r', deductions: { moistureActual: 0, moistureBenchmark: 0, tareWeight: 0, moldWeight: 0, otherDeduction: 0 } },
+      ] as never,
+    });
+    expect(levels[key]).toBe(0.1111);
+  });
+});

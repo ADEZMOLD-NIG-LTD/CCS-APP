@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import type { Warehouse } from '../../types';
 import { todayLocal } from '../../lib/dates';
-import { formatCurrency, formatNumber, roundTo, toNumber } from '../../lib/utils';
+import { formatCurrency, formatWeight, roundTo, roundWeight, toNumber, WEIGHT_DECIMALS } from '../../lib/utils';
 import { DigitFormattedInput } from '../DigitFormattedInput';
 import CommodityPicker from '../inventory/CommodityPicker';
 
@@ -52,13 +52,13 @@ export default function ReturnForm({ kind, warehouses, available, busy, onCancel
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const grossWeight = roundTo(toNumber(gross), 2);
-    const netWeight = roundTo(toNumber(net), 2);
+    const grossWeight = roundWeight(toNumber(gross));
+    const netWeight = roundWeight(toNumber(net));
     if (!warehouseId) return setError('Select a warehouse.');
     if (grossWeight <= 0 || netWeight <= 0) return setError('Weights must be greater than zero.');
     if (netWeight > grossWeight) return setError('Net weight cannot exceed gross weight.');
     if (toNumber(price) <= 0) return setError('Price per kg must be greater than zero.');
-    if (stock !== null && netWeight > stock) return setError(`Only ${formatNumber(stock)}kg is in stock at this warehouse.`);
+    if (stock !== null && netWeight > stock) return setError(`Only ${formatWeight(stock)}kg is in stock at this warehouse.`);
     if (!notes.trim()) return setError('Give a reason for the return.');
     onSubmit({
       date, warehouseId, commodity, bags: Math.max(0, Math.round(toNumber(bags))), grossWeight, netWeight,
@@ -82,7 +82,7 @@ export default function ReturnForm({ kind, warehouses, available, busy, onCancel
               <option value="">Select warehouse</option>
               {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
-            {stock !== null && <span className="block text-[10px] text-slate-500 mt-1">In stock: {formatNumber(stock)}kg</span>}
+            {stock !== null && <span className="block text-[10px] text-slate-500 mt-1">In stock: {formatWeight(stock)}kg</span>}
           </label>
           <label className="block">
             <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Commodity</span>
@@ -95,11 +95,11 @@ export default function ReturnForm({ kind, warehouses, available, busy, onCancel
             </label>
             <label className="block">
               <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross weight</span>
-              <DigitFormattedInput required value={gross} onChange={setGross} className={field} suffix="kg" />
+              <DigitFormattedInput required value={gross} onChange={setGross} decimals={WEIGHT_DECIMALS} className={field} suffix="kg" />
             </label>
             <label className="block">
               <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Net weight</span>
-              <DigitFormattedInput required value={net} onChange={setNet} className={field} suffix="kg" />
+              <DigitFormattedInput required value={net} onChange={setNet} decimals={WEIGHT_DECIMALS} className={field} suffix="kg" />
             </label>
             <label className="block">
               <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price per kg</span>

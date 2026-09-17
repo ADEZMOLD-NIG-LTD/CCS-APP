@@ -9,7 +9,7 @@ import { motion } from 'motion/react';
 import type { CalculationMethod, DeductionParams, Supplier, Transaction, Warehouse } from '../../types';
 import { benchmarkFor, computeNetWeight } from '../../lib/finance';
 import { isoToLocalDate, todayLocal } from '../../lib/dates';
-import { cn, formatCurrency, formatNumber, roundTo, toNumber } from '../../lib/utils';
+import { cn, formatCurrency, formatWeight, roundTo, roundWeight, toNumber, WEIGHT_DECIMALS } from '../../lib/utils';
 import { DigitFormattedInput } from '../DigitFormattedInput';
 import CommodityPicker from './CommodityPicker';
 
@@ -96,8 +96,8 @@ export default function PurchaseForm({ suppliers, warehouses, defaultWarehouseId
       supplierId: isWalkIn ? undefined : supplierId,
       isWalkIn,
       storeRecordId: storeRecordId.trim(),
-      grossWeight: roundTo(grossWeight, 2),
-      netWeight: roundTo(netWeight, 2),
+      grossWeight: roundWeight(grossWeight),
+      netWeight: roundWeight(netWeight),
       bags: Math.max(0, Math.round(toNumber(bags))),
       pricePerKg: method === 'MANUAL' && pricePerKg <= 0 ? roundTo(totalValue / netWeight, 2) : roundTo(pricePerKg, 2),
       totalValue: roundTo(totalValue, 2),
@@ -175,7 +175,7 @@ export default function PurchaseForm({ suppliers, warehouses, defaultWarehouseId
         <div className="grid grid-cols-2 gap-4">
           <label className="block">
             <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross weight (kg)</span>
-            <DigitFormattedInput required value={gross} onChange={setGross} className={cn(fieldClass, 'font-bold text-lg')} suffix="kg" />
+            <DigitFormattedInput required value={gross} onChange={setGross} decimals={WEIGHT_DECIMALS} className={cn(fieldClass, 'font-bold text-lg')} suffix="kg" />
           </label>
           <label className="block">
             <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Price per kg</span>
@@ -196,30 +196,32 @@ export default function PurchaseForm({ suppliers, warehouses, defaultWarehouseId
               ].map(([label, value, setter]) => (
                 <label key={label as string} className="block">
                   <span className="block text-[9px] font-bold text-emerald-700 uppercase mb-1">{label as string}</span>
-                  <input type="number" min="0" step="0.1" value={value as string} onChange={e => (setter as (v: string) => void)(e.target.value)} className="w-full px-3 py-2 bg-white border border-emerald-200 rounded-lg text-sm" />
+                  {/* step="any": a fixed step makes the browser reject valid readings like 0.2222. */}
+                  <input type="number" min="0" step="any" value={value as string} onChange={e => (setter as (v: string) => void)(e.target.value)} className="w-full px-3 py-2 bg-white border border-emerald-200 rounded-lg text-sm" />
                 </label>
               ))}
             </div>
-            <p className="text-[10px] text-emerald-700">Moisture loss is only deducted when the actual moisture is above the benchmark. Moisture loss: {formatNumber(calc.moistureLoss)}kg · total deductions: {formatNumber(calc.totalDeductions)}kg</p>
+            <p className="text-[10px] text-emerald-700">Moisture loss is only deducted when the actual moisture is above the benchmark. Moisture loss: {formatWeight(calc.moistureLoss)}kg · total deductions: {formatWeight(calc.totalDeductions)}kg</p>
           </div>
         )}
 
         <div className={cn('rounded-2xl p-6 text-white shadow-xl', method === 'MANUAL' ? 'bg-indigo-600' : 'bg-emerald-600')}>
-          <div className="grid grid-cols-2 gap-6">
-            <div>
+          {/* min-w-0 and wrapping sizes stop long figures being clipped at the right edge. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="min-w-0">
               <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Net weight</p>
               {method === 'MANUAL' ? (
-                <DigitFormattedInput value={manualNet} onChange={setManualNet} className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-xl font-black outline-none text-white" suffix="kg" />
+                <DigitFormattedInput value={manualNet} onChange={setManualNet} decimals={WEIGHT_DECIMALS} className="w-full bg-white/20 border border-white/30 rounded-lg px-3 py-2 text-lg font-black outline-none text-white" suffix="kg" />
               ) : (
-                <p className="text-3xl font-black">{formatNumber(netWeight)} <span className="text-sm font-normal">kg</span></p>
+                <p className="text-2xl sm:text-3xl font-black tabular-nums break-words">{formatWeight(netWeight)} <span className="text-sm font-normal">kg</span></p>
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] uppercase font-bold opacity-80 mb-2">Total value</p>
               {method === 'MANUAL' ? (
-                <DigitFormattedInput value={manualTotal} onChange={setManualTotal} className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-3 py-2 text-xl font-black outline-none text-white" prefix="₦" />
+                <DigitFormattedInput value={manualTotal} onChange={setManualTotal} className="w-full bg-white/20 border border-white/30 rounded-lg pl-8 pr-3 py-2 text-lg font-black outline-none text-white" prefix="₦" />
               ) : (
-                <p className="text-3xl font-black">{formatCurrency(totalValue)}</p>
+                <p className="text-2xl sm:text-3xl font-black tabular-nums break-words">{formatCurrency(totalValue)}</p>
               )}
             </div>
           </div>

@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import type { Warehouse } from '../../types';
 import { todayLocal } from '../../lib/dates';
-import { formatNumber, roundTo, toNumber } from '../../lib/utils';
+import { formatWeight, roundWeight, toNumber, WEIGHT_DECIMALS } from '../../lib/utils';
 import { DigitFormattedInput } from '../DigitFormattedInput';
 import CommodityPicker from './CommodityPicker';
 
@@ -47,8 +47,8 @@ export default function StockTransferForm({ warehouses, available, submitting, o
     if (!source || !destination) return setError('Select both warehouses.');
     if (source === destination) return setError('Source and destination must be different.');
     if (kg <= 0) return setError('Weight must be greater than zero.');
-    if (kg > availableKg) return setError(`Only ${formatNumber(availableKg)}kg is available at the source.`);
-    onSubmit({ commodity, sourceWarehouseId: source, destinationWarehouseId: destination, weight: roundTo(kg, 2), bags: Math.max(0, Math.round(toNumber(bags))), date });
+    if (kg > availableKg) return setError(`Only ${formatWeight(availableKg)}kg is available at the source.`);
+    onSubmit({ commodity, sourceWarehouseId: source, destinationWarehouseId: destination, weight: roundWeight(kg), bags: Math.max(0, Math.round(toNumber(bags))), date });
   };
 
   return (
@@ -81,12 +81,12 @@ export default function StockTransferForm({ warehouses, available, submitting, o
           {source && (
             <div className="col-span-2 bg-indigo-50 p-3 rounded-xl border border-indigo-100">
               <p className="text-[10px] font-bold text-indigo-600 uppercase mb-1">Available at source</p>
-              <p className="text-lg font-black text-indigo-700">{formatNumber(availableKg)} kg</p>
+              <p className="text-lg font-black text-indigo-700 tabular-nums break-words">{formatWeight(availableKg)} kg</p>
             </div>
           )}
           <label className="block">
             <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Weight</span>
-            <DigitFormattedInput required value={weight} onChange={setWeight} className={fieldClass} suffix="kg" />
+            <DigitFormattedInput required value={weight} onChange={setWeight} decimals={WEIGHT_DECIMALS} className={fieldClass} suffix="kg" />
           </label>
           <label className="block">
             <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags</span>

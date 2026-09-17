@@ -8,7 +8,7 @@ import { X } from 'lucide-react';
 import { motion } from 'motion/react';
 import type { StoreRecord, Warehouse } from '../../types';
 import { isoToLocalDate, todayLocal } from '../../lib/dates';
-import { formatNumber, roundTo, toNumber } from '../../lib/utils';
+import { formatWeight, roundWeight, toNumber, WEIGHT_DECIMALS } from '../../lib/utils';
 import { DigitFormattedInput } from '../DigitFormattedInput';
 import CommodityPicker from '../inventory/CommodityPicker';
 
@@ -71,7 +71,7 @@ export default function StoreRecordForm({ initialType, editingRecord: r, warehou
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const actualWeight = roundTo(toNumber(actual), 2);
+    const actualWeight = roundWeight(toNumber(actual));
     if (actualWeight <= 0) return setError('Actual weight must be greater than zero.');
     if (type === 'TRANSFER') {
       if (!sourceWarehouseId || !destinationWarehouseId) return setError('Select both warehouses.');
@@ -80,10 +80,10 @@ export default function StoreRecordForm({ initialType, editingRecord: r, warehou
       if (!warehouseId) return setError('Select a warehouse.');
       if (!customerName.trim()) return setError('Enter the customer or supplier name.');
     }
-    if (stock !== null && actualWeight > stock) return setError(`Only ${formatNumber(stock)}kg is recorded in store.`);
+    if (stock !== null && actualWeight > stock) return setError(`Only ${formatWeight(stock)}kg is recorded in store.`);
     onSubmit({
       type, date, commodity, customerName: customerName.trim(), location: location.trim(),
-      nominalWeight: roundTo(Math.max(0, toNumber(nominal)), 2), actualWeight, noOfBags: Math.max(0, Math.round(toNumber(bags))),
+      nominalWeight: roundWeight(Math.max(0, toNumber(nominal))), actualWeight, noOfBags: Math.max(0, Math.round(toNumber(bags))),
       moisture: Math.max(0, toNumber(moisture)), tare: Math.max(0, toNumber(tare)), fieldOfficer: fieldOfficer.trim(), truckNo: truckNo.trim(),
       warehouseId, sourceWarehouseId, destinationWarehouseId,
     });
@@ -123,7 +123,7 @@ export default function StoreRecordForm({ initialType, editingRecord: r, warehou
             ) : warehouseSelect(warehouseId, setWarehouseId, 'Warehouse')}
             <label className="block text-sm font-medium text-gray-700">Commodity
               <div className="mt-1"><CommodityPicker value={commodity} onChange={setCommodity} className={field} /></div>
-              {stock !== null && <span className="block text-xs text-indigo-600 mt-1">In store: {formatNumber(stock)}kg</span>}
+              {stock !== null && <span className="block text-xs text-indigo-600 mt-1">In store: {formatWeight(stock)}kg</span>}
             </label>
             <label className="block text-sm font-medium text-gray-700">Date
               <input type="date" required max={todayLocal()} value={date} onChange={e => setDate(e.target.value)} className={`${field} mt-1`} />
@@ -135,19 +135,19 @@ export default function StoreRecordForm({ initialType, editingRecord: r, warehou
               <input maxLength={120} value={location} onChange={e => setLocation(e.target.value)} className={`${field} mt-1`} />
             </label>
             <label className="block text-sm font-medium text-gray-700">Nominal weight
-              <div className="mt-1"><DigitFormattedInput value={nominal} onChange={setNominal} className={field} suffix="kg" /></div>
+              <div className="mt-1"><DigitFormattedInput value={nominal} onChange={setNominal} decimals={WEIGHT_DECIMALS} className={field} suffix="kg" /></div>
             </label>
             <label className="block text-sm font-medium text-gray-700">Actual weight
-              <div className="mt-1"><DigitFormattedInput required value={actual} onChange={setActual} className={field} suffix="kg" /></div>
+              <div className="mt-1"><DigitFormattedInput required value={actual} onChange={setActual} decimals={WEIGHT_DECIMALS} className={field} suffix="kg" /></div>
             </label>
             <label className="block text-sm font-medium text-gray-700">Bags
               <div className="mt-1"><DigitFormattedInput value={bags} onChange={setBags} decimals={0} className={field} /></div>
             </label>
             <label className="block text-sm font-medium text-gray-700">Moisture (%)
-              <input type="number" min="0" step="0.1" value={moisture} onChange={e => setMoisture(e.target.value)} className={`${field} mt-1`} />
+              <input type="number" min="0" step="any" value={moisture} onChange={e => setMoisture(e.target.value)} className={`${field} mt-1`} />
             </label>
             <label className="block text-sm font-medium text-gray-700">Tare (kg)
-              <input type="number" min="0" step="0.1" value={tare} onChange={e => setTare(e.target.value)} className={`${field} mt-1`} />
+              <input type="number" min="0" step="any" value={tare} onChange={e => setTare(e.target.value)} className={`${field} mt-1`} />
             </label>
             <label className="block text-sm font-medium text-gray-700">Field officer
               <input maxLength={100} value={fieldOfficer} onChange={e => setFieldOfficer(e.target.value)} className={`${field} mt-1`} />

@@ -7,7 +7,7 @@ import React, { useMemo, useState } from 'react';
 import type { JournalEntry, Payment, Transaction } from '../../types';
 import { computeNetWeight } from '../../lib/finance';
 import { isoToLocalDate, localDateToIso, todayLocal } from '../../lib/dates';
-import { formatCurrency, formatNumber, roundTo, toNumber } from '../../lib/utils';
+import { formatCurrency, formatWeight, roundTo, roundWeight, toNumber, WEIGHT_DECIMALS } from '../../lib/utils';
 import { DigitFormattedInput } from '../DigitFormattedInput';
 
 export type AdjustTarget =
@@ -59,7 +59,7 @@ export default function LedgerAdjustModal({ target, busy, onCancel, onSave }: Le
     if (manual) {
       const n = toNumber(net);
       const t = isReturn ? roundTo(n * toNumber(price), 2) : toNumber(total);
-      return { netWeight: roundTo(n, 2), totalValue: roundTo(t, 2) };
+      return { netWeight: roundWeight(n), totalValue: roundTo(t, 2) };
     }
     const result = computeNetWeight({ grossWeight: gross, moistureActual, moistureBenchmark, tareWeight: tare, moldWeight: mold, otherDeduction: other });
     return { netWeight: result.netWeight, totalValue: roundTo(result.netWeight * toNumber(price), 2) };
@@ -71,7 +71,7 @@ export default function LedgerAdjustModal({ target, busy, onCancel, onSave }: Le
     const dateIso = localDateToIso(date, target.doc.date);
 
     if (target.kind === 'TRANSACTION' && tx && computed) {
-      const grossWeight = roundTo(toNumber(gross), 2);
+      const grossWeight = roundWeight(toNumber(gross));
       if (grossWeight <= 0) return setError('Gross weight must be greater than zero.');
       if (computed.netWeight <= 0) return setError('Net weight must be greater than zero.');
       if (computed.netWeight > grossWeight) return setError('Net weight cannot exceed gross weight.');
@@ -125,7 +125,8 @@ export default function LedgerAdjustModal({ target, busy, onCancel, onSave }: Le
   const numberInput = (label: string, value: string, set: (v: string) => void) => (
     <label className="block">
       <span className="block text-[9px] font-bold text-slate-400 uppercase mb-1">{label}</span>
-      <input type="number" min="0" step="0.1" value={value} onChange={e => set(e.target.value)} className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs" />
+      {/* step="any": a fixed step makes the browser reject valid readings like 0.2222. */}
+      <input type="number" min="0" step="any" value={value} onChange={e => set(e.target.value)} className="w-full px-2 py-2 bg-white border border-slate-200 rounded-lg text-xs" />
     </label>
   );
 
@@ -146,7 +147,7 @@ export default function LedgerAdjustModal({ target, busy, onCancel, onSave }: Le
               <div className="grid grid-cols-2 gap-4">
                 <label className="block">
                   <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Gross weight</span>
-                  <DigitFormattedInput required value={gross} onChange={setGross} className={field} suffix="kg" />
+                  <DigitFormattedInput required value={gross} onChange={setGross} decimals={WEIGHT_DECIMALS} className={field} suffix="kg" />
                 </label>
                 <label className="block">
                   <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Bags</span>
@@ -159,7 +160,7 @@ export default function LedgerAdjustModal({ target, busy, onCancel, onSave }: Le
                 {manual && (
                   <label className="block">
                     <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Net weight</span>
-                    <DigitFormattedInput required value={net} onChange={setNet} className={field} suffix="kg" />
+                    <DigitFormattedInput required value={net} onChange={setNet} decimals={WEIGHT_DECIMALS} className={field} suffix="kg" />
                   </label>
                 )}
                 {manual && !isReturn && (
@@ -184,7 +185,7 @@ export default function LedgerAdjustModal({ target, busy, onCancel, onSave }: Le
                   {numberInput('Other kg', other, setOther)}
                 </div>
               )}
-              <p className="text-xs text-slate-600 bg-slate-50 rounded-xl p-3">Net {formatNumber(computed.netWeight)}kg · Total {formatCurrency(computed.totalValue)}</p>
+              <p className="text-xs text-slate-600 bg-slate-50 rounded-xl p-3 break-words">Net {formatWeight(computed.netWeight)}kg · Total {formatCurrency(computed.totalValue)}</p>
               <label className="block">
                 <span className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Reason for adjustment</span>
                 <input required maxLength={300} value={notes} onChange={e => setNotes(e.target.value)} className={field} />

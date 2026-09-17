@@ -17,7 +17,7 @@ import type {
   TaxRegime,
   Transaction,
 } from '../types';
-import { roundTo, toNumber } from './utils';
+import { roundTo, roundWeight, toNumber } from './utils';
 import { isoToLocalDate } from './dates';
 
 const round2 = (n: number) => roundTo(n, 2);
@@ -39,7 +39,7 @@ export function moistureLossKg(actual: unknown, benchmark: unknown, grossWeight:
   const b = toNumber(benchmark);
   const g = positive(grossWeight);
   if (a <= b || g <= 0) return 0;
-  return round2(((a - b) * g) / 100);
+  return roundWeight(((a - b) * g) / 100);
 }
 
 export interface NetWeightInput {
@@ -54,13 +54,13 @@ export interface NetWeightInput {
 export function computeNetWeight(input: NetWeightInput) {
   const gross = positive(input.grossWeight);
   const moistureLoss = moistureLossKg(input.moistureActual, input.moistureBenchmark, gross);
-  const totalDeductions = round2(
+  const totalDeductions = roundWeight(
     moistureLoss + positive(input.tareWeight) + positive(input.moldWeight) + positive(input.otherDeduction)
   );
   return {
     moistureLoss,
     totalDeductions,
-    netWeight: Math.max(0, round2(gross - totalDeductions)),
+    netWeight: Math.max(0, roundWeight(gross - totalDeductions)),
   };
 }
 
@@ -403,7 +403,7 @@ export function sumEffects(effects: StockEffect[]): Record<string, number> {
   for (const e of effects) {
     out[e.key] = (out[e.key] || 0) + e.quantity;
   }
-  for (const k of Object.keys(out)) out[k] = round2(out[k]);
+  for (const k of Object.keys(out)) out[k] = roundWeight(out[k]);
   return out;
 }
 
@@ -411,10 +411,11 @@ export function sumEffects(effects: StockEffect[]): Record<string, number> {
 export function diffEffects(before: StockEffect[], after: StockEffect[]): Record<string, number> {
   const delta = sumEffects(after);
   for (const e of before) {
-    delta[e.key] = round2((delta[e.key] || 0) - e.quantity);
+    delta[e.key] = roundWeight((delta[e.key] || 0) - e.quantity);
   }
   for (const k of Object.keys(delta)) {
-    if (Math.abs(delta[k]) < 0.005) delete delta[k];
+    // Only discard floating-point noise, never a real movement: 0.0002kg is a valid delta.
+    if (Math.abs(delta[k]) < 5e-6) delete delta[k];
   }
   return delta;
 }
@@ -444,7 +445,7 @@ export function levelsByItem(levels: Record<string, number>, ledger: StockLedger
     const parsed = parseStockKey(key);
     if (parsed.ledger !== ledger) continue;
     if (warehouseId !== 'ALL' && parsed.warehouseId !== warehouseId) continue;
-    out[parsed.item] = round2((out[parsed.item] || 0) + qty);
+    out[parsed.item] = roundWeight((out[parsed.item] || 0) + qty);
   }
   return out;
 }
