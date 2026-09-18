@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Edit2, MapPin, Phone, Plus, Search, Trash2, UserPlus } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,9 +20,20 @@ import BuyerForm, { type BuyerInput, buyerRecordOps } from './sales/BuyerForm';
 export default function BuyerModule() {
   const { can, auditActor, setErrorMessage } = useAuth();
   const { commit, busy } = useCommit();
+  // Buyer documents draw the list; the ledger behind the balances is far larger, so it loads
+  // after the first paint and the balances fill in when ready.
+  const [ledgerWanted, setLedgerWanted] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => setLedgerWanted(true), 0);
+    return () => window.clearTimeout(id);
+  }, []);
+
   const buyers = useActiveCollection('buyers').data;
-  const transactions = useActiveCollection('transactions').data;
-  const journal = useActiveCollection('journal').data;
+  const transactionsState = useActiveCollection('transactions', ledgerWanted);
+  const journalState = useActiveCollection('journal', ledgerWanted);
+  const transactions = transactionsState.data;
+  const journal = journalState.data;
+  const balancesLoading = !ledgerWanted || transactionsState.loading || journalState.loading;
 
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
@@ -119,8 +130,17 @@ export default function BuyerModule() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className={cn('text-sm font-bold', balance >= 0 ? 'text-blue-600' : 'text-rose-600')}>{formatCurrency(balance)}</span>
-                      <p className="text-[10px] text-slate-400 uppercase">{balance >= 0 ? 'Owes us' : 'We owe'}</p>
+                      {balancesLoading ? (
+                        <>
+                          <span className="text-sm font-bold text-slate-300">…</span>
+                          <p className="text-[10px] text-slate-400 uppercase">Balance</p>
+                        </>
+                      ) : (
+                        <>
+                          <span className={cn('text-sm font-bold', balance >= 0 ? 'text-blue-600' : 'text-rose-600')}>{formatCurrency(balance)}</span>
+                          <p className="text-[10px] text-slate-400 uppercase">{balance >= 0 ? 'Owes us' : 'We owe'}</p>
+                        </>
+                      )}
                     </div>
                   </button>
                   {(can('manage_parties') || can('delete_parties')) && (

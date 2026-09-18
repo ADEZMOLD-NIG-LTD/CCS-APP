@@ -22,7 +22,6 @@ export default function JournalModule() {
   const { profile, role, can, auditActor } = useAuth();
   const { commit, busy } = useCommit();
   const journal = useActiveCollection('journal').data;
-  const payments = useActiveCollection('payments').data;
   const suppliers = useActiveCollection('suppliers').data;
   const buyers = useActiveCollection('buyers').data;
   const { data: warehouses } = useWarehouses();

@@ -5,7 +5,13 @@
 
 import { initializeApp, getApps, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, initializeFirestore, type Firestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore,
+} from 'firebase/firestore';
 import * as localBackend from './mockFirebase';
 import { isDemoRuntime } from './lib/runtimeMode';
 import { logger } from './lib/logger';
@@ -49,10 +55,25 @@ if (isDemoRuntime) {
     const { firestoreDatabaseId, ...options } = firebaseConfig;
     app = getApps()[0] ?? initializeApp(options);
     try {
-      db = initializeFirestore(app, { ignoreUndefinedProperties: true }, firestoreDatabaseId);
+      // A busy company's ledger is about a megabyte. Without a persistent cache that is
+      // downloaded again on every app start; with it, data is served from the device and only
+      // changed documents are fetched - minutes versus seconds on a slow mobile connection.
+      db = initializeFirestore(
+        app,
+        {
+          ignoreUndefinedProperties: true,
+          localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+        },
+        firestoreDatabaseId
+      );
     } catch {
-      // Already initialised (e.g. hot reload).
-      db = getFirestore(app, firestoreDatabaseId);
+      try {
+        // No IndexedDB (private window, blocked storage) or already initialised: carry on
+        // without the cache rather than failing to start.
+        db = initializeFirestore(app, { ignoreUndefinedProperties: true }, firestoreDatabaseId);
+      } catch {
+        db = getFirestore(app, firestoreDatabaseId);
+      }
     }
     auth = getAuth(app);
     logger.debug(`Firebase initialised for ${appEnv}`);

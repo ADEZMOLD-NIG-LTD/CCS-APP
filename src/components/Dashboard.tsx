@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, ArrowDownRight, ArrowRightLeft, ArrowUpRight, ChevronLeft, ChevronRight, LayoutDashboard,
   ShoppingCart, TrendingDown, TrendingUp, Users, Wallet,
@@ -45,10 +45,22 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const { can, isModuleEnabled } = useAuth();
   // The cash book is only meaningful when the company's plan includes the journal module.
   const canSeeCash = can('view_journal') && isModuleEnabled('journal');
-  const transactions = useActiveCollection('transactions').data;
-  const suppliers = useActiveCollection('suppliers').data;
-  const payments = useActiveCollection('payments').data;
-  const journal = useActiveCollection('journal').data;
+  // The shell paints first; the ledger (about a megabyte for a busy company) is subscribed on the
+  // next tick so the dashboard is never a blank wait on a slow connection.
+  const [ledgerWanted, setLedgerWanted] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => setLedgerWanted(true), 0);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  const suppliers = useActiveCollection('suppliers', ledgerWanted).data;
+  const transactionsState = useActiveCollection('transactions', ledgerWanted);
+  const paymentsState = useActiveCollection('payments', ledgerWanted);
+  const journalState = useActiveCollection('journal', ledgerWanted);
+  const transactions = transactionsState.data;
+  const payments = paymentsState.data;
+  const journal = journalState.data;
+  const ledgerLoading = !ledgerWanted || transactionsState.loading || paymentsState.loading || journalState.loading;
   const [day, setDay] = useState(todayLocal());
 
   // Cash book = journal entries only; supplier payments belong to the supplier ledger.
@@ -154,7 +166,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
           <motion.div key={card.label} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="google-card p-4">
             <div className={`${card.tone} w-8 h-8 rounded-lg flex items-center justify-center mb-3`}><card.icon size={18} /></div>
             <p className="text-[10px] uppercase tracking-wider font-bold text-[var(--text-secondary)] mb-1">{card.label}</p>
-            <p className="text-lg font-bold text-[var(--text-primary)]">{formatCurrency(card.value)}</p>
+            <p className="text-lg font-bold text-[var(--text-primary)]">{ledgerLoading ? <span className="text-slate-300">…</span> : formatCurrency(card.value)}</p>
             <p className="text-[10px] text-[var(--text-secondary)] mt-1 font-medium">{friendly(day)}</p>
           </motion.div>
         ))}
@@ -163,7 +175,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-[var(--text-primary)] rounded-[var(--radius-lg)] p-6 text-white shadow-lg flex items-center justify-between overflow-hidden relative">
         <div className="relative z-10">
           <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">Total accounts payable</p>
-          <h2 className="text-3xl font-bold">{formatCurrency(stats.payable)}</h2>
+          <h2 className="text-3xl font-bold">{ledgerLoading ? <span className="opacity-50">…</span> : formatCurrency(stats.payable)}</h2>
           <p className="text-[10px] text-slate-400 mt-2 flex items-center gap-1"><AlertCircle size={10} /> Sum of what is currently owed to suppliers (as of today)</p>
         </div>
         <Wallet className="absolute -right-4 -bottom-4 text-white/5 w-32 h-32" />

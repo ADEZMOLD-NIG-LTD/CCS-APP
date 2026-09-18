@@ -25,10 +25,23 @@ const PAGE_SIZE = 40;
 export default function SupplierModule() {
   const { can, auditActor, setErrorMessage } = useAuth();
   const { commit, busy } = useCommit();
+  // The supplier documents alone are enough to draw the list (about 117 KB). The ledger needed
+  // for balances is roughly a megabyte, so it is subscribed only after the first paint: the list
+  // is usable straight away and the balances fill in when they arrive.
+  const [ledgerWanted, setLedgerWanted] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => setLedgerWanted(true), 0);
+    return () => window.clearTimeout(id);
+  }, []);
+
   const suppliers = useActiveCollection('suppliers').data;
-  const transactions = useActiveCollection('transactions').data;
-  const payments = useActiveCollection('payments').data;
-  const journal = useActiveCollection('journal').data;
+  const transactionsState = useActiveCollection('transactions', ledgerWanted);
+  const paymentsState = useActiveCollection('payments', ledgerWanted);
+  const journalState = useActiveCollection('journal', ledgerWanted);
+  const transactions = transactionsState.data;
+  const payments = paymentsState.data;
+  const journal = journalState.data;
+  const balancesLoading = !ledgerWanted || transactionsState.loading || paymentsState.loading || journalState.loading;
 
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
@@ -191,8 +204,17 @@ export default function SupplierModule() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className={cn('text-sm font-bold', balance >= 0 ? 'text-emerald-600' : 'text-rose-600')}>{formatCurrency(Math.abs(balance))}</span>
-                      <p className="text-[10px] text-[var(--text-secondary)] uppercase">{balance >= 0 ? 'We owe' : 'Owes us'}</p>
+                      {balancesLoading ? (
+                        <>
+                          <span className="text-sm font-bold text-slate-300">…</span>
+                          <p className="text-[10px] text-[var(--text-secondary)] uppercase">Balance</p>
+                        </>
+                      ) : (
+                        <>
+                          <span className={cn('text-sm font-bold', balance >= 0 ? 'text-emerald-600' : 'text-rose-600')}>{formatCurrency(Math.abs(balance))}</span>
+                          <p className="text-[10px] text-[var(--text-secondary)] uppercase">{balance >= 0 ? 'We owe' : 'Owes us'}</p>
+                        </>
+                      )}
                     </div>
                   </button>
                   <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-50">
