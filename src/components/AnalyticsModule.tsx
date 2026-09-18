@@ -72,7 +72,7 @@ export default function AnalyticsModule() {
   };
 
   const profit = useMemo(() => estimateProfit(transactions, journal, period), [transactions, journal, period]);
-  const movements = useMemo(() => buildCashMovements(journal, payments), [journal, payments]);
+  const movements = useMemo(() => buildCashMovements(journal), [journal]);
   const cash = useMemo(() => summarizeCash(movements, period), [movements, period]);
 
   const periodTx = useMemo(() => transactions.filter(t => inPeriod(t.date)), [transactions, period]);

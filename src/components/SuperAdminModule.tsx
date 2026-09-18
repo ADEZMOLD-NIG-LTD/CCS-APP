@@ -16,6 +16,8 @@ import { useCommit } from '../hooks/useCommit';
 import { AuditAction, auditOp } from '../lib/audit';
 import { COMPANY_ROLES, ROLE_LABELS } from '../lib/permissions';
 import { cn, isValidEmail, newId, normalizeEmail } from '../lib/utils';
+import { toLocalDateString } from '../lib/dates';
+import { setCompanyRenewalDate } from '../services/billingService';
 import { logger } from '../lib/logger';
 import { ALL_MODULE_IDS, ALL_SYSTEM_MODULES, SUBSCRIPTION_PRESETS, type SubscriptionPlanType } from '../constants/modules';
 import { FIREBASE_PROJECT_ID } from '../constants/app';
@@ -26,6 +28,14 @@ import BroadcastModule from './BroadcastModule';
 import ConfirmModal from './ConfirmModal';
 
 type Tab = 'companies' | 'users' | 'broadcast' | 'system';
+
+/** The company's renewal date as a local YYYY-MM-DD string, or '' when it has none. */
+function renewalDateOf(company: Company | null): string {
+  const raw = company?.subscriptionExpiresAt;
+  if (!raw) return '';
+  const date = typeof raw === 'string' ? new Date(raw) : typeof raw.toDate === 'function' ? raw.toDate() : null;
+  return date && !Number.isNaN(date.getTime()) ? toLocalDateString(date) : '';
+}
 
 function companyStatus(c: Company): 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'DELETED' {
   if (c.isDeleted || c.status === 'DELETED') return 'DELETED';
@@ -42,7 +52,7 @@ const STATUS_STYLES = {
 };
 
 export default function SuperAdminModule() {
-  const { user, isSuperAdmin, setErrorMessage } = useAuth();
+  const { user, isSuperAdmin, setErrorMessage, setSuccessMessage } = useAuth();
   const { commit, busy } = useCommit();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -107,7 +117,7 @@ export default function SuperAdminModule() {
   const adminActor = (companyId: string) => ({ companyId, uid: user.uid, email: normalizeEmail(user.email) });
   const nowIso = () => new Date().toISOString();
 
-  const saveCompany = async (values: { name: string; ownerEmail: string; plan: SubscriptionPlanType; modules: string[]; ownerUid?: string }) => {
+  const saveCompany = async (values: { name: string; ownerEmail: string; plan: SubscriptionPlanType; modules: string[]; ownerUid?: string; renewalDate?: string }) => {
     if (values.modules.length === 0) {
       return void alertError('Enable at least one module.');
     }
@@ -170,10 +180,21 @@ export default function SuperAdminModule() {
       ],
       { success: approving ? `${values.name} approved.` : 'Company updated.', context: 'companies' }
     );
-    if (ok) {
-      setEditingCompany(null);
-      setApproving(false);
+    if (!ok) return;
+
+    // subscriptionExpiresAt is server-written by design, so it cannot travel in the batch above.
+    const currentRenewal = renewalDateOf(target);
+    if ((values.renewalDate ?? '') !== currentRenewal) {
+      const result = await setCompanyRenewalDate(target.id, values.renewalDate ?? '');
+      if (!result.ok) {
+        setErrorMessage(result.error || 'The company was saved, but the renewal date could not be set.');
+      } else {
+        setSuccessMessage(result.expiresAt ? `Renewal date set to ${new Date(result.expiresAt).toLocaleDateString()}.` : 'Renewal date cleared; this company is unrestricted.');
+      }
     }
+
+    setEditingCompany(null);
+    setApproving(false);
   };
 
   function alertError(message: string) {
@@ -448,7 +469,7 @@ function CompanyEditor({ company, approving, members, busy, onCancel, onSave }: 
   members: UserProfile[];
   busy: boolean;
   onCancel: () => void;
-  onSave: (values: { name: string; ownerEmail: string; plan: SubscriptionPlanType; modules: string[]; ownerUid?: string }) => void;
+  onSave: (values: { name: string; ownerEmail: string; plan: SubscriptionPlanType; modules: string[]; ownerUid?: string; renewalDate?: string }) => void;
 }) {
   const initialPlan: SubscriptionPlanType = company?.subscriptionPlan || company?.requestedPlan || 'BASIC';
   const [name, setName] = useState(company?.name ?? '');
@@ -458,6 +479,13 @@ function CompanyEditor({ company, approving, members, busy, onCancel, onSave }: 
   const [modules, setModules] = useState<string[]>(
     company?.enabledModules?.length ? company.enabledModules : initialPlan !== 'CUSTOM' ? SUBSCRIPTION_PRESETS[initialPlan].modules : ALL_MODULE_IDS
   );
+  const existingRenewal = (() => {
+    const raw = company?.subscriptionExpiresAt;
+    if (!raw) return '';
+    const date = typeof raw === 'string' ? new Date(raw) : typeof raw.toDate === 'function' ? raw.toDate() : null;
+    return date && !Number.isNaN(date.getTime()) ? toLocalDateString(date) : '';
+  })();
+  const [renewalDate, setRenewalDate] = useState(existingRenewal);
 
   const choosePlan = (next: SubscriptionPlanType) => {
     setPlan(next);
@@ -471,7 +499,7 @@ function CompanyEditor({ company, approving, members, busy, onCancel, onSave }: 
 
   return (
     <Modal title={company ? (approving ? 'Review company' : 'Edit company') : 'New company'} subtitle={approving ? `Requested plan: ${company?.requestedPlan ?? 'not specified'}` : undefined} onClose={onCancel}>
-      <form onSubmit={e => { e.preventDefault(); onSave({ name, ownerEmail: normalizeEmail(ownerEmail), plan, modules, ownerUid: ownerUid || undefined }); }} className="space-y-6">
+      <form onSubmit={e => { e.preventDefault(); onSave({ name, ownerEmail: normalizeEmail(ownerEmail), plan, modules, ownerUid: ownerUid || undefined, renewalDate }); }} className="space-y-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <label className="block">
             <span className="block text-xs font-bold text-slate-600 mb-1">Company name</span>
@@ -503,6 +531,33 @@ function CompanyEditor({ company, approving, members, busy, onCancel, onSave }: 
             ))}
           </div>
         </div>
+
+        {company && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <p className="text-xs font-black text-slate-900 uppercase mb-1">Subscription renewal date</p>
+            <p className="text-[11px] text-slate-600 mb-3">
+              The date this company must next pay by. Leave it empty and the company is unrestricted.
+              Once set, they see a countdown and a Pay button, and become read-only when it passes —
+              their records stay readable and exportable. Payments push this date forward automatically.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="date"
+                value={renewalDate}
+                onChange={e => setRenewalDate(e.target.value)}
+                className="bg-white border border-amber-300 rounded-xl px-4 py-2.5 text-sm"
+              />
+              {renewalDate && (
+                <button type="button" onClick={() => setRenewalDate('')} className="text-[11px] font-bold text-amber-700 underline">
+                  Clear (make unrestricted)
+                </button>
+              )}
+            </div>
+            {!existingRenewal && renewalDate && (
+              <p className="text-[11px] font-bold text-amber-800 mt-2">This starts billing for this company.</p>
+            )}
+          </div>
+        )}
 
         <div>
           <p className="text-xs font-black text-slate-900 uppercase mb-2">Modules ({modules.length}/{ALL_MODULE_IDS.length})</p>

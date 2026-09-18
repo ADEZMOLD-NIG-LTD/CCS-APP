@@ -8,7 +8,7 @@ import { Download } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useActiveCollection, useCompanyCollection, useDerivedLevels, useWarehouses } from '../contexts/CompanyDataContext';
-import { buildCashMovements, computeBuyerBalance, computeStockLevels, computeSupplierBalance, levelsByItem } from '../lib/finance';
+import { buildCashMovements, computeBuyerBalances, computeStockLevels, computeSupplierBalances, levelsByItem } from '../lib/finance';
 import { daysAgoLocal, isoToLocalDate, todayLocal } from '../lib/dates';
 import { attendanceSummary, buildReconciliation, generatePDF, payrollInPeriod, searchTransactions, type TransferRow } from '../services/reportService';
 import type { Buyer, Supplier } from '../types';
@@ -62,20 +62,21 @@ export default function ReportsModule() {
   }, [startDate, endDate]);
   const inWarehouse = (id?: string) => warehouseId === 'ALL' || id === warehouseId;
 
-  const supplierBalances = useMemo(
-    () => suppliers
-      .map((s): Supplier & { balance: number } => ({ ...s, balance: computeSupplierBalance(s, { transactions, payments, journal }, { asOf: endDate, warehouseId }) }))
+  const supplierBalances = useMemo(() => {
+    const balances = computeSupplierBalances(suppliers, { transactions, payments, journal }, { asOf: endDate, warehouseId });
+    return suppliers
+      .map((s): Supplier & { balance: number } => ({ ...s, balance: balances.get(s.id) ?? 0 }))
       .filter(s => Math.abs(s.balance) >= 0.01)
-      .sort((a, b) => a.name.localeCompare(b.name)),
-    [suppliers, transactions, payments, journal, endDate, warehouseId]
-  );
-  const buyerBalances = useMemo(
-    () => buyers
-      .map((b): Buyer & { balance: number } => ({ ...b, balance: computeBuyerBalance(b, { transactions, journal }, { asOf: endDate, warehouseId }) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [suppliers, transactions, payments, journal, endDate, warehouseId]);
+
+  const buyerBalances = useMemo(() => {
+    const balances = computeBuyerBalances(buyers, { transactions, journal }, { asOf: endDate, warehouseId });
+    return buyers
+      .map((b): Buyer & { balance: number } => ({ ...b, balance: balances.get(b.id) ?? 0 }))
       .filter(b => Math.abs(b.balance) >= 0.01)
-      .sort((a, b) => a.name.localeCompare(b.name)),
-    [buyers, transactions, journal, endDate, warehouseId]
-  );
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [buyers, transactions, journal, endDate, warehouseId]);
 
   const bagLevels = useMemo(() => {
     const upToEnd = bagTransactions.filter(b => {
@@ -112,7 +113,7 @@ export default function ReportsModule() {
   }, [transactions, bagTransactions, period, warehouseId, commodity]);
 
   const movements = useMemo(
-    () => buildCashMovements(journal, payments)
+    () => buildCashMovements(journal)
       .filter(m => period.test(m.date) && inWarehouse(m.warehouseId))
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime() || new Date(a.postingDate || a.date).getTime() - new Date(b.postingDate || b.date).getTime()),
     [journal, payments, period, warehouseId]

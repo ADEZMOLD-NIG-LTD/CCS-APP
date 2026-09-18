@@ -36,8 +36,8 @@ export default function JournalList({ movements, suppliers, buyers, warehouses, 
       ) : (
         movements.slice(0, visible).map(m => {
           const source = m.journal?.source;
-          const managedElsewhere = m.source === 'SUPPLIER_PAYMENT' || (source && LOCKED_SOURCES.has(source));
-          const origin = m.source === 'SUPPLIER_PAYMENT' ? 'Supplier payment' : source === 'PAYROLL' ? 'Payroll' : source === 'PETTY_CASH' ? 'Petty cash' : source === 'BUYER' ? 'Customer receipt' : null;
+          const managedElsewhere = !!source && LOCKED_SOURCES.has(source);
+          const origin = source === 'PAYROLL' ? 'Payroll' : source === 'PETTY_CASH' ? 'Petty cash' : source === 'BUYER' ? 'Customer receipt' : null;
           return (
             <div key={`${m.source}-${m.id}`} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
               <div className="flex justify-between items-start gap-3">

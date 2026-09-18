@@ -134,7 +134,7 @@ describe('buyer balance', () => {
 });
 
 describe('cash book', () => {
-  it('includes supplier payments and buyer receipts, excludes non-cash entries', () => {
+  it('is built from journal entries only, leaving supplier payments to the supplier ledger', () => {
     const journal = [
       je({ id: 'j1', type: 'INFLOW', category: 'CAPITAL', amount: 10000, paymentMethod: 'BANK_TRANSFER' }),
       je({ id: 'j2', type: 'OUTFLOW', category: 'TRANSPORT', amount: 500 }),
@@ -143,15 +143,14 @@ describe('cash book', () => {
       je({ id: 'j5', type: 'OUTFLOW', category: 'PETTY CASH RETIREMENT', amount: 400 }),
       je({ id: 'j6', type: 'OUTFLOW', category: 'TRANSPORT', amount: 999, isDeleted: true }),
     ];
-    const payments: Payment[] = [
-      { id: 'p1', companyId: 'c1', warehouseId: 'w1', date: '2026-03-10T11:00:00.000Z', supplierId: 's1', amount: 2000, method: 'CASH', reference: '', description: '' },
-      { id: 'p2', companyId: 'c1', warehouseId: 'w1', date: '2026-03-10T11:00:00.000Z', supplierId: 's1', amount: 1000, method: 'CHECK', reference: '', description: '' },
-    ];
-    const summary = summarizeCash(buildCashMovements(journal, payments));
-    expect(summary.cash).toBe(-500 + 700 - 2000);
-    expect(summary.bank).toBe(10000 - 1000);
+    const movements = buildCashMovements(journal);
+    const summary = summarizeCash(movements);
+    // Supplier payments never enter the cash book, however many exist.
+    expect(movements.every(m => m.source === 'JOURNAL')).toBe(true);
+    expect(summary.cash).toBe(-500 + 700);
+    expect(summary.bank).toBe(10000);
     expect(summary.inflow).toBe(10700);
-    expect(summary.outflow).toBe(3500);
+    expect(summary.outflow).toBe(500);
     expect(isCashJournalEntry(journal[4])).toBe(false);
   });
 });

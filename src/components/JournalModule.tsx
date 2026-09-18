@@ -36,7 +36,8 @@ export default function JournalModule() {
   const [editing, setEditing] = useState<JournalEntry | null>(null);
   const [deleting, setDeleting] = useState<CashMovement | null>(null);
 
-  const movements = useMemo(() => buildCashMovements(journal, payments), [journal, payments]);
+  // Journal entries only: supplier payments live in the supplier ledger, not the cash book.
+  const movements = useMemo(() => buildCashMovements(journal), [journal]);
   const position = useMemo(() => summarizeCash(movements, { warehouseId }), [movements, warehouseId]);
   const period = useMemo(() => summarizeCash(movements, { warehouseId, start: startDate, end: endDate }), [movements, warehouseId, startDate, endDate]);
   const listed = useMemo(

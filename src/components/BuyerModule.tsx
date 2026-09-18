@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useActiveCollection } from '../contexts/CompanyDataContext';
 import { useCommit } from '../hooks/useCommit';
 import { AuditAction, auditOp } from '../lib/audit';
-import { computeBuyerBalance } from '../lib/finance';
+import { computeBuyerBalances } from '../lib/finance';
 import { cn, formatCurrency } from '../lib/utils';
 import type { Buyer } from '../types';
 import ConfirmModal from './ConfirmModal';
@@ -30,13 +30,19 @@ export default function BuyerModule() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Buyer | null>(null);
 
+  // One pass over the ledger for every buyer, recomputed only when the data changes.
+  const balances = useMemo(
+    () => computeBuyerBalances(buyers, { transactions, journal }),
+    [buyers, transactions, journal]
+  );
+
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return buyers
       .filter(b => !q || b.name.toLowerCase().includes(q) || (b.phone || '').includes(q) || (b.location || '').toLowerCase().includes(q))
-      .map(b => ({ buyer: b, balance: computeBuyerBalance(b, { transactions, journal }) }))
+      .map(b => ({ buyer: b, balance: balances.get(b.id) ?? 0 }))
       .sort((a, b) => a.buyer.name.localeCompare(b.buyer.name));
-  }, [buyers, transactions, journal, search]);
+  }, [buyers, balances, search]);
 
   if (!auditActor) return null;
   const actor = auditActor;

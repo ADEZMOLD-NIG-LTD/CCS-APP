@@ -684,7 +684,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     switchCompany(ownedCompanies[0].id);
   }, [user, profileLoaded, emailVerified, profile, ownedCompanies, pendingInvites, switchCompany]);
 
-  const value: AuthContextType = {
+  // Memoised: without this a new object is created on every render of the provider, so every
+  // screen calling useAuth() re-renders whenever any auth state changes, however unrelated.
+  const value: AuthContextType = useMemo(() => ({
     user,
     profile,
     company,
@@ -727,7 +729,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     requestCompanyDeletion,
     enterDemoMode,
     exitDemoMode,
-  };
+  }), [
+    user, profile, company, ownedCompanies, pendingInvites, accessState, isSuperAdmin, role,
+    emailVerified, usesPasswordSignIn, mustChangePassword, auditActor, can, isModuleEnabled,
+    subscriptionState, subscriptionExpiresAt, isReadOnly, billingConfig, isOnline,
+    errorMessage, successMessage, signInWithGoogle, signInWithEmail, signUpWithEmail,
+    resendVerificationEmail, refreshUser, resetPassword, changePassword, logout,
+    registerCompany, acceptInvite, switchCompany, requestCompanyDeletion,
+  ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

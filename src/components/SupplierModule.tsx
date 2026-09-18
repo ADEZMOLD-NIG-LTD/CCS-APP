@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChevronRight, Edit2, Landmark, MapPin, Phone, Plus, Search, Trash2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useActiveCollection } from '../contexts/CompanyDataContext';
 import { useCommit } from '../hooks/useCommit';
 import { AuditAction, auditOp } from '../lib/audit';
-import { computeSupplierBalance } from '../lib/finance';
+import { computeSupplierBalances } from '../lib/finance';
 import { cn, formatCurrency, newId, roundTo, toNumber } from '../lib/utils';
 import type { Supplier } from '../types';
 import { DigitFormattedInput } from './DigitFormattedInput';
@@ -18,6 +18,9 @@ import ConfirmModal from './ConfirmModal';
 import SupplierDetails from './SupplierDetails';
 
 const field = 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none';
+
+/** Suppliers rendered before "Show more". Hundreds of cards at once make a phone crawl. */
+const PAGE_SIZE = 40;
 
 export default function SupplierModule() {
   const { can, auditActor, setErrorMessage } = useAuth();
@@ -33,13 +36,24 @@ export default function SupplierModule() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Supplier | null>(null);
 
+  // Every supplier's balance from a single pass over the ledger, recomputed only when the
+  // underlying data changes - not per supplier, and not while typing in the search box.
+  const balances = useMemo(
+    () => computeSupplierBalances(suppliers, { transactions, payments, journal }),
+    [suppliers, transactions, payments, journal]
+  );
+
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return suppliers
       .filter(s => !q || s.name.toLowerCase().includes(q) || (s.phone || '').includes(q) || (s.location || '').toLowerCase().includes(q))
-      .map(s => ({ supplier: s, balance: computeSupplierBalance(s, { transactions, payments, journal }) }))
+      .map(s => ({ supplier: s, balance: balances.get(s.id) ?? 0 }))
       .sort((a, b) => a.supplier.name.localeCompare(b.supplier.name));
-  }, [suppliers, transactions, payments, journal, search]);
+  }, [suppliers, balances, search]);
+
+  // Hundreds of supplier cards at once make scrolling and tapping sluggish on a phone.
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  useEffect(() => setVisibleCount(PAGE_SIZE), [search]);
 
   if (!auditActor) return null;
   const actor = auditActor;
@@ -166,7 +180,7 @@ export default function SupplierModule() {
                   <Search className="text-slate-300 mx-auto mb-4" size={32} />
                   <p className="text-slate-500 font-medium">No suppliers found</p>
                 </div>
-              ) : rows.map(({ supplier, balance }) => (
+              ) : rows.slice(0, visibleCount).map(({ supplier, balance }) => (
                 <div key={supplier.id} className="google-card p-4">
                   <button type="button" onClick={() => setSelectedId(supplier.id)} className="w-full text-left flex justify-between items-start gap-3">
                     <div className="min-w-0">
@@ -191,6 +205,14 @@ export default function SupplierModule() {
                   </div>
                 </div>
               ))}
+              {rows.length > visibleCount && (
+                <button
+                  onClick={() => setVisibleCount(count => count + PAGE_SIZE)}
+                  className="w-full py-3 text-xs font-bold text-emerald-700 bg-white border border-slate-200 rounded-xl"
+                >
+                  Show more ({rows.length - visibleCount} remaining)
+                </button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

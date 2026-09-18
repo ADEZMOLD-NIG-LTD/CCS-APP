@@ -5,7 +5,7 @@
 
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import {
-  BarChart3, BookOpen, Building2, FileText, LayoutDashboard, Lock, LogOut, Menu, Package, Receipt,
+  BarChart3, BookOpen, Building2, CreditCard, FileText, LayoutDashboard, Lock, LogOut, Menu, Package, Receipt,
   Settings, ShieldCheck, ShoppingCart, TrendingUp, UserPlus, Users, Wallet, WifiOff,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -22,7 +22,7 @@ import NotificationsBell from './components/NotificationsBell';
 import { MODULE_VIEW_PERMISSION, ROLE_LABELS, type AppModuleKey } from './lib/permissions';
 import { appEnv } from './firebase';
 
-type ViewKey = AppModuleKey | 'settings' | 'superadmin';
+type ViewKey = AppModuleKey | 'settings' | 'superadmin' | 'billing';
 
 const CHUNK_RELOAD_KEY = 'ccs_chunk_reload';
 
@@ -63,6 +63,7 @@ const StoreKeeperModule = lazyModule(() => import('./components/StoreKeeperModul
 const AnalyticsModule = lazyModule(() => import('./components/AnalyticsModule'));
 const ReportsModule = lazyModule(() => import('./components/ReportsModule'));
 const SuperAdminModule = lazyModule(() => import('./components/SuperAdminModule'));
+const BillingPanel = lazyModule(() => import('./components/BillingPanel'));
 
 function ModuleLoading() {
   return (
@@ -113,6 +114,7 @@ function ModuleView({ view, onNavigate }: { view: ViewKey; onNavigate: (view: Vi
     case 'analytics': return <AnalyticsModule />;
     case 'reports': return <ReportsModule />;
     case 'superadmin': return <SuperAdminModule />;
+    case 'billing': return <div className="p-4 sm:p-8 max-w-3xl mx-auto"><BillingPanel /></div>;
     case 'settings': return <SettingsPanel />;
     default: return null;
   }
@@ -128,9 +130,13 @@ function MainShell({ superAdminOnly }: { superAdminOnly: boolean }) {
     return NAV_ITEMS.filter(item => can(MODULE_VIEW_PERMISSION[item.id]) && isModuleEnabled(item.id));
   }, [superAdminOnly, can, isModuleEnabled]);
 
+  // Subscription is reachable by a company admin (who pays) and a platform admin (who sets prices).
+  const canSeeBilling = isSuperAdmin || (!superAdminOnly && profile?.role === 'ADMIN');
+
   const viewAllowed = (target: ViewKey): boolean => {
     if (target === 'settings') return true;
     if (target === 'superadmin') return isSuperAdmin;
+    if (target === 'billing') return canSeeBilling;
     if (superAdminOnly) return false;
     if (target === 'dashboard') return true;
     return navItems.some(item => item.id === target);
@@ -234,6 +240,9 @@ function MainShell({ superAdminOnly }: { superAdminOnly: boolean }) {
                   {navItems.map(item => (
                     <NavButton key={item.id} active={view === item.id} icon={item.icon} label={item.label} onClick={() => navigate(item.id)} />
                   ))}
+                  {canSeeBilling && (
+                    <NavButton active={view === 'billing'} icon={CreditCard} label="Subscription" onClick={() => navigate('billing')} />
+                  )}
                   {isSuperAdmin && (
                     <NavButton active={view === 'superadmin'} icon={ShieldCheck} label="Platform Admin" onClick={() => navigate('superadmin')} />
                   )}

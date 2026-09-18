@@ -11,7 +11,7 @@ import {
 import { motion } from 'motion/react';
 import { useAuth } from '../contexts/AuthContext';
 import { useActiveCollection } from '../contexts/CompanyDataContext';
-import { buildCashMovements, computeSupplierBalance, summarizeCash } from '../lib/finance';
+import { buildCashMovements, computeSupplierBalances, summarizeCash } from '../lib/finance';
 import { isoToLocalDate, todayLocal, toLocalDateString } from '../lib/dates';
 import type { AppModuleKey, PermissionAction } from '../lib/permissions';
 import { formatCurrency, roundTo } from '../lib/utils';
@@ -51,13 +51,16 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const journal = useActiveCollection('journal').data;
   const [day, setDay] = useState(todayLocal());
 
-  const movements = useMemo(() => buildCashMovements(journal, payments), [journal, payments]);
+  // Cash book = journal entries only; supplier payments belong to the supplier ledger.
+  const movements = useMemo(() => buildCashMovements(journal), [journal]);
 
   const stats = useMemo(() => {
     const daily = transactions.filter(t => isoToLocalDate(t.date) === day);
     const sum = (type: string) => roundTo(daily.filter(t => t.type === type).reduce((s, t) => s + (t.totalValue || 0), 0), 2);
     const cash = summarizeCash(movements, { start: day, end: day });
-    const payable = roundTo(suppliers.reduce((s, supplier) => s + Math.max(0, computeSupplierBalance(supplier, { transactions, payments, journal })), 0), 2);
+    // One pass over the ledger for every supplier, not one pass per supplier.
+    const balances = computeSupplierBalances(suppliers, { transactions, payments, journal });
+    const payable = roundTo([...balances.values()].reduce((sum, balance) => sum + Math.max(0, balance), 0), 2);
     return {
       sales: roundTo(sum('SALE') - sum('SALES_RETURN'), 2),
       purchases: roundTo(sum('PURCHASE') - sum('PURCHASE_RETURN'), 2),
@@ -86,19 +89,33 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
     if (canSeeCash) {
       for (const m of movements) {
         items.push({
-          id: `m-${m.source}-${m.id}`,
-          title: m.source === 'SUPPLIER_PAYMENT' ? `Supplier payment (${m.channel.toLowerCase()})` : `${m.direction === 'IN' ? 'Inflow' : 'Outflow'}: ${m.category}`,
+          id: `m-${m.id}`,
+          title: `${m.direction === 'IN' ? 'Inflow' : 'Outflow'}: ${m.category}`,
           amount: m.amount,
           sign: m.direction === 'IN' ? '+' : '-',
           date: m.date,
           sortKey: time(m),
-          icon: m.source === 'SUPPLIER_PAYMENT' ? Wallet : m.direction === 'IN' ? ArrowUpRight : ArrowDownRight,
+          icon: m.direction === 'IN' ? ArrowUpRight : ArrowDownRight,
           tone: m.direction === 'IN' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600',
+        });
+      }
+      // Supplier payments are shown as activity in their own right, since they are no longer
+      // part of the cash book.
+      for (const p of payments) {
+        items.push({
+          id: `p-${p.id}`,
+          title: `Supplier payment (${p.method.replace('_', ' ').toLowerCase()})`,
+          amount: p.amount,
+          sign: '-',
+          date: p.date,
+          sortKey: time(p),
+          icon: Wallet,
+          tone: 'bg-amber-50 text-amber-600',
         });
       }
     }
     return items.sort((a, b) => b.sortKey - a.sortKey).slice(0, 6);
-  }, [transactions, movements, canSeeCash]);
+  }, [transactions, movements, payments, canSeeCash]);
 
   const cards = [
     { label: 'Sales (net of returns)', value: stats.sales, icon: TrendingUp, tone: 'bg-blue-100 text-[var(--accent)]', show: true },

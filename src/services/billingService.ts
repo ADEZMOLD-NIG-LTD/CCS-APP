@@ -61,3 +61,17 @@ export async function checkPaymentStatus(reference: string): Promise<PaymentStat
   const result = await call<PaymentStatusResult>(`/api/billing/status/${encodeURIComponent(reference)}`);
   return 'error' in result ? { error: result.error } : result;
 }
+
+/**
+ * Platform admin: start or extend a company's billing clock, or clear it with an empty date.
+ * The security rules forbid the browser from writing subscriptionExpiresAt, so this goes through
+ * the API server, which verifies platform-admin status before writing.
+ */
+export async function setCompanyRenewalDate(companyId: string, expiresAt: string): Promise<{ ok: boolean; expiresAt?: string | null; error?: string }> {
+  const result = await call<{ expiresAt: string | null }>('/api/billing/set-renewal', {
+    method: 'POST',
+    body: JSON.stringify({ companyId, expiresAt }),
+  });
+  if ('error' in result) return { ok: false, error: result.error };
+  return { ok: true, expiresAt: result.expiresAt };
+}

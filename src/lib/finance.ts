@@ -191,6 +191,80 @@ export function computeBuyerBalance(buyer: Pick<Buyer, 'id' | 'previousBalance'>
   return round2(balance);
 }
 
+/**
+ * Balances for many suppliers at once.
+ *
+ * Calling computeSupplierBalance in a loop rescans every transaction, payment and journal entry
+ * for each supplier: with 525 suppliers over ~2,750 documents that is 1.4 million iterations on
+ * every render, which blocks the browser so taps go unanswered. These pass over each collection
+ * once and bucket by supplier instead, so the cost is documents + suppliers rather than their
+ * product. The per-supplier function stays for single lookups.
+ */
+export function computeSupplierBalances(
+  suppliers: Pick<Supplier, 'id' | 'previousBalance'>[],
+  data: SupplierLedgerData,
+  filter?: DatedFilter
+): Map<string, number> {
+  const balances = new Map<string, number>();
+  for (const s of suppliers) balances.set(s.id, toNumber(s.previousBalance));
+
+  const add = (id: string | undefined, amount: number) => {
+    if (!id) return;
+    const current = balances.get(id);
+    if (current === undefined) return;
+    balances.set(id, current + amount);
+  };
+
+  for (const t of data.transactions) {
+    if (!t.supplierId || !passesFilter(t, filter)) continue;
+    const e = transactionSupplierEffect(t);
+    if (e.credit || e.debit) add(t.supplierId, e.credit - e.debit);
+  }
+  for (const p of data.payments) {
+    if (!p.supplierId || !passesFilter(p, filter)) continue;
+    add(p.supplierId, -paymentSupplierEffect(p).debit);
+  }
+  for (const j of data.journal) {
+    if (!j.supplierId || !passesFilter(j, filter)) continue;
+    const e = journalSupplierEffect(j);
+    if (e.credit || e.debit) add(j.supplierId, e.credit - e.debit);
+  }
+
+  for (const [id, value] of balances) balances.set(id, round2(value));
+  return balances;
+}
+
+/** Balances for many buyers at once. See computeSupplierBalances for why this exists. */
+export function computeBuyerBalances(
+  buyers: Pick<Buyer, 'id' | 'previousBalance'>[],
+  data: BuyerLedgerData,
+  filter?: DatedFilter
+): Map<string, number> {
+  const balances = new Map<string, number>();
+  for (const b of buyers) balances.set(b.id, toNumber(b.previousBalance));
+
+  const add = (id: string | undefined, amount: number) => {
+    if (!id) return;
+    const current = balances.get(id);
+    if (current === undefined) return;
+    balances.set(id, current + amount);
+  };
+
+  for (const t of data.transactions) {
+    if (!t.buyerId || !passesFilter(t, filter)) continue;
+    const e = transactionBuyerEffect(t);
+    if (e.credit || e.debit) add(t.buyerId, e.debit - e.credit);
+  }
+  for (const j of data.journal) {
+    if (!j.buyerId || !passesFilter(j, filter)) continue;
+    const e = journalBuyerEffect(j);
+    if (e.credit || e.debit) add(j.buyerId, e.debit - e.credit);
+  }
+
+  for (const [id, value] of balances) balances.set(id, round2(value));
+  return balances;
+}
+
 // ---------------------------------------------------------------------------
 // Cash book
 // ---------------------------------------------------------------------------
@@ -224,7 +298,7 @@ export function channelFor(method: string | undefined): CashChannel {
 
 export interface CashMovement {
   id: string;
-  source: 'JOURNAL' | 'SUPPLIER_PAYMENT';
+  source: 'JOURNAL';
   date: string;
   postingDate?: string;
   warehouseId: string;
@@ -238,10 +312,16 @@ export interface CashMovement {
   buyerId?: string;
   reference?: string;
   journal?: JournalEntry;
-  payment?: Payment;
 }
 
-export function buildCashMovements(journal: JournalEntry[], payments: Payment[]): CashMovement[] {
+/**
+ * The cash book is built from journal entries only.
+ *
+ * Supplier payments are deliberately NOT included: the supplier account is a separate ledger, and
+ * money paid to a supplier reaches the journal only if someone posts it there explicitly. Payments
+ * still appear in the supplier's own ledger and in the payments report.
+ */
+export function buildCashMovements(journal: JournalEntry[]): CashMovement[] {
   const movements: CashMovement[] = [];
   for (const e of journal) {
     if (!isCashJournalEntry(e)) continue;
@@ -261,25 +341,6 @@ export function buildCashMovements(journal: JournalEntry[], payments: Payment[])
       buyerId: e.buyerId,
       reference: e.reference,
       journal: e,
-    });
-  }
-  for (const p of payments) {
-    if (p.isDeleted) continue;
-    movements.push({
-      id: p.id,
-      source: 'SUPPLIER_PAYMENT',
-      date: p.date,
-      postingDate: p.postingDate,
-      warehouseId: p.warehouseId,
-      direction: 'OUT',
-      amount: round2(positive(p.amount)),
-      channel: channelFor(p.method),
-      method: p.method,
-      category: 'SUPPLIER PAYMENT',
-      description: p.description,
-      supplierId: p.supplierId,
-      reference: p.reference,
-      payment: p,
     });
   }
   return movements;

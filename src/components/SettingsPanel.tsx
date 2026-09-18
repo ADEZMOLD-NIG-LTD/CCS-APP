@@ -5,7 +5,6 @@ import { ROLE_LABELS } from '../lib/permissions';
 import { ALL_SYSTEM_MODULES } from '../constants/modules';
 import { SUPPORT_EMAIL } from '../constants/app';
 import { resetDemoData } from '../mockFirebase';
-import BillingPanel from './BillingPanel';
 import ChangePasswordPage from './ChangePasswordPage';
 import ConfirmModal from './ConfirmModal';
 import LegalModal from './LegalModal';
@@ -97,12 +96,6 @@ export default function SettingsPanel() {
           </p>
         </div>
       </div>
-
-      {!isDemoMode && (company || isSuperAdmin) && (
-        <div className="w-full max-w-3xl">
-          <BillingPanel />
-        </div>
-      )}
 
       {showPassword && <ChangePasswordPage onDone={() => setShowPassword(false)} />}
 

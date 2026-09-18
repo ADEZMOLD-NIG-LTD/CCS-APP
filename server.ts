@@ -480,6 +480,46 @@ async function main() {
     }
   });
 
+  // Starts or extends a company's billing clock. Only the server may write
+  // subscriptionExpiresAt (the rules forbid the browser from touching it), so a platform admin
+  // setting a first renewal date has to come through here.
+  app.post('/api/billing/set-renewal', rateLimit(15 * 60_000, 60), requireUser, async (req, res, next) => {
+    try {
+      const caller = res.locals.user as DecodedIdToken;
+      const db = admin!.db;
+      if (!(await db.doc(`platform_admins/${caller.uid}`).get()).exists) {
+        return res.status(403).json({ error: 'Only a platform administrator can set a renewal date.' });
+      }
+
+      const companyId = typeof req.body?.companyId === 'string' ? req.body.companyId.trim() : '';
+      const date = typeof req.body?.expiresAt === 'string' ? req.body.expiresAt.trim() : '';
+      if (!companyId || companyId.includes('/')) return res.status(400).json({ error: 'Invalid company.' });
+
+      const companyRef = db.doc(`companies/${companyId}`);
+      if (!(await companyRef.get()).exists) return res.status(404).json({ error: 'Unknown company.' });
+
+      // An empty date clears the clock, putting the company back to unrestricted.
+      if (!date) {
+        await companyRef.update({ subscriptionExpiresAt: FieldValue.delete(), updatedAt: new Date().toISOString() });
+        console.info(`[api] renewal date cleared for ${companyId} by ${caller.uid}`);
+        return res.json({ expiresAt: null });
+      }
+
+      // Treat a plain date as the end of that day, so "31 October" means all of the 31st.
+      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T23:59:59.999Z`) : new Date(date);
+      if (Number.isNaN(parsed.getTime())) return res.status(400).json({ error: 'Invalid date.' });
+
+      await companyRef.update({
+        subscriptionExpiresAt: Timestamp.fromDate(parsed),
+        updatedAt: new Date().toISOString(),
+      });
+      console.info(`[api] renewal date for ${companyId} set to ${parsed.toISOString()} by ${caller.uid}`);
+      return res.json({ expiresAt: parsed.toISOString() });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   // Sends the verification link from the company's own domain instead of Firebase's
   // noreply@<project>.firebaseapp.com sender, which fails DMARC alignment and lands in spam.
   // The link itself is still minted by Firebase Auth, so the verification flow is unchanged.

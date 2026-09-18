@@ -6,6 +6,10 @@ coverage/
 .DS_Store
 *.log
 .env*
+
+# Screen recordings and other large local artefacts dropped in the project folder
+*.mp4
+*.mov
 !.env.example
 firebase-applet-config.json
 !firebase-applet-config.example.json
